@@ -2,21 +2,22 @@ package eventstore
 
 import (
 	"context"
-	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
-func NewDefaultMongoDBClient(ctx context.Context, uri string) (*mongo.Client, error) {
+func NewDefaultMongoDBClient(ctx context.Context, appName, uri string) (*mongo.Client, error) {
 	options := options.Client()
 	options.ApplyURI(uri)
-	options.ReadConcern = readconcern.Majority()
-	options.WriteConcern = writeconcern.Majority()
+	options.SetAppName(appName)
+	options.SetReadConcern(readconcern.Majority())
+	options.SetReadPreference(readpref.Primary())
+	options.SetWriteConcern(writeconcern.Majority())
+	options.SetRetryWrites(true)
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
 	return mongo.Connect(ctx, options)
 }
