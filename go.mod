@@ -1,13 +1,10 @@
-module github.com/jefflinse/continuum-contrib
+module github.com/go-estoria/estoria-contrib
 
 go 1.21.6
-
-replace github.com/jefflinse/continuum => ../continuum
 
 require (
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/uuid v1.5.0 // indirect
-	github.com/jefflinse/continuum v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

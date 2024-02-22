@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jefflinse/continuum"
+	"github.com/go-estoria/estoria"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -32,7 +32,7 @@ func NewEventStore(mongoClient *mongo.Client, database, eventsCollection string)
 	return eventStore, nil
 }
 
-func (s *EventStore) LoadEvents(ctx context.Context, aggregateID continuum.AggregateID) ([]continuum.Event, error) {
+func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.AggregateID) ([]estoria.Event, error) {
 	opts := options.Find().SetSort(bson.D{{"timestamp", 1}})
 	cursor, err := s.events.Find(ctx, bson.M{"aggregate_id": aggregateID.String()}, opts)
 	if err != nil {
@@ -44,7 +44,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID continuum.Aggre
 		return nil, fmt.Errorf("iterating events: %w", err)
 	}
 
-	events := make([]continuum.Event, len(docs))
+	events := make([]estoria.Event, len(docs))
 	for i, doc := range docs {
 		events[i] = doc
 	}
@@ -53,7 +53,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID continuum.Aggre
 }
 
 // SaveEvents saves the given events to the event store.
-func (s *EventStore) SaveEvents(ctx context.Context, events ...continuum.Event) error {
+func (s *EventStore) SaveEvents(ctx context.Context, events ...estoria.Event) error {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("saving events", "events", len(events))
 
@@ -106,7 +106,7 @@ func WithClient(client *mongo.Client) EventStoreOption {
 
 // ErrEventExists is returned when attempting to write an event that already exists.
 type ErrEventExists struct {
-	EventID continuum.EventID
+	EventID estoria.EventID
 }
 
 // Error returns the error message.

@@ -3,21 +3,21 @@ package eventstore
 import (
 	"time"
 
-	"github.com/jefflinse/continuum"
+	"github.com/go-estoria/estoria"
 )
 
 type eventDocument struct {
-	EventID            string              `bson:"event_id"`
-	EventType          string              `bson:"type"`
-	EventAggregateID   string              `bson:"aggregate_id"`
-	EventAggregateType string              `bson:"aggregate_type"`
-	EventTimestamp     time.Time           `bson:"timestamp"`
-	EventData          continuum.EventData `bson:"data"`
+	EventID            string            `bson:"event_id"`
+	EventType          string            `bson:"type"`
+	EventAggregateID   string            `bson:"aggregate_id"`
+	EventAggregateType string            `bson:"aggregate_type"`
+	EventTimestamp     time.Time         `bson:"timestamp"`
+	EventData          estoria.EventData `bson:"data"`
 }
 
-var _ continuum.Event = (*eventDocument)(nil)
+var _ estoria.Event = (*eventDocument)(nil)
 
-func documentFromEvent(e continuum.Event) eventDocument {
+func documentFromEvent(e estoria.Event) eventDocument {
 	eventID := e.ID()
 	aggregateID := e.AggregateID()
 	return eventDocument{
@@ -30,17 +30,17 @@ func documentFromEvent(e continuum.Event) eventDocument {
 	}
 }
 
-func (e eventDocument) ID() continuum.EventID {
-	return continuum.EventID{
-		ID:          continuum.StringID(e.EventID),
+func (e eventDocument) ID() estoria.EventID {
+	return estoria.EventID{
+		ID:          estoria.StringID(e.EventID),
 		EventType:   e.EventType,
 		AggregateID: e.AggregateID(),
 	}
 }
 
-func (e eventDocument) AggregateID() continuum.AggregateID {
-	return continuum.AggregateID{
-		ID:   continuum.StringID(e.EventAggregateID),
+func (e eventDocument) AggregateID() estoria.AggregateID {
+	return estoria.AggregateID{
+		ID:   estoria.StringID(e.EventAggregateID),
 		Type: e.EventAggregateType,
 	}
 }
@@ -49,6 +49,6 @@ func (e eventDocument) Timestamp() time.Time {
 	return e.EventTimestamp
 }
 
-func (e eventDocument) Data() continuum.EventData {
+func (e eventDocument) Data() estoria.EventData {
 	return e.EventData
 }
