@@ -33,6 +33,9 @@ func NewEventStore(mongoClient *mongo.Client, database, eventsCollection string)
 }
 
 func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.AggregateID) ([]estoria.Event, error) {
+	log := slog.Default().WithGroup("eventstore")
+	log.Debug("loading events", "aggregate_id", aggregateID)
+
 	opts := options.Find().SetSort(bson.D{{"timestamp", 1}})
 	cursor, err := s.events.Find(ctx, bson.M{"aggregate_id": aggregateID.String()}, opts)
 	if err != nil {
@@ -41,6 +44,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.Aggrega
 
 	docs := []eventDocument{}
 	if err := cursor.All(ctx, &docs); err != nil {
+		log.Error("iterating events", "error", err)
 		return nil, fmt.Errorf("iterating events: %w", err)
 	}
 
@@ -72,9 +76,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, events ...estoria.Event) er
 
 	transactionFn := func(sessCtx mongo.SessionContext) (any, error) {
 		log.Debug("inserting events", "events", len(docs))
-		db := s.mongoClient.Database("mmmm")
-		events := db.Collection("events")
-		result, err := events.InsertMany(sessCtx, docs)
+		// db := s.mongoClient.Database("mmmm")
+		// events := db.Collection("events")
+		result, err := s.events.InsertMany(sessCtx, docs)
 		if err != nil {
 			log.Error("inserting events", "error", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
