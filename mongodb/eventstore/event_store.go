@@ -13,30 +13,50 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
+const (
+	defaultDatabaseName         = "eventstore"
+	defaultEventsCollectionName = "events"
+)
+
 type EventStore struct {
 	mongoClient *mongo.Client
-	database    *mongo.Database
-	events      *mongo.Collection
+
+	databaseName string
+	database     *mongo.Database
+
+	eventsCollectionName string
+	events               *mongo.Collection
+
+	log *slog.Logger
 }
 
-func NewEventStore(mongoClient *mongo.Client, database, eventsCollection string) (*EventStore, error) {
-	db := mongoClient.Database(database)
-	events := db.Collection(eventsCollection)
-
+// NewEventStore creates a new event store using the given MongoDB client.
+func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
-		mongoClient: mongoClient,
-		database:    db,
-		events:      events,
+		mongoClient:          mongoClient,
+		databaseName:         defaultDatabaseName,
+		eventsCollectionName: defaultEventsCollectionName,
+		log:                  slog.Default(),
 	}
+
+	for _, opt := range opts {
+		if err := opt(eventStore); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
+	}
+
+	eventStore.database = mongoClient.Database(eventStore.databaseName)
+	eventStore.events = eventStore.database.Collection(eventStore.eventsCollectionName)
 
 	return eventStore, nil
 }
 
+// LoadEvents loads the events for the given aggregate ID from the event store.
 func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID) ([]estoria.Event, error) {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("loading events", "aggregate_id", aggregateID)
 
-	opts := options.Find().SetSort(bson.D{{"timestamp", 1}})
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
 	cursor, err := s.events.Find(ctx, bson.M{"aggregate_id": aggregateID.ID.String()}, opts)
 	if err != nil {
 		log.Error("finding events", "error", err)
@@ -49,12 +69,12 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 		return nil, fmt.Errorf("iterating events: %w", err)
 	}
 
-	log.Debug("loaded events", "events", len(docs))
-
 	events := make([]estoria.Event, len(docs))
 	for i, doc := range docs {
 		events[i] = doc
 	}
+
+	log.Debug("loaded events", "events", len(docs))
 
 	return events, nil
 }
@@ -95,23 +115,4 @@ func (s *EventStore) SaveEvents(ctx context.Context, events ...estoria.Event) er
 	}
 
 	return nil
-}
-
-type EventStoreOption func(*EventStore) error
-
-func WithClient(client *mongo.Client) EventStoreOption {
-	return func(s *EventStore) error {
-		s.mongoClient = client
-		return nil
-	}
-}
-
-// ErrEventExists is returned when attempting to write an event that already exists.
-type ErrEventExists struct {
-	EventID estoria.TypedID
-}
-
-// Error returns the error message.
-func (e ErrEventExists) Error() string {
-	return fmt.Sprintf("event already exists: %s", e.EventID)
 }
