@@ -37,7 +37,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.Aggrega
 	log.Debug("loading events", "aggregate_id", aggregateID)
 
 	opts := options.Find().SetSort(bson.D{{"timestamp", 1}})
-	cursor, err := s.events.Find(ctx, bson.M{"aggregate_id": aggregateID.String()}, opts)
+	cursor, err := s.events.Find(ctx, bson.M{"aggregate_id": aggregateID.ID.String()}, opts)
 	if err != nil {
 		log.Error("finding events", "error", err)
 		return nil, fmt.Errorf("finding events: %w", err)
