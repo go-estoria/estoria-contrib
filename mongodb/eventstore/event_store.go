@@ -113,7 +113,7 @@ func WithClient(client *mongo.Client) EventStoreOption {
 
 // ErrEventExists is returned when attempting to write an event that already exists.
 type ErrEventExists struct {
-	EventID estoria.EventID
+	EventID estoria.TypedID
 }
 
 // Error returns the error message.

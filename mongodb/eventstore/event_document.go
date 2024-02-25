@@ -12,7 +12,7 @@ type eventDocument struct {
 	EventAggregateID   string    `bson:"aggregate_id"`
 	EventAggregateType string    `bson:"aggregate_type"`
 	EventTimestamp     time.Time `bson:"timestamp"`
-	EventData          any       `bson:"data"`
+	EventData          []byte    `bson:"data"`
 }
 
 var _ estoria.Event = (*eventDocument)(nil)
@@ -22,24 +22,23 @@ func documentFromEvent(e estoria.Event) eventDocument {
 	aggregateID := e.AggregateID()
 	return eventDocument{
 		EventID:            eventID.ID.String(),
-		EventType:          eventID.EventType,
+		EventType:          eventID.Type,
 		EventAggregateID:   aggregateID.ID.String(),
 		EventAggregateType: aggregateID.Type,
 		EventTimestamp:     e.Timestamp(),
-		EventData:          e.Data(),
+		EventData:          e.RawData(),
 	}
 }
 
-func (e eventDocument) ID() estoria.EventID {
-	return estoria.EventID{
-		ID:          estoria.StringID(e.EventID),
-		EventType:   e.EventType,
-		AggregateID: e.AggregateID(),
+func (e eventDocument) ID() estoria.TypedID {
+	return estoria.TypedID{
+		ID:   estoria.StringID(e.EventID),
+		Type: e.EventType,
 	}
 }
 
-func (e eventDocument) AggregateID() estoria.AggregateID {
-	return estoria.AggregateID{
+func (e eventDocument) AggregateID() estoria.TypedID {
+	return estoria.TypedID{
 		ID:   estoria.StringID(e.EventAggregateID),
 		Type: e.EventAggregateType,
 	}
@@ -50,5 +49,9 @@ func (e eventDocument) Timestamp() time.Time {
 }
 
 func (e eventDocument) Data() estoria.EventData {
+	return nil
+}
+
+func (e eventDocument) RawData() []byte {
 	return e.EventData
 }
