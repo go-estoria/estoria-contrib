@@ -8,7 +8,7 @@ import (
 
 type eventDocument struct {
 	EventID            string    `bson:"event_id"`
-	EventType          string    `bson:"type"`
+	EventType          string    `bson:"event_type"`
 	EventAggregateID   string    `bson:"aggregate_id"`
 	EventAggregateType string    `bson:"aggregate_type"`
 	EventTimestamp     time.Time `bson:"timestamp"`

@@ -32,7 +32,7 @@ func NewEventStore(mongoClient *mongo.Client, database, eventsCollection string)
 	return eventStore, nil
 }
 
-func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.AggregateID) ([]estoria.Event, error) {
+func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID) ([]estoria.Event, error) {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("loading events", "aggregate_id", aggregateID)
 
