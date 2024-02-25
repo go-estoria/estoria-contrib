@@ -43,7 +43,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	docs := []eventDocument{}
+	docs := []*eventDocument{}
 	if err := cursor.All(ctx, &docs); err != nil {
 		log.Error("iterating events", "error", err)
 		return nil, fmt.Errorf("iterating events: %w", err)
@@ -53,7 +53,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 
 	events := make([]estoria.Event, len(docs))
 	for i, doc := range docs {
-		events[i] = &doc
+		events[i] = doc
 	}
 
 	return events, nil
@@ -62,7 +62,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 // SaveEvents saves the given events to the event store.
 func (s *EventStore) SaveEvents(ctx context.Context, events ...estoria.Event) error {
 	log := slog.Default().WithGroup("eventstore")
-	log.Debug("saving events", "events", len(events))
+	log.Debug("saving events", "count", len(events), "events", fmt.Sprintf("%#v", events))
 
 	docs := make([]any, len(events))
 	for i, e := range events {
@@ -79,26 +79,21 @@ func (s *EventStore) SaveEvents(ctx context.Context, events ...estoria.Event) er
 
 	transactionFn := func(sessCtx mongo.SessionContext) (any, error) {
 		log.Debug("inserting events", "events", len(docs))
-		// db := s.mongoClient.Database("mmmm")
-		// events := db.Collection("events")
 		result, err := s.events.InsertMany(sessCtx, docs)
 		if err != nil {
-			log.Error("inserting events", "error", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
 
-		log.Debug("InsertMany result", "result", result)
 		return result, nil
 	}
 
 	log.Debug("executing transaction")
 	txOpts := options.Transaction().SetReadPreference(readpref.PrimaryPreferred())
-	result, err := session.WithTransaction(ctx, transactionFn, txOpts)
+	_, err = session.WithTransaction(ctx, transactionFn, txOpts)
 	if err != nil {
 		return fmt.Errorf("executing transaction: %w", err)
 	}
 
-	slog.Debug("InsertMany result", "result", result)
 	return nil
 }
 
