@@ -1,4 +1,4 @@
-version: '3.1'
+version: '3.4'
 
 services:
   example-app:
@@ -8,10 +8,33 @@ services:
     container_name: example-app
     environment:
       - MONGODB_URI=mongodb://mongo:27017
+      - EVENTSTOREDB_URI=esdb://eventstoredb:2113?tls=false
+      - EVENTSTOREDB_USERNAME=admin
+      - EVENTSTOREDB_PASSWORD=changeit
     networks:
       - example-net
     volumes:
       - .:/repo
+
+  eventstoredb:
+    image: eventstore/eventstore:lts
+    container_name: eventstoredb
+    environment:
+      - EVENTSTORE_CLUSTER_SIZE=1
+      - EVENTSTORE_RUN_PROJECTIONS=All
+      - EVENTSTORE_START_STANDARD_PROJECTIONS=true
+      - EVENTSTORE_EXT_TCP_PORT=1113
+      - EVENTSTORE_HTTP_PORT=2113
+      - EVENTSTORE_INSECURE=true
+      - EVENTSTORE_ENABLE_EXTERNAL_TCP=true
+      - EVENTSTORE_ENABLE_ATOM_PUB_OVER_HTTP=true
+    ports:
+      - "1113:1113"
+      - "2113:2113"
+    networks:
+      - example-net
+    volumes:
+      - esdb_data:/var/lib/eventstore
 
   mongo:
     image: bitnami/mongodb:4.4
@@ -45,5 +68,7 @@ networks:
     driver: bridge
 
 volumes:
+  esdb_data:
+    driver: local
   mongo_data:
     driver: local

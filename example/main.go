@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"time"
@@ -11,7 +10,7 @@ import (
 	"github.com/go-estoria/estoria"
 
 	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
-	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
+	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
 )
 
 func main() {
@@ -21,37 +20,56 @@ func main() {
 	// 1. Create an Event Store to store events.
 	var eventStore estoria.EventStore
 
-	// MongoDB Event Store
+	// EventStoreDB Event Store
 	{
-		// Prereq: Create a MongoDB client.
-		mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
+		esdbClient, err := esdbes.NewDefaultEventStoreDBClient(
+			ctx,
+			os.Getenv("EVENTSTOREDB_URI"),
+			os.Getenv("EVENTSTOREDB_USERNAME"),
+			os.Getenv("EVENTSTOREDB_PASSWORD"),
+		)
 		if err != nil {
 			panic(err)
 		}
-		defer mongoClient.Disconnect(ctx)
+		defer esdbClient.Close()
 
-		slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
-		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		if err := mongoClient.Ping(pingCtx, nil); err != nil {
-			log.Fatalf("failed to ping MongoDB: %v", err)
-		}
-
-		eventStore, err = mongoes.NewEventStore(mongoClient,
-			mongoes.WithDatabaseName("example-app"),
-			mongoes.WithEventsCollectionName("events"),
-			mongoes.WithLogger(slog.Default()),
-		)
+		eventStore, err = esdbes.NewEventStore(esdbClient)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	// Memory Event Store
+	// // MongoDB Event Store
 	// {
-	// eventStore = &memoryes.EventStore{
-	// 	Events: []estoria.Event{},
+	// 	// Prereq: Create a MongoDB client.
+	// 	mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	defer mongoClient.Disconnect(ctx)
+
+	// 	slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
+	// 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// 	defer cancel()
+	// 	if err := mongoClient.Ping(pingCtx, nil); err != nil {
+	// 		log.Fatalf("failed to ping MongoDB: %v", err)
+	// 	}
+
+	// 	eventStore, err = mongoes.NewEventStore(mongoClient,
+	// 		mongoes.WithDatabaseName("example-app"),
+	// 		mongoes.WithEventsCollectionName("events"),
+	// 		mongoes.WithLogger(slog.Default()),
+	// 	)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
 	// }
+
+	// // Memory Event Store
+	// {
+	// 	eventStore = &memoryes.EventStore{
+	// 		Events: []estoria.Event{},
+	// 	}
 	// }
 
 	// 2. Create an AggregateStore store aggregates.
