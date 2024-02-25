@@ -7,14 +7,12 @@ import (
 )
 
 type eventDocument struct {
-	EventID            string    `bson:"event_id"`
-	EventType          string    `bson:"event_type"`
-	EventAggregateID   string    `bson:"aggregate_id"`
 	EventAggregateType string    `bson:"aggregate_type"`
+	EventAggregateID   string    `bson:"aggregate_id"`
+	EventType          string    `bson:"event_type"`
+	EventID            string    `bson:"event_id"`
 	EventTimestamp     time.Time `bson:"timestamp"`
 	EventData          []byte    `bson:"data"`
-
-	data estoria.EventData `bson:"-"`
 }
 
 var _ estoria.Event = (*eventDocument)(nil)
@@ -23,12 +21,12 @@ func documentFromEvent(e estoria.Event) *eventDocument {
 	eventID := e.ID()
 	aggregateID := e.AggregateID()
 	return &eventDocument{
-		EventID:            eventID.ID.String(),
-		EventType:          eventID.Type,
 		EventAggregateID:   aggregateID.ID.String(),
 		EventAggregateType: aggregateID.Type,
+		EventID:            eventID.ID.String(),
+		EventType:          eventID.Type,
 		EventTimestamp:     e.Timestamp(),
-		EventData:          e.RawData(),
+		EventData:          e.Data(),
 	}
 }
 
@@ -50,18 +48,6 @@ func (e *eventDocument) Timestamp() time.Time {
 	return e.EventTimestamp
 }
 
-func (e *eventDocument) Data() estoria.EventData {
+func (e *eventDocument) Data() []byte {
 	return nil
-}
-
-func (e *eventDocument) SetData(data estoria.EventData) {
-	e.data = data
-}
-
-func (e *eventDocument) RawData() []byte {
-	return e.EventData
-}
-
-func (e *eventDocument) SetRawData(data []byte) {
-	e.EventData = data
 }
