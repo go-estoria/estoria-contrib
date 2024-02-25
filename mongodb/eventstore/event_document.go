@@ -52,6 +52,14 @@ func (e eventDocument) Data() estoria.EventData {
 	return nil
 }
 
+func (e eventDocument) SetData(data estoria.EventData) {
+	// no-op
+}
+
 func (e eventDocument) RawData() []byte {
 	return e.EventData
+}
+
+func (e eventDocument) SetRawData(data []byte) {
+	// no-op
 }
