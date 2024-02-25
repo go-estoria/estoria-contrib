@@ -43,7 +43,7 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	docs := []eventDocument{}
+	docs := []*eventDocument{}
 	if err := cursor.All(ctx, &docs); err != nil {
 		log.Error("iterating events", "error", err)
 		return nil, fmt.Errorf("iterating events: %w", err)
