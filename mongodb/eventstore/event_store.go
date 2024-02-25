@@ -43,17 +43,17 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	docs := []*eventDocument{}
+	docs := []eventDocument{}
 	if err := cursor.All(ctx, &docs); err != nil {
 		log.Error("iterating events", "error", err)
 		return nil, fmt.Errorf("iterating events: %w", err)
 	}
 
-	log.Debug("found events", "events", len(docs))
+	log.Debug("loaded events", "events", len(docs))
 
 	events := make([]estoria.Event, len(docs))
 	for i, doc := range docs {
-		events[i] = doc
+		events[i] = &doc
 	}
 
 	return events, nil
