@@ -7,12 +7,12 @@ import (
 )
 
 type eventDocument struct {
-	EventID            string            `bson:"event_id"`
-	EventType          string            `bson:"type"`
-	EventAggregateID   string            `bson:"aggregate_id"`
-	EventAggregateType string            `bson:"aggregate_type"`
-	EventTimestamp     time.Time         `bson:"timestamp"`
-	EventData          estoria.EventData `bson:"data"`
+	EventID            string    `bson:"event_id"`
+	EventType          string    `bson:"type"`
+	EventAggregateID   string    `bson:"aggregate_id"`
+	EventAggregateType string    `bson:"aggregate_type"`
+	EventTimestamp     time.Time `bson:"timestamp"`
+	EventData          any       `bson:"data"`
 }
 
 var _ estoria.Event = (*eventDocument)(nil)
