@@ -3,7 +3,7 @@ module github.com/go-estoria/estoria-contrib
 go 1.21.6
 
 require (
-	github.com/go-estoria/estoria v0.0.0-20240225051808-387a44920f8c
+	github.com/go-estoria/estoria v0.0.0-20240225052104-818d4bdb7751
 	go.mongodb.org/mongo-driver v1.13.1
 )
 

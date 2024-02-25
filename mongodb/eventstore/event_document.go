@@ -49,5 +49,5 @@ func (e *eventDocument) Timestamp() time.Time {
 }
 
 func (e *eventDocument) Data() []byte {
-	return nil
+	return e.EventData
 }
