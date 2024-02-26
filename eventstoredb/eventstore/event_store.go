@@ -53,11 +53,6 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 
 			var esdbErr *esdb.Error
 			if errors.As(err, &esdbErr) {
-				if esdbErr.Code() == esdb.ErrorCodeUnknown {
-					log.Error("unknown error receiving event", "error", err)
-					continue
-				}
-
 				log.Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
 			} else {
 				log.Error("unknown error receiving event", "error", err)
