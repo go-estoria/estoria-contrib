@@ -37,19 +37,32 @@ func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("loading events", "aggregate_id", aggregateID)
 
-	stream, err := s.esdbClient.ReadStream(ctx, aggregateID.ID.String(), esdb.ReadStreamOptions{}, 0)
+	stream, err := s.esdbClient.ReadStream(ctx, aggregateID.ID.String(), esdb.ReadStreamOptions{}, 10)
 	if err != nil {
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
+	defer stream.Close()
 
 	events := make([]estoria.Event, 0)
 	for {
 		resolvedEvent, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			var esdbErr *esdb.Error
+			if errors.As(err, &esdbErr) {
+				if esdbErr.Code() == esdb.ErrorCodeUnknown {
+					log.Error("unknown error receiving event", "error", err)
+					continue
+				}
+
+				log.Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
+			} else {
+				log.Error("unknown error receiving event", "error", err)
+			}
+
 			return nil, fmt.Errorf("receiving event: %w", err)
 		}
 
@@ -82,7 +95,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, events ...estoria.Event) er
 
 		if _, err := s.esdbClient.AppendToStream(
 			ctx,
-			evt.AggregateID().Type,
+			evt.AggregateID().ID.String(),
 			esdb.AppendToStreamOptions{},
 			data,
 		); err != nil {
