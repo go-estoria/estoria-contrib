@@ -4,7 +4,7 @@ go 1.21.6
 
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
-	github.com/go-estoria/estoria v0.0.0-20240225072133-30d2bd6c3fdf
+	github.com/go-estoria/estoria v0.0.0-20240227025506-3465727ecad7
 	github.com/google/uuid v1.5.0
 	go.mongodb.org/mongo-driver v1.13.1
 )

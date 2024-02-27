@@ -2,9 +2,7 @@ package eventstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
@@ -32,48 +30,17 @@ func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventSto
 	return eventStore, nil
 }
 
-// LoadEvents loads the events for the given aggregate ID from the event store.
-func (s *EventStore) LoadEvents(ctx context.Context, aggregateID estoria.TypedID) ([]estoria.Event, error) {
-	log := slog.Default().WithGroup("eventstore")
-	log.Debug("loading events", "aggregate_id", aggregateID)
-
-	stream, err := s.esdbClient.ReadStream(ctx, aggregateID.ID.String(), esdb.ReadStreamOptions{}, 10)
+func (s *EventStore) FindStream(ctx context.Context, aggregateID estoria.TypedID) (estoria.EventStream, error) {
+	result, err := s.esdbClient.ReadStream(ctx, aggregateID.ID.String(), esdb.ReadStreamOptions{}, 10)
 	if err != nil {
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
-	defer stream.Close()
 
-	events := make([]estoria.Event, 0)
-	for {
-		resolvedEvent, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-
-			var esdbErr *esdb.Error
-			if errors.As(err, &esdbErr) {
-				log.Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
-			} else {
-				log.Error("unknown error receiving event", "error", err)
-			}
-
-			return nil, fmt.Errorf("receiving event: %w", err)
-		}
-
-		events = append(events, &eventDocument{
-			EventAggregateID:   aggregateID.ID.String(),
-			EventAggregateType: aggregateID.Type,
-			EventType:          resolvedEvent.Event.EventType,
-			EventID:            resolvedEvent.Event.EventID.String(),
-			EventTimestamp:     resolvedEvent.Event.CreatedDate,
-			EventData:          resolvedEvent.Event.Data,
-		})
-	}
-
-	log.Debug("loaded events", "events", len(events))
-
-	return events, nil
+	return &EventStream{
+		id:     aggregateID.ID,
+		client: s.esdbClient,
+		stream: result,
+	}, nil
 }
 
 // SaveEvents saves the given events to the event store.
