@@ -1,53 +1,75 @@
 package eventstore
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"go.jetpack.io/typeid"
 )
 
 type eventDocument struct {
-	EventAggregateType string    `bson:"aggregate_type"`
-	EventAggregateID   string    `bson:"aggregate_id"`
-	EventType          string    `bson:"event_type"`
-	EventID            string    `bson:"event_id"`
-	EventTimestamp     time.Time `bson:"timestamp"`
-	EventData          []byte    `bson:"data"`
+	StreamType string    `bson:"stream_type"`
+	StreamID   string    `bson:"stream_id"`
+	EventType  string    `bson:"event_type"`
+	EventID    string    `bson:"event_id"`
+	Timestamp  time.Time `bson:"timestamp"`
+	Data       []byte    `bson:"data"`
 }
 
-var _ estoria.Event = (*eventDocument)(nil)
+type event struct {
+	id        typeid.AnyID
+	streamID  typeid.AnyID
+	timestamp time.Time
+	data      []byte
+}
+
+var _ estoria.Event = (*event)(nil)
 
 func documentFromEvent(e estoria.Event) *eventDocument {
 	eventID := e.ID()
-	aggregateID := e.AggregateID()
+	streamID := e.StreamID()
 	return &eventDocument{
-		EventAggregateID:   aggregateID.ID.String(),
-		EventAggregateType: aggregateID.Type,
-		EventID:            eventID.ID.String(),
-		EventType:          eventID.Type,
-		EventTimestamp:     e.Timestamp(),
-		EventData:          e.Data(),
+		StreamID:   streamID.Suffix(),
+		StreamType: streamID.Prefix(),
+		EventID:    eventID.Suffix(),
+		EventType:  eventID.Prefix(),
+		Timestamp:  e.Timestamp(),
+		Data:       e.Data(),
 	}
 }
 
-func (e *eventDocument) ID() estoria.TypedID {
-	return estoria.TypedID{
-		ID:   estoria.StringID(e.EventID),
-		Type: e.EventType,
+func eventFromDocument(d *eventDocument) (*event, error) {
+	eventID, err := typeid.From(d.EventType, d.EventID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing event ID: %w", err)
 	}
-}
 
-func (e *eventDocument) AggregateID() estoria.TypedID {
-	return estoria.TypedID{
-		ID:   estoria.StringID(e.EventAggregateID),
-		Type: e.EventAggregateType,
+	streamID, err := typeid.From(d.StreamType, d.StreamID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing stream ID: %w", err)
 	}
+
+	return &event{
+		id:        eventID,
+		streamID:  streamID,
+		timestamp: d.Timestamp,
+		data:      d.Data,
+	}, nil
 }
 
-func (e *eventDocument) Timestamp() time.Time {
-	return e.EventTimestamp
+func (e *event) ID() typeid.AnyID {
+	return e.id
 }
 
-func (e *eventDocument) Data() []byte {
-	return e.EventData
+func (e *event) StreamID() typeid.AnyID {
+	return e.streamID
+}
+
+func (e *event) Timestamp() time.Time {
+	return e.timestamp
+}
+
+func (e *event) Data() []byte {
+	return e.data
 }

@@ -4,13 +4,15 @@ go 1.21.6
 
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
-	github.com/go-estoria/estoria v0.0.0-20240227025506-3465727ecad7
+	github.com/go-estoria/estoria v0.0.0-20240304222609-065ac94341ac
+	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/uuid v1.5.0
+	go.jetpack.io/typeid v1.0.0
 	go.mongodb.org/mongo-driver v1.13.1
 )
 
 require (
-	github.com/gofrs/uuid v4.4.0+incompatible // indirect
+	github.com/gofrs/uuid/v5 v5.0.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect

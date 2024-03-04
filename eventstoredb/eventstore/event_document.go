@@ -4,50 +4,69 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"go.jetpack.io/typeid"
 )
 
 type eventDocument struct {
-	EventAggregateType string    `json:"aggregate_type"`
-	EventAggregateID   string    `json:"aggregate_id"`
-	EventType          string    `json:"event_type"`
-	EventID            string    `json:"event_id"`
-	EventTimestamp     time.Time `json:"timestamp"`
-	EventData          []byte    `json:"data"`
+	StreamID  string    `json:"stream_id"`
+	EventType string    `json:"event_type"`
+	EventID   string    `json:"event_id"`
+	Timestamp time.Time `json:"timestamp"`
+	Data      []byte    `json:"data"`
 }
 
-var _ estoria.Event = (*eventDocument)(nil)
+type event struct {
+	id        typeid.AnyID
+	streamID  typeid.AnyID
+	timestamp time.Time
+	data      []byte
+}
+
+var _ estoria.Event = (*event)(nil)
 
 func documentFromEvent(e estoria.Event) *eventDocument {
 	eventID := e.ID()
-	aggregateID := e.AggregateID()
+	streamID := e.StreamID()
 	return &eventDocument{
-		EventAggregateID:   aggregateID.ID.String(),
-		EventAggregateType: aggregateID.Type,
-		EventID:            eventID.ID.String(),
-		EventType:          eventID.Type,
-		EventTimestamp:     e.Timestamp(),
-		EventData:          e.Data(),
+		StreamID:  streamID.String(),
+		EventID:   eventID.Suffix(),
+		EventType: eventID.Prefix(),
+		Timestamp: e.Timestamp(),
+		Data:      e.Data(),
 	}
 }
 
-func (e *eventDocument) ID() estoria.TypedID {
-	return estoria.TypedID{
-		ID:   estoria.StringID(e.EventID),
-		Type: e.EventType,
+func eventFromDocument(d *eventDocument) (*event, error) {
+	eventID, err := typeid.From(d.EventType, d.EventID)
+	if err != nil {
+		return nil, err
 	}
-}
 
-func (e *eventDocument) AggregateID() estoria.TypedID {
-	return estoria.TypedID{
-		ID:   estoria.StringID(e.EventAggregateID),
-		Type: e.EventAggregateType,
+	streamID, err := typeid.FromString(d.StreamID)
+	if err != nil {
+		return nil, err
 	}
+
+	return &event{
+		id:        eventID,
+		streamID:  streamID,
+		timestamp: d.Timestamp,
+		data:      d.Data,
+	}, nil
 }
 
-func (e *eventDocument) Timestamp() time.Time {
-	return e.EventTimestamp
+func (e *event) ID() typeid.AnyID {
+	return e.id
 }
 
-func (e *eventDocument) Data() []byte {
-	return e.EventData
+func (e *event) StreamID() typeid.AnyID {
+	return e.streamID
+}
+
+func (e *event) Timestamp() time.Time {
+	return e.timestamp
+}
+
+func (e *event) Data() []byte {
+	return e.data
 }

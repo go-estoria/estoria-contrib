@@ -8,7 +8,7 @@ type UserCreatedEvent struct {
 }
 
 // EventType returns the event type.
-func (e *UserCreatedEvent) EventType() string { return "user:created" }
+func (e *UserCreatedEvent) EventType() string { return "usercreated" }
 
 // New constructs a new instance of the event data.
 func (e *UserCreatedEvent) New() estoria.EventData {
@@ -21,7 +21,7 @@ type UserDeletedEvent struct {
 }
 
 // EventType returns the event type.
-func (e *UserDeletedEvent) EventType() string { return "user:deleted" }
+func (e *UserDeletedEvent) EventType() string { return "userdeleted" }
 
 // New constructs a new instance of the event data.
 func (e *UserDeletedEvent) New() estoria.EventData {
@@ -34,7 +34,7 @@ type BalanceChangedEvent struct {
 }
 
 // EventType returns the event type.
-func (e *BalanceChangedEvent) EventType() string { return "balance:changed" }
+func (e *BalanceChangedEvent) EventType() string { return "balancechanged" }
 
 // New constructs a new instance of the event data.
 func (e *BalanceChangedEvent) New() estoria.EventData {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
 	"github.com/go-estoria/estoria"
+	"github.com/gofrs/uuid"
+	"go.jetpack.io/typeid"
 )
 
 type EventStore struct {
@@ -30,39 +32,36 @@ func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventSto
 	return eventStore, nil
 }
 
-func (s *EventStore) FindStream(ctx context.Context, aggregateID estoria.TypedID) (estoria.EventStream, error) {
-	result, err := s.esdbClient.ReadStream(ctx, aggregateID.ID.String(), esdb.ReadStreamOptions{}, 10)
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+	result, err := s.esdbClient.ReadStream(ctx, streamID.String(), esdb.ReadStreamOptions{}, 10)
 	if err != nil {
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
 
-	return &EventStream{
-		id:     aggregateID.ID,
-		client: s.esdbClient,
-		stream: result,
+	return &StreamIterator{
+		streamID: streamID,
+		client:   s.esdbClient,
+		stream:   result,
 	}, nil
 }
 
-// SaveEvents saves the given events to the event store.
-func (s *EventStore) SaveEvents(ctx context.Context, events ...estoria.Event) error {
+// AppendStream saves the given events to the event store.
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.Event) error {
 	log := slog.Default().WithGroup("eventstore")
-	log.Debug("saving events", "count", len(events))
+	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
-	for _, evt := range events {
-		data := esdb.EventData{
+	streamEvents := make([]esdb.EventData, len(events))
+	for i, e := range events {
+		streamEvents[i] = esdb.EventData{
+			EventID:     uuid.UUID(e.ID().UUIDBytes()),
 			ContentType: esdb.ContentTypeJson,
-			EventType:   evt.ID().Type,
-			Data:        evt.Data(),
+			EventType:   e.ID().Prefix(),
+			Data:        e.Data(),
 		}
+	}
 
-		if _, err := s.esdbClient.AppendToStream(
-			ctx,
-			evt.AggregateID().ID.String(),
-			esdb.AppendToStreamOptions{},
-			data,
-		); err != nil {
-			return fmt.Errorf("appending to stream: %w", err)
-		}
+	if _, err := s.esdbClient.AppendToStream(ctx, streamID.String(), esdb.AppendToStreamOptions{}, streamEvents...); err != nil {
+		return fmt.Errorf("appending to stream: %w", err)
 	}
 
 	return nil

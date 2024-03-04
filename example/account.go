@@ -4,15 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/go-estoria/estoria"
-	"github.com/google/uuid"
+	"go.jetpack.io/typeid"
 )
 
 // An Account is an example entity that satifies the requirements of the estoria.Entity interface.
 type Account struct {
-	ID      string
+	ID      typeid.AnyID
 	Users   []string
 	Balance int
 }
@@ -20,18 +19,15 @@ type Account struct {
 // NewAccount creates a new account.
 func NewAccount() *Account {
 	return &Account{
-		ID:      strings.Split(uuid.New().String(), "-")[0],
+		ID:      typeid.Must(typeid.WithPrefix("account")),
 		Users:   make([]string, 0),
 		Balance: 0,
 	}
 }
 
 // EntityID returns the ID of the entity.
-func (a *Account) EntityID() estoria.TypedID {
-	return estoria.TypedID{
-		Type: "account",
-		ID:   estoria.StringID(a.ID),
-	}
+func (a *Account) EntityID() typeid.AnyID {
+	return a.ID
 }
 
 // ApplyEvent applies an event to the entity.
