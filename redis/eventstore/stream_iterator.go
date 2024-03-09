@@ -37,7 +37,7 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
 		messages, err := i.redis.XRange(ctx, i.streamID.String(), i.lastMessageID, "+").Result()
 		if err != nil {
 			return nil, fmt.Errorf("reading stream: %w", err)
-		} else if len(messages) == 0 || (len(messages) == 1 && messages[0].ID == i.lastMessageID) {
+		} else if len(messages) == 0 {
 			return nil, io.EOF
 		}
 
@@ -56,15 +56,8 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
 	// grab the next message from the batch
 	message := i.batch[i.batchCursor]
 
-	// if we're at the beginning of the batch and the last message ID is the same as the current message, skip it
-	if i.batchCursor == 0 && i.lastMessageID == message.ID {
-		log.Debug("skipping duplicate message", "id", message.ID)
-		i.batchCursor++
-		return i.Next(ctx)
-	}
-
+	i.lastMessageID = fmt.Sprintf("(%s", message.ID)
 	i.batchCursor++
-	i.lastMessageID = message.ID
 
 	event, err := eventFromRedisMessage(i.streamID, message)
 	if err != nil {
