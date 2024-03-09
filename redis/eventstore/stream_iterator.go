@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"time"
 
 	"github.com/go-estoria/estoria"
 	"github.com/redis/go-redis/v9"
@@ -56,7 +55,6 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
 
 	// grab the next message from the batch
 	message := i.batch[i.batchCursor]
-
 	i.lastMessageID = fmt.Sprintf("(%s", message.ID)
 	i.batchCursor++
 
@@ -66,40 +64,4 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
 	}
 
 	return event, nil
-}
-
-func eventFromRedisMessage(streamID typeid.AnyID, message redis.XMessage) (estoria.Event, error) {
-	eventData := message.Values
-
-	eventIDStr, ok := eventData["event_id"].(string)
-	if !ok {
-		return nil, fmt.Errorf("event ID is not string")
-	}
-
-	eventID, err := typeid.FromString(eventIDStr)
-	if err != nil {
-		return nil, fmt.Errorf("parsing event ID: %w", err)
-	}
-
-	timestampStr, ok := eventData["timestamp"].(string)
-	if !ok {
-		return nil, fmt.Errorf("timestamp is not string")
-	}
-
-	timestamp, err := time.Parse(time.RFC3339, timestampStr)
-	if err != nil {
-		return nil, fmt.Errorf("parsing timestamp: %w", err)
-	}
-
-	data, ok := eventData["data"].(string)
-	if !ok {
-		return nil, fmt.Errorf("event data (%T) is not string", eventData["data"])
-	}
-
-	return &event{
-		streamID:  streamID,
-		id:        eventID,
-		timestamp: timestamp,
-		data:      []byte(data),
-	}, nil
 }

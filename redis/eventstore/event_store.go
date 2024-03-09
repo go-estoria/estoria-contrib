@@ -24,7 +24,7 @@ type EventStore struct {
 func NewEventStore(redisClient *redis.Client, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		redisClient: redisClient,
-		log:         slog.Default(),
+		log:         slog.Default().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
@@ -37,8 +37,7 @@ func NewEventStore(redisClient *redis.Client, opts ...EventStoreOption) (*EventS
 }
 
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
-	log := slog.Default().WithGroup("eventstore")
-	log.Debug("reading stream", "stream_id", streamID.String())
+	s.log.Debug("reading stream", "stream_id", streamID.String())
 
 	return &StreamIterator{
 		streamID: streamID,
@@ -49,8 +48,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 
 // AppendStream saves the given events to the event store.
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.Event) error {
-	log := slog.Default().WithGroup("eventstore")
-	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
+	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
 	pipeline := s.redisClient.TxPipeline()
 
@@ -69,7 +67,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 		return fmt.Errorf("appending events: %w", err)
 	}
 
-	log.Debug("appended events to stream", "stream_id", streamID.String(), "events", len(events))
+	s.log.Debug("appended events to stream", "stream_id", streamID.String(), "events", len(events))
 
 	return nil
 }
