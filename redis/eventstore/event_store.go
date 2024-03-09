@@ -11,6 +11,10 @@ import (
 	"go.jetpack.io/typeid"
 )
 
+const (
+	defaultPageSize = 3
+)
+
 type EventStore struct {
 	redisClient *redis.Client
 	log         *slog.Logger
@@ -39,6 +43,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 	return &StreamIterator{
 		streamID: streamID,
 		redis:    s.redisClient,
+		pageSize: defaultPageSize,
 	}, nil
 }
 

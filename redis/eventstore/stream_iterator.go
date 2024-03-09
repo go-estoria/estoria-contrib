@@ -18,6 +18,7 @@ type StreamIterator struct {
 	batch         []redis.XMessage
 	lastMessageID string
 	batchCursor   int
+	pageSize      int64
 }
 
 func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
@@ -34,14 +35,14 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
 			i.lastMessageID = "-"
 		}
 
-		messages, err := i.redis.XRange(ctx, i.streamID.String(), i.lastMessageID, "+").Result()
+		messages, err := i.redis.XRangeN(ctx, i.streamID.String(), i.lastMessageID, "+", i.pageSize).Result()
 		if err != nil {
 			return nil, fmt.Errorf("reading stream: %w", err)
 		} else if len(messages) == 0 {
 			return nil, io.EOF
 		}
 
-		log.Debug("read message batch", "count", len(messages), "begin", messages[0].ID, "end", messages[len(messages)-1].ID)
+		log.Debug("read message batch", "page_size", i.pageSize, "count", len(messages), "begin", messages[0].ID, "end", messages[len(messages)-1].ID)
 
 		i.batch = messages
 		i.batchCursor = 0
