@@ -11,6 +11,9 @@ services:
       - EVENTSTOREDB_URI=esdb://eventstoredb:2113?tls=false
       - EVENTSTOREDB_USERNAME=admin
       - EVENTSTOREDB_PASSWORD=changeit
+      - REDIS_URI=redis:6379
+      - REDIS_USERNAME=
+      - REDIS_PASSWORD=
     networks:
       - example-net
     volumes:
@@ -63,6 +66,33 @@ services:
     networks:
       - example-net
 
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - example-net
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    restart: always
+    environment:
+      REDIS_HOSTS: redis
+      REDIS_HOST: redis
+      REDIS_PORT: redis:6379
+      HTTP_USER: root
+      HTTP_PASSWORD: root
+    ports:
+      - 8889:8081
+    depends_on:
+      - redis
+    networks:
+      - example-net
+
 networks:
   example-net:
     driver: bridge
@@ -71,4 +101,6 @@ volumes:
   esdb_data:
     driver: local
   mongo_data:
+    driver: local
+  redis_data:
     driver: local
