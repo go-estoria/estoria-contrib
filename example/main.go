@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-estoria/estoria"
 	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
-	// mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
-	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
+	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
+	// redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 )
 
 func main() {
@@ -44,55 +44,26 @@ func main() {
 	// 	eventWriter = eventStore
 	// }
 
-	// // MongoDB Event Store
-	// {
-	// 	mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	defer mongoClient.Disconnect(ctx)
-
-	// 	slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
-	// 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	// 	defer cancel()
-	// 	if err := mongoClient.Ping(pingCtx, nil); err != nil {
-	// 		log.Fatalf("failed to ping MongoDB: %v", err)
-	// 	}
-
-	// 	eventStore, err := mongoes.NewEventStore(mongoClient,
-	// 		mongoes.WithDatabaseName("example-app"),
-	// 		mongoes.WithEventsCollectionName("events"),
-	// 		mongoes.WithLogger(slog.Default()),
-	// 	)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-
-	// 	eventReader = eventStore
-	// 	eventWriter = eventStore
-	// }
-
-	// Redis Event Store
+	// MongoDB Event Store
 	{
-		redisClient, err := redises.NewDefaultRedisClient(
-			ctx,
-			os.Getenv("REDIS_URI"),
-			os.Getenv("REDIS_USERNAME"),
-			os.Getenv("REDIS_PASSWORD"),
-		)
+		mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
 		if err != nil {
 			panic(err)
 		}
-		defer redisClient.Close()
+		defer mongoClient.Disconnect(ctx)
 
-		slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
+		slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
 		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
-			log.Fatalf("failed to ping Redis: %v", err)
+		if err := mongoClient.Ping(pingCtx, nil); err != nil {
+			log.Fatalf("failed to ping MongoDB: %v", err)
 		}
 
-		eventStore, err := redises.NewEventStore(redisClient)
+		eventStore, err := mongoes.NewEventStore(mongoClient,
+			mongoes.WithDatabaseName("example-app"),
+			mongoes.WithEventsCollectionName("events"),
+			mongoes.WithLogger(slog.Default()),
+		)
 		if err != nil {
 			panic(err)
 		}
@@ -100,6 +71,35 @@ func main() {
 		eventReader = eventStore
 		eventWriter = eventStore
 	}
+
+	// // Redis Event Store
+	// {
+	// 	redisClient, err := redises.NewDefaultRedisClient(
+	// 		ctx,
+	// 		os.Getenv("REDIS_URI"),
+	// 		os.Getenv("REDIS_USERNAME"),
+	// 		os.Getenv("REDIS_PASSWORD"),
+	// 	)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	defer redisClient.Close()
+
+	// 	slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
+	// 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// 	defer cancel()
+	// 	if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
+	// 		log.Fatalf("failed to ping Redis: %v", err)
+	// 	}
+
+	// 	eventStore, err := redises.NewEventStore(redisClient)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+
+	// 	eventReader = eventStore
+	// 	eventWriter = eventStore
+	// }
 
 	// // Memory Event Store
 	// {

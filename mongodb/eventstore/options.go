@@ -48,3 +48,14 @@ func WithLogger(logger *slog.Logger) EventStoreOption {
 		return nil
 	}
 }
+
+func WithStrategy(strategy Strategy) EventStoreOption {
+	return func(s *EventStore) error {
+		if strategy == nil {
+			return errors.New("strategy cannot be nil")
+		}
+
+		s.strategy = strategy
+		return nil
+	}
+}
