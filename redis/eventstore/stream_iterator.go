@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"time"
 
 	"github.com/go-estoria/estoria"
@@ -12,11 +13,11 @@ import (
 )
 
 type StreamIterator struct {
-	streamID    typeid.AnyID
-	redis       *redis.Client
-	batch       []redis.XMessage
-	batchCursor int
-	pageSize    int64
+	streamID      typeid.AnyID
+	redis         *redis.Client
+	batch         []redis.XMessage
+	lastMessageID string
+	batchCursor   int
 }
 
 func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
@@ -26,26 +27,54 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
 	default:
 	}
 
+	log := slog.Default().WithGroup("eventstore")
+
 	if i.batch == nil {
-		messages, err := i.redis.XRange(ctx, i.streamID.String(), "-", "+").Result()
+		if i.lastMessageID == "" {
+			i.lastMessageID = "-"
+		}
+
+		messages, err := i.redis.XRange(ctx, i.streamID.String(), i.lastMessageID, "+").Result()
 		if err != nil {
 			return nil, fmt.Errorf("reading stream: %w", err)
-		} else if len(messages) == 0 {
+		} else if len(messages) == 0 || (len(messages) == 1 && messages[0].ID == i.lastMessageID) {
 			return nil, io.EOF
 		}
+
+		log.Debug("read message batch", "count", len(messages), "begin", messages[0].ID, "end", messages[len(messages)-1].ID)
 
 		i.batch = messages
 		i.batchCursor = 0
 	}
 
+	// if we've reached the end of the batch, time to fetch again
 	if i.batchCursor >= len(i.batch) {
 		i.batch = nil
 		return i.Next(ctx)
 	}
 
+	// grab the next message from the batch
 	message := i.batch[i.batchCursor]
-	i.batchCursor++
 
+	// if we're at the beginning of the batch and the last message ID is the same as the current message, skip it
+	if i.batchCursor == 0 && i.lastMessageID == message.ID {
+		log.Debug("skipping duplicate message", "id", message.ID)
+		i.batchCursor++
+		return i.Next(ctx)
+	}
+
+	i.batchCursor++
+	i.lastMessageID = message.ID
+
+	event, err := eventFromRedisMessage(i.streamID, message)
+	if err != nil {
+		return nil, fmt.Errorf("parsing redis message: %w", err)
+	}
+
+	return event, nil
+}
+
+func eventFromRedisMessage(streamID typeid.AnyID, message redis.XMessage) (estoria.Event, error) {
 	eventData := message.Values
 
 	eventIDStr, ok := eventData["event_id"].(string)
@@ -74,7 +103,7 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
 	}
 
 	return &event{
-		streamID:  i.streamID,
+		streamID:  streamID,
 		id:        eventID,
 		timestamp: timestamp,
 		data:      []byte(data),
