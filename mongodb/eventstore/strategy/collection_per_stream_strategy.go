@@ -52,12 +52,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(ctx context.Context, str
 func (s *CollectionPerStreamStrategy) InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
-		docs[i] = collectionPerStreamEventDocument{
-			EventType: event.ID().Prefix(),
-			EventID:   event.ID().Suffix(),
-			Timestamp: event.Timestamp(),
-			Data:      event.Data(),
-		}
+		docs[i] = collectionPerStreamEventDocumentFromEvent(event)
 	}
 
 	collection := s.database.Collection(streamID.String())
@@ -76,7 +71,7 @@ type collectionPerStreamEventDocument struct {
 	Data      []byte    `bson:"data"`
 }
 
-func collectionPerStreamEventDocumentFromEvent(evt event) collectionPerStreamEventDocument {
+func collectionPerStreamEventDocumentFromEvent(evt estoria.Event) collectionPerStreamEventDocument {
 	return collectionPerStreamEventDocument{
 		EventID:   evt.ID().Suffix(),
 		EventType: evt.ID().Prefix(),

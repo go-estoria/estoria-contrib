@@ -51,12 +51,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, strea
 func (s *DatabasePerStreamStrategy) InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
-		docs[i] = databasePerStreamEventDocument{
-			EventType: event.ID().Prefix(),
-			EventID:   event.ID().Suffix(),
-			Timestamp: event.Timestamp(),
-			Data:      event.Data(),
-		}
+		docs[i] = databasePerStreamEventDocumentFromEvent(event)
 	}
 
 	database := s.client.Database(streamID.String())
