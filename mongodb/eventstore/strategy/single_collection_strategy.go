@@ -48,7 +48,7 @@ func (s *SingleCollectionStrategy) GetStreamCursor(ctx context.Context, streamID
 	return cursor, nil
 }
 
-func (s *SingleCollectionStrategy) InsertStreamDocuments(ctx context.Context, docs []any) (*mongo.InsertManyResult, error) {
+func (s *SingleCollectionStrategy) InsertStreamDocuments(ctx context.Context, _ typeid.AnyID, docs []any) (*mongo.InsertManyResult, error) {
 	result, err := s.collection.InsertMany(ctx, docs)
 	if err != nil {
 		return nil, fmt.Errorf("inserting events: %w", err)

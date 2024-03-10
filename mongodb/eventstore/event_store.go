@@ -37,7 +37,7 @@ var _ estoria.EventStreamWriter = (*EventStore)(nil)
 
 type Strategy interface {
 	GetStreamCursor(ctx context.Context, streamID typeid.AnyID) (*mongo.Cursor, error)
-	InsertStreamDocuments(ctx context.Context, docs []any) (*mongo.InsertManyResult, error)
+	InsertStreamDocuments(ctx context.Context, streamID typeid.AnyID, docs []any) (*mongo.InsertManyResult, error)
 }
 
 // NewEventStore creates a new event store using the given MongoDB client.
@@ -56,7 +56,8 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 	}
 
 	if eventStore.strategy == nil {
-		strat, err := strategy.NewSingleCollectionStrategy(mongoClient, eventStore.databaseName, eventStore.eventsCollectionName)
+		// strat, err := strategy.NewSingleCollectionStrategy(mongoClient, eventStore.databaseName, eventStore.eventsCollectionName)
+		strat, err := strategy.NewCollectionPerStreamStrategy(mongoClient, eventStore.databaseName)
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}
@@ -102,7 +103,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 
 	transactionFn := func(sessCtx mongo.SessionContext) (any, error) {
 		s.log.Debug("inserting events", "events", len(docs))
-		result, err := s.strategy.InsertStreamDocuments(sessCtx, docs)
+		result, err := s.strategy.InsertStreamDocuments(sessCtx, streamID, docs)
 		if err != nil {
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
