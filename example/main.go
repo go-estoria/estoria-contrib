@@ -59,11 +59,7 @@ func main() {
 			log.Fatalf("failed to ping MongoDB: %v", err)
 		}
 
-		eventStore, err := mongoes.NewEventStore(mongoClient,
-			mongoes.WithDatabaseName("example-app"),
-			mongoes.WithEventsCollectionName("events"),
-			mongoes.WithLogger(slog.Default()),
-		)
+		eventStore, err := mongoes.NewEventStore(mongoClient)
 		if err != nil {
 			panic(err)
 		}

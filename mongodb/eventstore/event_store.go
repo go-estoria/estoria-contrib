@@ -22,14 +22,7 @@ const (
 type EventStore struct {
 	mongoClient *mongo.Client
 	strategy    Strategy
-
-	databaseName string
-	database     *mongo.Database
-
-	eventsCollectionName string
-	events               *mongo.Collection
-
-	log *slog.Logger
+	log         *slog.Logger
 }
 
 var _ estoria.EventStreamReader = (*EventStore)(nil)
@@ -43,10 +36,7 @@ type Strategy interface {
 // NewEventStore creates a new event store using the given MongoDB client.
 func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
-		log:                  slog.Default().WithGroup("eventstore"),
-		mongoClient:          mongoClient,
-		databaseName:         defaultDatabaseName,
-		eventsCollectionName: defaultEventsCollectionName,
+		mongoClient: mongoClient,
 	}
 
 	for _, opt := range opts {
@@ -55,9 +45,12 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 		}
 	}
 
+	if eventStore.log == nil {
+		eventStore.log = slog.Default().WithGroup("eventstore")
+	}
+
 	if eventStore.strategy == nil {
-		// strat, err := strategy.NewSingleCollectionStrategy(mongoClient, eventStore.databaseName, eventStore.eventsCollectionName)
-		strat, err := strategy.NewCollectionPerStreamStrategy(mongoClient, eventStore.databaseName)
+		strat, err := strategy.NewCollectionPerStreamStrategy(mongoClient, defaultDatabaseName)
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}
