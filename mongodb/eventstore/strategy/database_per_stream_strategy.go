@@ -13,45 +13,42 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type CollectionPerStreamStrategy struct {
-	client   *mongo.Client
-	database *mongo.Database
-	log      *slog.Logger
+type DatabasePerStreamStrategy struct {
+	client         *mongo.Client
+	collectionName string
+	log            *slog.Logger
 }
 
-func NewCollectionPerStreamStrategy(client *mongo.Client, database string) (*CollectionPerStreamStrategy, error) {
+func NewDatabasePerStreamStrategy(client *mongo.Client, collection string) (*DatabasePerStreamStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
-	} else if database == "" {
-		return nil, fmt.Errorf("database is required")
+	} else if collection == "" {
+		return nil, fmt.Errorf("collection is required")
 	}
 
-	db := client.Database(database)
-
-	return &CollectionPerStreamStrategy{
-		client:   client,
-		database: db,
-		log:      slog.Default().WithGroup("eventstore"),
+	return &DatabasePerStreamStrategy{
+		client:         client,
+		collectionName: collection,
+		log:            slog.Default().WithGroup("eventstore"),
 	}, nil
 }
 
-func (s *CollectionPerStreamStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (estoria.EventStreamIterator, error) {
-	collection := s.database.Collection(streamID.String())
+func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (*mongo.Cursor, error) {
+	database := s.client.Database(streamID.String())
+	collection := database.Collection(s.collectionName)
 	findOpts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
 	cursor, err := collection.Find(ctx, bson.D{}, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &StreamIterator[collectionPerStreamEventDocument]{
-		cursor: cursor,
-	}, nil
+	return cursor, nil
 }
 
-func (s *CollectionPerStreamStrategy) InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
+func (s *DatabasePerStreamStrategy) InsertStreamDocuments(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
-		docs[i] = collectionPerStreamEventDocument{
+		docs[i] = databasePerStreamEventDocument{
 			EventType: event.ID().Prefix(),
 			EventID:   event.ID().Suffix(),
 			Timestamp: event.Timestamp(),
@@ -59,7 +56,8 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(ctx context.Context, st
 		}
 	}
 
-	collection := s.database.Collection(streamID.String())
+	database := s.client.Database(streamID.String())
+	collection := database.Collection(s.collectionName)
 	result, err := collection.InsertMany(ctx, docs)
 	if err != nil {
 		return nil, fmt.Errorf("inserting events: %w", err)
@@ -68,21 +66,21 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(ctx context.Context, st
 	return result, nil
 }
 
-type collectionPerStreamEventDocument struct {
+type databasePerStreamEventDocument struct {
 	EventID   string    `bson:"event_id"`
 	EventType string    `bson:"event_type"`
 	Timestamp time.Time `bson:"timestamp"`
 	Data      []byte    `bson:"data"`
 }
 
-func (d collectionPerStreamEventDocument) FromEvent(evt event) {
+func (d databasePerStreamEventDocument) FromEvent(evt event) {
 	d.EventID = evt.ID().Suffix()
 	d.EventType = evt.ID().Prefix()
 	d.Timestamp = evt.Timestamp()
 	d.Data = evt.Data()
 }
 
-func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.Event, error) {
+func (d databasePerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.Event, error) {
 	eventID, err := typeid.From(d.EventType, d.EventID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing event ID: %w", err)
