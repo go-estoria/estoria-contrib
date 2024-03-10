@@ -12,17 +12,17 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-type EventDocument interface {
+type eventDocument interface {
 	ToEvent(streamID typeid.AnyID) (estoria.Event, error)
 }
 
-type StreamIterator[D EventDocument] struct {
+type streamIterator[D eventDocument] struct {
 	streamID    typeid.AnyID
 	docTemplate D
 	cursor      *mongo.Cursor
 }
 
-func (i *StreamIterator[D]) Next(ctx context.Context) (estoria.Event, error) {
+func (i *streamIterator[D]) Next(ctx context.Context) (estoria.Event, error) {
 	if i.cursor.Next(ctx) {
 		doc := i.docTemplate
 		if err := i.cursor.Decode(&doc); err != nil {
