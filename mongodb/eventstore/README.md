@@ -4,10 +4,14 @@ Event store implementation for [estoria](https://github.com/go-estoria/estoria) 
 
 ## Storage Strategies
 
-### Single-Collection
+### Single Collection
 
-All events for all streams are stored in a single collection. Streams query this collection, filtering on stream ID.
+All events for all Estoria event streams are stored in a single collection. Streams query this collection, filtering on stream ID.
 
-### Collection-Per-Stream
+### Collection Per Stream
 
 Each Estoria event stream maps to its own Mongo collection.
+
+### Collection Per Database
+
+Each Estoria event stream maps to its own Mongo database with a single collection.
