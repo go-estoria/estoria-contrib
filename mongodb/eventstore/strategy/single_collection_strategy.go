@@ -40,27 +40,23 @@ func NewSingleCollectionStrategy(client *mongo.Client, database, collection stri
 	}, nil
 }
 
-func (s *SingleCollectionStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (*mongo.Cursor, error) {
+func (s *SingleCollectionStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (estoria.EventStreamIterator, error) {
 	findOpts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
 	cursor, err := s.collection.Find(ctx, bson.M{"stream_id": streamID.Suffix()}, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return cursor, nil
+	return &StreamIterator[singleCollectionEventDocument]{
+		streamID: streamID,
+		cursor:   cursor,
+	}, nil
 }
 
-func (s *SingleCollectionStrategy) InsertStreamDocuments(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
-	docs := make([]interface{}, len(events))
+func (s *SingleCollectionStrategy) InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
+	docs := make([]any, len(events))
 	for i, event := range events {
-		docs[i] = singleCollectionEventDocument{
-			StreamType: streamID.Prefix(),
-			StreamID:   streamID.Suffix(),
-			EventType:  event.ID().Prefix(),
-			EventID:    event.ID().Suffix(),
-			Timestamp:  event.Timestamp(),
-			Data:       event.Data(),
-		}
+		docs[i] = singleCollectionEventDocumentFromEvent(event)
 	}
 
 	result, err := s.collection.InsertMany(ctx, docs)
@@ -80,13 +76,15 @@ type singleCollectionEventDocument struct {
 	Data       []byte    `bson:"data"`
 }
 
-func (d singleCollectionEventDocument) FromEvent(evt event) {
-	d.StreamType = evt.StreamID().Prefix()
-	d.StreamID = evt.StreamID().Suffix()
-	d.EventID = evt.ID().Suffix()
-	d.EventType = evt.ID().Prefix()
-	d.Timestamp = evt.Timestamp()
-	d.Data = evt.Data()
+func singleCollectionEventDocumentFromEvent(evt estoria.Event) singleCollectionEventDocument {
+	return singleCollectionEventDocument{
+		StreamType: evt.StreamID().Prefix(),
+		StreamID:   evt.StreamID().Suffix(),
+		EventID:    evt.ID().Suffix(),
+		EventType:  evt.ID().Prefix(),
+		Timestamp:  evt.Timestamp(),
+		Data:       evt.Data(),
+	}
 }
 
 func (d singleCollectionEventDocument) ToEvent(_ typeid.AnyID) (estoria.Event, error) {

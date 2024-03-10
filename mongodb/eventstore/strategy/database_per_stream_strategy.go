@@ -33,7 +33,7 @@ func NewDatabasePerStreamStrategy(client *mongo.Client, collection string) (*Dat
 	}, nil
 }
 
-func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (*mongo.Cursor, error) {
+func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (estoria.EventStreamIterator, error) {
 	database := s.client.Database(streamID.String())
 	collection := database.Collection(s.collectionName)
 	findOpts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
@@ -42,10 +42,13 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, strea
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return cursor, nil
+	return &StreamIterator[databasePerStreamEventDocument]{
+		streamID: streamID,
+		cursor:   cursor,
+	}, nil
 }
 
-func (s *DatabasePerStreamStrategy) InsertStreamDocuments(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
+func (s *DatabasePerStreamStrategy) InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
 		docs[i] = databasePerStreamEventDocument{
@@ -73,11 +76,13 @@ type databasePerStreamEventDocument struct {
 	Data      []byte    `bson:"data"`
 }
 
-func (d databasePerStreamEventDocument) FromEvent(evt event) {
-	d.EventID = evt.ID().Suffix()
-	d.EventType = evt.ID().Prefix()
-	d.Timestamp = evt.Timestamp()
-	d.Data = evt.Data()
+func databasePerStreamEventDocumentFromEvent(evt estoria.Event) databasePerStreamEventDocument {
+	return databasePerStreamEventDocument{
+		EventID:   evt.ID().Suffix(),
+		EventType: evt.ID().Prefix(),
+		Timestamp: evt.Timestamp(),
+		Data:      evt.Data(),
+	}
 }
 
 func (d databasePerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.Event, error) {

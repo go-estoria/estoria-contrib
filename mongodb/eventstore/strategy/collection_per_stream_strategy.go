@@ -44,7 +44,8 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(ctx context.Context, str
 	}
 
 	return &StreamIterator[collectionPerStreamEventDocument]{
-		cursor: cursor,
+		streamID: streamID,
+		cursor:   cursor,
 	}, nil
 }
 
@@ -75,11 +76,13 @@ type collectionPerStreamEventDocument struct {
 	Data      []byte    `bson:"data"`
 }
 
-func (d collectionPerStreamEventDocument) FromEvent(evt event) {
-	d.EventID = evt.ID().Suffix()
-	d.EventType = evt.ID().Prefix()
-	d.Timestamp = evt.Timestamp()
-	d.Data = evt.Data()
+func collectionPerStreamEventDocumentFromEvent(evt event) collectionPerStreamEventDocument {
+	return collectionPerStreamEventDocument{
+		EventID:   evt.ID().Suffix(),
+		EventType: evt.ID().Prefix(),
+		Timestamp: evt.Timestamp(),
+		Data:      evt.Data(),
+	}
 }
 
 func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.Event, error) {
