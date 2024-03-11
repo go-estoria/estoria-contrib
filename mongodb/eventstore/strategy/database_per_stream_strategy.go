@@ -48,7 +48,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, strea
 	}, nil
 }
 
-func (s *DatabasePerStreamStrategy) InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
+func (s *DatabasePerStreamStrategy) InsertStreamEvents(ctx mongo.SessionContext, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
 		docs[i] = databasePerStreamEventDocumentFromEvent(event)

@@ -25,7 +25,7 @@ var _ estoria.EventStreamWriter = (*EventStore)(nil)
 
 type Strategy interface {
 	GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (estoria.EventStreamIterator, error)
-	InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error)
+	InsertStreamEvents(ctx mongo.SessionContext, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error)
 }
 
 // NewEventStore creates a new event store using the given MongoDB client.

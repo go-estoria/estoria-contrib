@@ -53,7 +53,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(ctx context.Context, stream
 	}, nil
 }
 
-func (s *SingleCollectionStrategy) InsertStreamEvents(ctx context.Context, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
+func (s *SingleCollectionStrategy) InsertStreamEvents(ctx mongo.SessionContext, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
 		docs[i] = singleCollectionEventDocumentFromEvent(event)
