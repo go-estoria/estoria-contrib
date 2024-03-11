@@ -1,4 +1,4 @@
-.PHONY: start-deps start-example down
+.PHONY: start-example start-esdb-deps start-mongo-deps start-redis-deps down
 
 start-example:
 	docker-compose up --build example-app
