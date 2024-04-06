@@ -84,7 +84,9 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
 	s.log.Debug("starting MongoDB session")
-	sessionOpts := options.Session().SetDefaultReadConcern(readconcern.Majority())
+	sessionOpts := options.Session().
+		SetDefaultReadConcern(readconcern.Majority()).
+		SetDefaultReadPreference(readpref.Primary())
 	session, err := s.mongoClient.StartSession(sessionOpts)
 	if err != nil {
 		return fmt.Errorf("starting MongoDB session: %w", err)
@@ -102,7 +104,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 	}
 
 	s.log.Debug("executing transaction")
-	txOpts := options.Transaction().SetReadPreference(readpref.PrimaryPreferred())
+	txOpts := options.Transaction().SetReadPreference(readpref.Primary())
 	_, err = session.WithTransaction(ctx, transactionFn, txOpts)
 	if err != nil {
 		return fmt.Errorf("executing transaction: %w", err)

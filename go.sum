@@ -944,6 +944,12 @@ github.com/go-estoria/estoria v0.0.0-20240406061147-9ef1fbfdf6f7 h1:3xio62pX1xnT
 github.com/go-estoria/estoria v0.0.0-20240406061147-9ef1fbfdf6f7/go.mod h1:q3hGc5C6aa3scP6OPHJtd+VCB7LCIhBsimC8ZkviMSw=
 github.com/go-estoria/estoria v0.0.0-20240406201657-12fd15717329 h1:MhFJ0LAHRp/7mgH3lYtTTjqwYIUPaHNr75fpm3Iznbo=
 github.com/go-estoria/estoria v0.0.0-20240406201657-12fd15717329/go.mod h1:q3hGc5C6aa3scP6OPHJtd+VCB7LCIhBsimC8ZkviMSw=
+github.com/go-estoria/estoria v0.0.0-20240406205154-69df19d3da2c h1:5KHgLNaq6XsdoRvrkdskaR5TiPGcuGt3WUCoEv6UerE=
+github.com/go-estoria/estoria v0.0.0-20240406205154-69df19d3da2c/go.mod h1:q3hGc5C6aa3scP6OPHJtd+VCB7LCIhBsimC8ZkviMSw=
+github.com/go-estoria/estoria v0.0.0-20240406211804-65b126791212 h1:vA8qLilWK3PkrV4s5qjgFv8ZIzRVb2xDiI6fvASDUKE=
+github.com/go-estoria/estoria v0.0.0-20240406211804-65b126791212/go.mod h1:q3hGc5C6aa3scP6OPHJtd+VCB7LCIhBsimC8ZkviMSw=
+github.com/go-estoria/estoria v0.0.0-20240406214726-8e86e6eac14c h1:vbdkj1JzP0Bbgd97YITcdxLPKXdl7LpsdDBUZxx34AY=
+github.com/go-estoria/estoria v0.0.0-20240406214726-8e86e6eac14c/go.mod h1:q3hGc5C6aa3scP6OPHJtd+VCB7LCIhBsimC8ZkviMSw=
 github.com/go-fonts/dejavu v0.1.0/go.mod h1:4Wt4I4OU2Nq9asgDCteaAaWZOV24E+0/Pwo0gppep4g=
 github.com/go-fonts/latin-modern v0.2.0/go.mod h1:rQVLdDMK+mK1xscDwsqM5J8U2jrRa3T0ecnM9pNujks=
 github.com/go-fonts/liberation v0.1.1/go.mod h1:K6qoJYypsmfVjWg8KOVDQhLc8UDgIK2HYqyqAO9z7GY=

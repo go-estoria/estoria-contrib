@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"github.com/go-estoria/estoria/aggregatestore"
-	"github.com/go-estoria/estoria/snapshotter"
 
 	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
@@ -111,15 +109,15 @@ func main() {
 	aggregateStore := estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
 
 	// Enable aggregate snapshots (optional)
-	snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
-	snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
-	snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 2}
-	ssAggregateStore := aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
+	// snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
+	// snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
+	// snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 2}
+	// ssAggregateStore := aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
 
 	// 3. Allow the aggregate store to store events of a specific type.
-	ssAggregateStore.Allow(&UserCreatedEvent{})
-	ssAggregateStore.Allow(&UserDeletedEvent{})
-	ssAggregateStore.Allow(&BalanceChangedEvent{})
+	aggregateStore.Allow(&UserCreatedEvent{})
+	aggregateStore.Allow(&UserDeletedEvent{})
+	aggregateStore.Allow(&BalanceChangedEvent{})
 
 	// 4. Create an aggregate instance.
 	aggregate, err := aggregateStore.NewAggregate()
