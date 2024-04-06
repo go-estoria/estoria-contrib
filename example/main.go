@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/aggregatestore"
+	"github.com/go-estoria/estoria/snapshotter"
+
 	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	// redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
@@ -106,19 +109,45 @@ func main() {
 
 	// 2. Create an AggregateStore store aggregates.
 	aggregateStore := estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
-	aggregateStore.Allow(func() estoria.EventData { return &UserCreatedEvent{} })
-	aggregateStore.Allow(func() estoria.EventData { return &UserDeletedEvent{} })
-	aggregateStore.Allow(func() estoria.EventData { return &BalanceChangedEvent{} })
+
+	// Enable aggregate snapshots (optional)
+	snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
+	snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
+	snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 2}
+	ssAggregateStore := aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
+
+	// 3. Allow the aggregate store to store events of a specific type.
+	ssAggregateStore.Allow(&UserCreatedEvent{})
+	ssAggregateStore.Allow(&UserDeletedEvent{})
+	ssAggregateStore.Allow(&BalanceChangedEvent{})
 
 	// 4. Create an aggregate instance.
-	aggregate := aggregateStore.Create()
+	aggregate, err := aggregateStore.NewAggregate()
+	if err != nil {
+		panic(err)
+	}
 
 	if err := aggregate.Append(
 		&UserCreatedEvent{Username: "jdoe"},
 		&BalanceChangedEvent{Amount: 100},
+		&BalanceChangedEvent{Amount: -72},
+		&UserCreatedEvent{Username: "rlowe"},
+		&UserDeletedEvent{Username: "rlowe"},
+		&BalanceChangedEvent{Amount: 34},
+		&BalanceChangedEvent{Amount: 60},
+		&BalanceChangedEvent{Amount: -23},
+		&BalanceChangedEvent{Amount: 1},
 		&UserCreatedEvent{Username: "bschmoe"},
 		&BalanceChangedEvent{Amount: -14},
+		&BalanceChangedEvent{Amount: -696},
+		&BalanceChangedEvent{Amount: 334},
+		&BalanceChangedEvent{Amount: 63},
 		&UserDeletedEvent{Username: "jdoe"},
+		&BalanceChangedEvent{Amount: -92},
+		&BalanceChangedEvent{Amount: -125},
+		&BalanceChangedEvent{Amount: 883},
+		&BalanceChangedEvent{Amount: 626},
+		&BalanceChangedEvent{Amount: -620},
 	); err != nil {
 		panic(err)
 	}

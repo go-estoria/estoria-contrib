@@ -48,11 +48,18 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, strea
 	}, nil
 }
 
-func (s *DatabasePerStreamStrategy) InsertStreamEvents(ctx mongo.SessionContext, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
+func (s *DatabasePerStreamStrategy) InsertStreamEvents(
+	ctx mongo.SessionContext,
+	streamID typeid.AnyID,
+	events []estoria.Event,
+	_ estoria.AppendStreamOptions,
+) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
 		docs[i] = databasePerStreamEventDocumentFromEvent(event)
 	}
+
+	// TODO: utilize the append stream options
 
 	database := s.client.Database(streamID.String())
 	collection := database.Collection(s.collectionName)

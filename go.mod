@@ -4,7 +4,7 @@ go 1.21.6
 
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
-	github.com/go-estoria/estoria v0.0.0-20240304222609-065ac94341ac
+	github.com/go-estoria/estoria v0.0.0-20240406201657-12fd15717329
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/redis/go-redis/v9 v9.5.1
 	go.jetpack.io/typeid v1.0.0

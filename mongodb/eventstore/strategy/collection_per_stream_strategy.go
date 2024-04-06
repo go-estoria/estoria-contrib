@@ -35,10 +35,26 @@ func NewCollectionPerStreamStrategy(client *mongo.Client, database string) (*Col
 	}, nil
 }
 
-func (s *CollectionPerStreamStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (estoria.EventStreamIterator, error) {
+func (s *CollectionPerStreamStrategy) GetStreamIterator(
+	ctx context.Context,
+	streamID typeid.AnyID,
+	opts estoria.ReadStreamOptions,
+) (estoria.EventStreamIterator, error) {
 	collection := s.database.Collection(streamID.String())
-	findOpts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
-	cursor, err := collection.Find(ctx, bson.D{}, findOpts)
+
+	offset := opts.Offset
+	count := opts.Count
+	sortDirection := 1
+	versionFilterKey := "$gt"
+	if opts.Direction == estoria.Reverse {
+		sortDirection = -1
+		versionFilterKey = "$lt"
+	}
+
+	findOpts := options.Find().SetSort(bson.D{{Key: "aggregate_version", Value: sortDirection}}).SetLimit(count)
+	cursor, err := collection.Find(ctx, bson.D{
+		{Key: "aggregate_version", Value: bson.D{{Key: versionFilterKey, Value: offset}}},
+	}, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -49,11 +65,18 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(ctx context.Context, str
 	}, nil
 }
 
-func (s *CollectionPerStreamStrategy) InsertStreamEvents(ctx mongo.SessionContext, streamID typeid.AnyID, events []estoria.Event) (*mongo.InsertManyResult, error) {
+func (s *CollectionPerStreamStrategy) InsertStreamEvents(
+	ctx mongo.SessionContext,
+	streamID typeid.AnyID,
+	events []estoria.Event,
+	_ estoria.AppendStreamOptions,
+) (*mongo.InsertManyResult, error) {
 	docs := make([]any, len(events))
 	for i, event := range events {
 		docs[i] = collectionPerStreamEventDocumentFromEvent(event)
 	}
+
+	// TODO: utilize the append stream options
 
 	collection := s.database.Collection(streamID.String())
 	result, err := collection.InsertMany(ctx, docs)

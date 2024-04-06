@@ -30,6 +30,10 @@ func (a *Account) EntityID() typeid.AnyID {
 	return a.ID
 }
 
+func (a *Account) EntityType() string {
+	return "account"
+}
+
 // ApplyEvent applies an event to the entity.
 func (a *Account) ApplyEvent(_ context.Context, event estoria.EventData) error {
 	switch e := event.(type) {
