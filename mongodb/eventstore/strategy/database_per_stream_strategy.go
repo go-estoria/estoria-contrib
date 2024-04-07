@@ -33,11 +33,31 @@ func NewDatabasePerStreamStrategy(client *mongo.Client, collection string) (*Dat
 	}, nil
 }
 
-func (s *DatabasePerStreamStrategy) GetStreamIterator(ctx context.Context, streamID typeid.AnyID) (estoria.EventStreamIterator, error) {
+func (s *DatabasePerStreamStrategy) GetStreamIterator(
+	ctx context.Context,
+	streamID typeid.AnyID,
+	opts estoria.ReadStreamOptions,
+) (estoria.EventStreamIterator, error) {
 	database := s.client.Database(streamID.String())
 	collection := database.Collection(s.collectionName)
-	findOpts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
-	cursor, err := collection.Find(ctx, bson.D{}, findOpts)
+
+	offset := opts.Offset
+	count := opts.Count
+	sortDirection := 1
+	versionFilterKey := "$gt"
+	if opts.Direction == estoria.Reverse {
+		sortDirection = -1
+		// versionFilterKey = "$lt"
+	}
+
+	findOpts := options.Find().SetSort(bson.D{{Key: "event_id", Value: sortDirection}})
+	if count > 0 {
+		findOpts = findOpts.SetLimit(count)
+	}
+
+	cursor, err := collection.Find(ctx, bson.D{
+		{Key: "version", Value: bson.D{{Key: versionFilterKey, Value: offset}}},
+	}, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -52,14 +72,21 @@ func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.AnyID,
 	events []estoria.Event,
-	_ estoria.AppendStreamOptions,
+	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
-	docs := make([]any, len(events))
-	for i, event := range events {
-		docs[i] = databasePerStreamEventDocumentFromEvent(event)
+	latestVersion, err := s.getLatestVersion(ctx, streamID)
+	if err != nil {
+		return nil, fmt.Errorf("getting latest version: %w", err)
 	}
 
-	// TODO: utilize the append stream options
+	if opts.ExpectVersion > 0 && latestVersion != opts.ExpectVersion {
+		return nil, fmt.Errorf("expected version %d, but stream has version %d", opts.ExpectVersion, latestVersion)
+	}
+
+	docs := make([]any, len(events))
+	for i, event := range events {
+		docs[i] = databasePerStreamEventDocumentFromEvent(event, latestVersion+int64(i+1))
+	}
 
 	database := s.client.Database(streamID.String())
 	collection := database.Collection(s.collectionName)
@@ -71,18 +98,37 @@ func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	return result, nil
 }
 
+func (s *DatabasePerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.AnyID) (int64, error) {
+	database := s.client.Database(streamID.String())
+	collection := database.Collection(s.collectionName)
+
+	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
+	var doc databasePerStreamEventDocument
+	if err := collection.FindOne(ctx, bson.D{}, opts).Decode(&doc); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return 0, nil
+		}
+
+		return 0, fmt.Errorf("finding latest version: %w", err)
+	}
+
+	return doc.Version, nil
+}
+
 type databasePerStreamEventDocument struct {
 	EventID   string    `bson:"event_id"`
 	EventType string    `bson:"event_type"`
 	Timestamp time.Time `bson:"timestamp"`
+	Version   int64     `bson:"version"`
 	Data      []byte    `bson:"data"`
 }
 
-func databasePerStreamEventDocumentFromEvent(evt estoria.Event) databasePerStreamEventDocument {
+func databasePerStreamEventDocumentFromEvent(evt estoria.Event, version int64) databasePerStreamEventDocument {
 	return databasePerStreamEventDocument{
 		EventID:   evt.ID().Suffix(),
 		EventType: evt.ID().Prefix(),
 		Timestamp: evt.Timestamp(),
+		Version:   version,
 		Data:      evt.Data(),
 	}
 }

@@ -56,8 +56,6 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 		findOpts = findOpts.SetLimit(count)
 	}
 
-	s.log.Debug("finding events", "stream_id", streamID, "offset", offset, "count", count, "direction", opts.Direction)
-
 	cursor, err := collection.Find(ctx, bson.D{
 		{Key: "version", Value: bson.D{{Key: versionFilterKey, Value: offset}}},
 	}, findOpts)
