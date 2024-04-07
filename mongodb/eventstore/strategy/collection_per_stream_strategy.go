@@ -48,10 +48,16 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 	versionFilterKey := "$gt"
 	if opts.Direction == estoria.Reverse {
 		sortDirection = -1
-		versionFilterKey = "$lt"
+		// versionFilterKey = "$lt"
 	}
 
-	findOpts := options.Find().SetSort(bson.D{{Key: "event_id", Value: sortDirection}}).SetLimit(count)
+	findOpts := options.Find().SetSort(bson.D{{Key: "event_id", Value: sortDirection}})
+	if count > 0 {
+		findOpts = findOpts.SetLimit(count)
+	}
+
+	s.log.Debug("finding events", "stream_id", streamID, "offset", offset, "count", count, "direction", opts.Direction)
+
 	cursor, err := collection.Find(ctx, bson.D{
 		{Key: "version", Value: bson.D{{Key: versionFilterKey, Value: offset}}},
 	}, findOpts)
@@ -76,7 +82,7 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 		return nil, fmt.Errorf("getting latest version: %w", err)
 	}
 
-	if latestVersion != opts.ExpectVersion {
+	if opts.ExpectVersion > 0 && latestVersion != opts.ExpectVersion {
 		return nil, fmt.Errorf("expected version %d, but stream has version %d", opts.ExpectVersion, latestVersion)
 	}
 

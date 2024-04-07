@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/aggregatestore"
+	"github.com/go-estoria/estoria/snapshotter"
 
 	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
@@ -105,19 +107,22 @@ func main() {
 	// 	}
 	// }
 
-	// 2. Create an AggregateStore store aggregates.
-	aggregateStore := estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
+	// 2. Create an AggregateStore to load and store aggregates.
+	var aggregateStore aggregatestore.AggregateStore[*Account]
+	aggregateStore = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
 
 	// Enable aggregate snapshots (optional)
-	// snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
-	// snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
-	// snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 2}
-	// ssAggregateStore := aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
+	snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
+	snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
+	snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
+	aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
 
 	// 3. Allow the aggregate store to store events of a specific type.
-	aggregateStore.Allow(&UserCreatedEvent{})
-	aggregateStore.Allow(&UserDeletedEvent{})
-	aggregateStore.Allow(&BalanceChangedEvent{})
+	aggregateStore.Allow(
+		UserCreatedEvent{},
+		UserDeletedEvent{},
+		BalanceChangedEvent{},
+	)
 
 	// 4. Create an aggregate instance.
 	aggregate, err := aggregateStore.NewAggregate()
@@ -151,7 +156,7 @@ func main() {
 	}
 
 	// save the aggregate
-	if err := aggregateStore.Save(ctx, aggregate); err != nil {
+	if err := aggregateStore.Save(ctx, aggregate, estoria.SaveAggregateOptions{}); err != nil {
 		panic(err)
 	}
 

@@ -1,5 +1,5 @@
 FROM golang:1.22.0
 
-WORKDIR /repo
+WORKDIR /go-estoria/estoria-contrib
 
 CMD [ "go", "run", "./example" ]

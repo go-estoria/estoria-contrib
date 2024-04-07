@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"time"
 
 	"github.com/go-estoria/estoria"
@@ -34,7 +33,6 @@ func (i *streamIterator[D]) Next(ctx context.Context) (estoria.Event, error) {
 			return nil, fmt.Errorf("parsing event document: %w", err)
 		}
 
-		slog.Default().WithGroup("eventstore").Debug("read event", "event_id", evt.ID().String(), "stream_id", evt.StreamID().String())
 		return evt, nil
 	}
 
