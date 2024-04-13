@@ -81,9 +81,8 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 
 // AppendStream appends events to the specified stream.
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.Event) error {
-	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
+	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
 
-	s.log.Debug("starting MongoDB session")
 	sessionOpts := options.Session().
 		SetDefaultReadConcern(readconcern.Majority()).
 		SetDefaultReadPreference(readpref.Primary())
@@ -103,7 +102,6 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 		return result, nil
 	}
 
-	s.log.Debug("executing transaction")
 	txOpts := options.Transaction().SetReadPreference(readpref.Primary())
 	_, err = session.WithTransaction(ctx, transactionFn, txOpts)
 	if err != nil {

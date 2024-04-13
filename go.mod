@@ -2,6 +2,8 @@ module github.com/go-estoria/estoria-contrib
 
 go 1.21.6
 
+replace github.com/go-estoria/estoria => ../estoria
+
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
 	github.com/go-estoria/estoria v0.0.0-20240407200948-83cafb5b4283

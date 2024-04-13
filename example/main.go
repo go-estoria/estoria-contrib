@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"time"
@@ -12,8 +11,8 @@ import (
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/go-estoria/estoria/snapshotter"
 
-	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
-	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
+	memoryes "github.com/go-estoria/estoria/eventstore/memory"
+	// mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	// redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 )
 
@@ -47,29 +46,29 @@ func main() {
 	// 	eventWriter = eventStore
 	// }
 
-	// MongoDB Event Store
-	{
-		mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
-		if err != nil {
-			panic(err)
-		}
-		defer mongoClient.Disconnect(ctx)
+	// // MongoDB Event Store
+	// {
+	// 	mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	defer mongoClient.Disconnect(ctx)
 
-		slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
-		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		if err := mongoClient.Ping(pingCtx, nil); err != nil {
-			log.Fatalf("failed to ping MongoDB: %v", err)
-		}
+	// 	slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
+	// 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// 	defer cancel()
+	// 	if err := mongoClient.Ping(pingCtx, nil); err != nil {
+	// 		log.Fatalf("failed to ping MongoDB: %v", err)
+	// 	}
 
-		eventStore, err := mongoes.NewEventStore(mongoClient)
-		if err != nil {
-			panic(err)
-		}
+	// 	eventStore, err := mongoes.NewEventStore(mongoClient)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
 
-		eventReader = eventStore
-		eventWriter = eventStore
-	}
+	// 	eventReader = eventStore
+	// 	eventWriter = eventStore
+	// }
 
 	// // Redis Event Store
 	// {
@@ -100,16 +99,27 @@ func main() {
 	// 	eventWriter = eventStore
 	// }
 
-	// // Memory Event Store
-	// {
-	// 	eventStore = &memoryes.EventStore{
-	// 		Events: []estoria.Event{},
-	// 	}
-	// }
+	// Memory Event Store
+	{
+		eventStore := &memoryes.EventStore{
+			Events: map[string][]estoria.Event{},
+		}
+
+		eventReader = eventStore
+		eventWriter = eventStore
+	}
 
 	// 2. Create an AggregateStore to load and store aggregates.
 	var aggregateStore aggregatestore.AggregateStore[*Account]
 	aggregateStore = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
+
+	hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
+	hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+		slog.Info("before save", "aggregate_id", aggregate.ID())
+		return nil
+	})
+
+	aggregateStore = hookableStore
 
 	// Enable aggregate snapshots (optional)
 	snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
@@ -161,7 +171,9 @@ func main() {
 	}
 
 	// load the aggregate
-	loadedAggregate, err := aggregateStore.Load(ctx, aggregate.ID())
+	loadedAggregate, err := aggregateStore.Load(ctx, aggregate.ID(), estoria.LoadAggregateOptions{
+		// ToVersion: 15,
+	})
 	if err != nil {
 		panic(err)
 	}
