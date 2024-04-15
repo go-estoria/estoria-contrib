@@ -3,17 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"time"
 
 	"github.com/go-estoria/estoria"
+	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
+	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
+	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
+	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/snapshotter"
-	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
-	// mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
-	// redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 )
 
 func main() {
@@ -24,82 +26,85 @@ func main() {
 	var eventReader estoria.EventStreamReader
 	var eventWriter estoria.EventStreamWriter
 
-	// // EventStoreDB Event Store
-	// {
-	// 	esdbClient, err := esdbes.NewDefaultEventStoreDBClient(
-	// 		ctx,
-	// 		os.Getenv("EVENTSTOREDB_URI"),
-	// 		os.Getenv("EVENTSTOREDB_USERNAME"),
-	// 		os.Getenv("EVENTSTOREDB_PASSWORD"),
-	// 	)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	defer esdbClient.Close()
+	// Memory Event Store
+	var memoryEventStore *memoryes.EventStore
+	{
+		memoryEventStore = &memoryes.EventStore{
+			Events: map[string][]estoria.Event{},
+		}
+	}
 
-	// 	eventStore, err := esdbes.NewEventStore(esdbClient)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
+	// EventStoreDB Event Store
+	var esdbEventStore *esdbes.EventStore
+	{
+		esdbClient, err := esdbes.NewDefaultEventStoreDBClient(
+			ctx,
+			os.Getenv("EVENTSTOREDB_URI"),
+			os.Getenv("EVENTSTOREDB_USERNAME"),
+			os.Getenv("EVENTSTOREDB_PASSWORD"),
+		)
+		if err != nil {
+			panic(err)
+		}
+		defer esdbClient.Close()
 
-	// 	eventReader = eventStore
-	// 	eventWriter = eventStore
-	// }
+		esdbEventStore, err = esdbes.NewEventStore(esdbClient)
+		if err != nil {
+			panic(err)
+		}
+	}
 
-	// // MongoDB Event Store
-	// {
-	// 	mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	defer mongoClient.Disconnect(ctx)
+	// MongoDB Event Store
+	var mongoEventStore *mongoes.EventStore
+	{
+		mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
+		if err != nil {
+			panic(err)
+		}
+		defer mongoClient.Disconnect(ctx)
 
-	// 	slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
-	// 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	// 	defer cancel()
-	// 	if err := mongoClient.Ping(pingCtx, nil); err != nil {
-	// 		log.Fatalf("failed to ping MongoDB: %v", err)
-	// 	}
+		slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if err := mongoClient.Ping(pingCtx, nil); err != nil {
+			log.Fatalf("failed to ping MongoDB: %v", err)
+		}
 
-	// 	eventStore, err := mongoes.NewEventStore(mongoClient)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
+		mongoEventStore, err = mongoes.NewEventStore(mongoClient)
+		if err != nil {
+			panic(err)
+		}
+	}
 
-	// 	eventReader = eventStore
-	// 	eventWriter = eventStore
-	// }
+	// Redis Event Store
+	var redisEventStore *redises.EventStore
+	{
+		redisClient, err := redises.NewDefaultRedisClient(
+			ctx,
+			os.Getenv("REDIS_URI"),
+			os.Getenv("REDIS_USERNAME"),
+			os.Getenv("REDIS_PASSWORD"),
+		)
+		if err != nil {
+			panic(err)
+		}
+		defer redisClient.Close()
 
-	// // Redis Event Store
-	// {
-	// 	redisClient, err := redises.NewDefaultRedisClient(
-	// 		ctx,
-	// 		os.Getenv("REDIS_URI"),
-	// 		os.Getenv("REDIS_USERNAME"),
-	// 		os.Getenv("REDIS_PASSWORD"),
-	// 	)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	defer redisClient.Close()
+		slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
+			log.Fatalf("failed to ping Redis: %v", err)
+		}
 
-	// 	slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
-	// 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	// 	defer cancel()
-	// 	if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
-	// 		log.Fatalf("failed to ping Redis: %v", err)
-	// 	}
-
-	// 	eventStore, err := redises.NewEventStore(redisClient)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-
-	// 	eventReader = eventStore
-	// 	eventWriter = eventStore
-	// }
+		redisEventStore, err = redises.NewEventStore(redisClient)
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	// Postgres Event Store
+	var postgresEventStore *pges.EventStore
 	{
 		db, err := pges.NewDefaultPostgresClient(ctx, os.Getenv("POSTGRES_URI"))
 		if err != nil {
@@ -121,119 +126,123 @@ func main() {
 			panic(err)
 		}
 
-		eventStore, err := pges.NewEventStore(db)
+		postgresEventStore, err = pges.NewEventStore(db)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	eventStores := map[string]estoria.EventStore{
+		"memory": memoryEventStore,
+		"esdb":   esdbEventStore,
+		"mongo":  mongoEventStore,
+		"redis":  redisEventStore,
+		"pg":     postgresEventStore,
+	}
+
+	for name, store := range eventStores {
+		fmt.Println("Event Store:", name)
+
+		// Choose an event store from above:
+		eventReader = store
+		eventWriter = store
+
+		// 2. Create an AggregateStore to load and store aggregates.
+		var aggregateStore aggregatestore.AggregateStore[*Account]
+		aggregateStore = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
+
+		hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
+		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+			slog.Info("before save", "aggregate_id", aggregate.ID())
+			return nil
+		})
+
+		aggregateStore = hookableStore
+
+		// Enable aggregate snapshots (optional)
+		snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
+		snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
+		snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
+		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
+
+		// 3. Allow the aggregate store to store events of a specific type.
+		aggregateStore.Allow(
+			UserCreatedEvent{},
+			UserDeletedEvent{},
+			BalanceChangedEvent{},
+		)
+
+		// 4. Create an aggregate instance.
+		aggregate, err := aggregateStore.NewAggregate()
 		if err != nil {
 			panic(err)
 		}
 
-		eventReader = eventStore
-		eventWriter = eventStore
+		if err := aggregate.Append(
+			&UserCreatedEvent{Username: "jdoe"},
+			&BalanceChangedEvent{Amount: 100},
+			&BalanceChangedEvent{Amount: -72},
+			&UserCreatedEvent{Username: "rlowe"},
+			&UserDeletedEvent{Username: "rlowe"},
+			&BalanceChangedEvent{Amount: 34},
+			&BalanceChangedEvent{Amount: 60},
+			&BalanceChangedEvent{Amount: -23},
+			&BalanceChangedEvent{Amount: 1},
+			&UserCreatedEvent{Username: "bschmoe"},
+			&BalanceChangedEvent{Amount: -14},
+			&BalanceChangedEvent{Amount: -696},
+			&BalanceChangedEvent{Amount: 334},
+			&BalanceChangedEvent{Amount: 63},
+			&UserDeletedEvent{Username: "jdoe"},
+			&BalanceChangedEvent{Amount: -92},
+			&BalanceChangedEvent{Amount: -125},
+			&BalanceChangedEvent{Amount: 883},
+			&BalanceChangedEvent{Amount: 626},
+			&BalanceChangedEvent{Amount: -620},
+		); err != nil {
+			panic(err)
+		}
+
+		// save the aggregate
+		if err := aggregateStore.Save(ctx, aggregate, estoria.SaveAggregateOptions{}); err != nil {
+			panic(err)
+		}
+
+		// load the aggregate
+		loadedAggregate, err := aggregateStore.Load(ctx, aggregate.ID(), estoria.LoadAggregateOptions{
+			// ToVersion: 15,
+		})
+		if err != nil {
+			panic(err)
+		}
+
+		// newEvents, err := aggregate.Data.Diff(&Account{
+		// 	ID:      "123",
+		// 	Users:   []string{"bschmoe", "rlowe"},
+		// 	Balance: 80,
+		// })
+		// if err != nil {
+		// 	panic(err)
+		// }
+
+		// if err := aggregate.Append(newEvents...); err != nil {
+		// 	panic(err)
+		// }
+
+		// if err := aggregateStore.Save(ctx, aggregate); err != nil {
+		// 	panic(err)
+		// }
+
+		// aggregate, err = aggregateStore.Load(ctx, estoria.StringID("123"))
+		// if err != nil {
+		// 	panic(err)
+		// }
+
+		// get the aggregate data
+		account := loadedAggregate.Entity()
+		fmt.Println(account)
+		fmt.Println()
 	}
-
-	// // Memory Event Store
-	// {
-	// 	eventStore := &memoryes.EventStore{
-	// 		Events: map[string][]estoria.Event{},
-	// 	}
-
-	// 	eventReader = eventStore
-	// 	eventWriter = eventStore
-	// }
-
-	// 2. Create an AggregateStore to load and store aggregates.
-	var aggregateStore aggregatestore.AggregateStore[*Account]
-	aggregateStore = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
-
-	hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
-	hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
-		slog.Info("before save", "aggregate_id", aggregate.ID())
-		return nil
-	})
-
-	aggregateStore = hookableStore
-
-	// Enable aggregate snapshots (optional)
-	snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
-	snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
-	snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
-	aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
-
-	// 3. Allow the aggregate store to store events of a specific type.
-	aggregateStore.Allow(
-		UserCreatedEvent{},
-		UserDeletedEvent{},
-		BalanceChangedEvent{},
-	)
-
-	// 4. Create an aggregate instance.
-	aggregate, err := aggregateStore.NewAggregate()
-	if err != nil {
-		panic(err)
-	}
-
-	if err := aggregate.Append(
-		&UserCreatedEvent{Username: "jdoe"},
-		&BalanceChangedEvent{Amount: 100},
-		&BalanceChangedEvent{Amount: -72},
-		&UserCreatedEvent{Username: "rlowe"},
-		&UserDeletedEvent{Username: "rlowe"},
-		&BalanceChangedEvent{Amount: 34},
-		&BalanceChangedEvent{Amount: 60},
-		&BalanceChangedEvent{Amount: -23},
-		&BalanceChangedEvent{Amount: 1},
-		&UserCreatedEvent{Username: "bschmoe"},
-		&BalanceChangedEvent{Amount: -14},
-		&BalanceChangedEvent{Amount: -696},
-		&BalanceChangedEvent{Amount: 334},
-		&BalanceChangedEvent{Amount: 63},
-		&UserDeletedEvent{Username: "jdoe"},
-		&BalanceChangedEvent{Amount: -92},
-		&BalanceChangedEvent{Amount: -125},
-		&BalanceChangedEvent{Amount: 883},
-		&BalanceChangedEvent{Amount: 626},
-		&BalanceChangedEvent{Amount: -620},
-	); err != nil {
-		panic(err)
-	}
-
-	// save the aggregate
-	if err := aggregateStore.Save(ctx, aggregate, estoria.SaveAggregateOptions{}); err != nil {
-		panic(err)
-	}
-
-	// load the aggregate
-	loadedAggregate, err := aggregateStore.Load(ctx, aggregate.ID(), estoria.LoadAggregateOptions{
-		// ToVersion: 15,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	// newEvents, err := aggregate.Data.Diff(&Account{
-	// 	ID:      "123",
-	// 	Users:   []string{"bschmoe", "rlowe"},
-	// 	Balance: 80,
-	// })
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// if err := aggregate.Append(newEvents...); err != nil {
-	// 	panic(err)
-	// }
-
-	// if err := aggregateStore.Save(ctx, aggregate); err != nil {
-	// 	panic(err)
-	// }
-
-	// aggregate, err = aggregateStore.Load(ctx, estoria.StringID("123"))
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// get the aggregate data
-	account := loadedAggregate.Entity()
-	fmt.Println(account)
 }
 
 func configureLogging() {
