@@ -26,118 +26,14 @@ func main() {
 	var eventReader estoria.EventStreamReader
 	var eventWriter estoria.EventStreamWriter
 
-	// Memory Event Store
-	var memoryEventStore *memoryes.EventStore
-	{
-		memoryEventStore = &memoryes.EventStore{
-			Events: map[string][]estoria.Event{},
-		}
-	}
-
-	// EventStoreDB Event Store
-	var esdbEventStore *esdbes.EventStore
-	{
-		esdbClient, err := esdbes.NewDefaultEventStoreDBClient(
-			ctx,
-			os.Getenv("EVENTSTOREDB_URI"),
-			os.Getenv("EVENTSTOREDB_USERNAME"),
-			os.Getenv("EVENTSTOREDB_PASSWORD"),
-		)
-		if err != nil {
-			panic(err)
-		}
-		defer esdbClient.Close()
-
-		esdbEventStore, err = esdbes.NewEventStore(esdbClient)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	// MongoDB Event Store
-	var mongoEventStore *mongoes.EventStore
-	{
-		mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
-		if err != nil {
-			panic(err)
-		}
-		defer mongoClient.Disconnect(ctx)
-
-		slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
-		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		if err := mongoClient.Ping(pingCtx, nil); err != nil {
-			log.Fatalf("failed to ping MongoDB: %v", err)
-		}
-
-		mongoEventStore, err = mongoes.NewEventStore(mongoClient)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	// Redis Event Store
-	var redisEventStore *redises.EventStore
-	{
-		redisClient, err := redises.NewDefaultRedisClient(
-			ctx,
-			os.Getenv("REDIS_URI"),
-			os.Getenv("REDIS_USERNAME"),
-			os.Getenv("REDIS_PASSWORD"),
-		)
-		if err != nil {
-			panic(err)
-		}
-		defer redisClient.Close()
-
-		slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
-		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
-			log.Fatalf("failed to ping Redis: %v", err)
-		}
-
-		redisEventStore, err = redises.NewEventStore(redisClient)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	// Postgres Event Store
-	var postgresEventStore *pges.EventStore
-	{
-		db, err := pges.NewDefaultPostgresClient(ctx, os.Getenv("POSTGRES_URI"))
-		if err != nil {
-			panic(err)
-		}
-
-		// create the 'events' table if it doesn't exist
-		if _, err := db.Exec(`
-			CREATE TABLE IF NOT EXISTS events (
-				event_id    TEXT PRIMARY KEY,
-				stream_type TEXT NOT NULL,
-				stream_id   TEXT NOT NULL,
-				event_type  TEXT NOT NULL,
-				timestamp   TIMESTAMPTZ NOT NULL,
-				version     BIGINT NOT NULL,
-				data        BYTEA NOT NULL
-			);
-		`); err != nil {
-			panic(err)
-		}
-
-		postgresEventStore, err = pges.NewEventStore(db)
-		if err != nil {
-			panic(err)
-		}
-	}
-
 	eventStores := map[string]estoria.EventStore{
-		"memory": memoryEventStore,
-		"esdb":   esdbEventStore,
-		"mongo":  mongoEventStore,
-		"redis":  redisEventStore,
-		"pg":     postgresEventStore,
+		"memory": &memoryes.EventStore{
+			Events: map[string][]estoria.Event{},
+		},
+		// "esdb":  newESDBEventStore(ctx),
+		// "mongo": newMongoEventStore(ctx),
+		// "redis": newRedisEventStore(ctx),
+		// "pg":    newPostgresEventStore(ctx),
 	}
 
 	for name, store := range eventStores {
@@ -240,6 +136,7 @@ func main() {
 
 		// get the aggregate data
 		account := loadedAggregate.Entity()
+		fmt.Println()
 		fmt.Println(account)
 		fmt.Println()
 	}
@@ -266,4 +163,102 @@ func configureLogging() {
 			return a
 		},
 	})))
+}
+
+func newESDBEventStore(ctx context.Context) estoria.EventStore {
+	esdbClient, err := esdbes.NewDefaultEventStoreDBClient(
+		ctx,
+		os.Getenv("EVENTSTOREDB_URI"),
+		os.Getenv("EVENTSTOREDB_USERNAME"),
+		os.Getenv("EVENTSTOREDB_PASSWORD"),
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer esdbClient.Close()
+
+	esdbEventStore, err := esdbes.NewEventStore(esdbClient)
+	if err != nil {
+		panic(err)
+	}
+
+	return esdbEventStore
+}
+
+func newMongoEventStore(ctx context.Context) estoria.EventStore {
+	mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
+	if err != nil {
+		panic(err)
+	}
+	defer mongoClient.Disconnect(ctx)
+
+	slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := mongoClient.Ping(pingCtx, nil); err != nil {
+		log.Fatalf("failed to ping MongoDB: %v", err)
+	}
+
+	mongoEventStore, err := mongoes.NewEventStore(mongoClient)
+	if err != nil {
+		panic(err)
+	}
+
+	return mongoEventStore
+}
+
+func newRedisEventStore(ctx context.Context) estoria.EventStore {
+	redisClient, err := redises.NewDefaultRedisClient(
+		ctx,
+		os.Getenv("REDIS_URI"),
+		os.Getenv("REDIS_USERNAME"),
+		os.Getenv("REDIS_PASSWORD"),
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer redisClient.Close()
+
+	slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
+		log.Fatalf("failed to ping Redis: %v", err)
+	}
+
+	redisEventStore, err := redises.NewEventStore(redisClient)
+	if err != nil {
+		panic(err)
+	}
+
+	return redisEventStore
+}
+
+func newPostgresEventStore(ctx context.Context) estoria.EventStore {
+	db, err := pges.NewDefaultPostgresClient(ctx, os.Getenv("POSTGRES_URI"))
+	if err != nil {
+		panic(err)
+	}
+
+	// create the 'events' table if it doesn't exist
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS events (
+			event_id    TEXT PRIMARY KEY,
+			stream_type TEXT NOT NULL,
+			stream_id   TEXT NOT NULL,
+			event_type  TEXT NOT NULL,
+			timestamp   TIMESTAMPTZ NOT NULL,
+			version     BIGINT NOT NULL,
+			data        BYTEA NOT NULL
+		);
+	`); err != nil {
+		panic(err)
+	}
+
+	postgresEventStore, err := pges.NewEventStore(db)
+	if err != nil {
+		panic(err)
+	}
+
+	return postgresEventStore
 }
