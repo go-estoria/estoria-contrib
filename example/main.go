@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
+	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/go-estoria/estoria/snapshotter"
-
-	memoryes "github.com/go-estoria/estoria/eventstore/memory"
+	// memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	// mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	// redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 )
@@ -99,15 +99,46 @@ func main() {
 	// 	eventWriter = eventStore
 	// }
 
-	// Memory Event Store
+	// Postgres Event Store
 	{
-		eventStore := &memoryes.EventStore{
-			Events: map[string][]estoria.Event{},
+		db, err := pges.NewDefaultPostgresClient(ctx, os.Getenv("POSTGRES_URI"))
+		if err != nil {
+			panic(err)
+		}
+
+		// create the 'events' table if it doesn't exist
+		if _, err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS events (
+				event_id    TEXT PRIMARY KEY,
+				stream_type TEXT NOT NULL,
+				stream_id   TEXT NOT NULL,
+				event_type  TEXT NOT NULL,
+				timestamp   TIMESTAMPTZ NOT NULL,
+				version     BIGINT NOT NULL,
+				data        BYTEA NOT NULL
+			);
+		`); err != nil {
+			panic(err)
+		}
+
+		eventStore, err := pges.NewEventStore(db)
+		if err != nil {
+			panic(err)
 		}
 
 		eventReader = eventStore
 		eventWriter = eventStore
 	}
+
+	// // Memory Event Store
+	// {
+	// 	eventStore := &memoryes.EventStore{
+	// 		Events: map[string][]estoria.Event{},
+	// 	}
+
+	// 	eventReader = eventStore
+	// 	eventWriter = eventStore
+	// }
 
 	// 2. Create an AggregateStore to load and store aggregates.
 	var aggregateStore aggregatestore.AggregateStore[*Account]
