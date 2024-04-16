@@ -14,7 +14,6 @@ import (
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
-	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/snapshotter"
 )
 
@@ -27,10 +26,10 @@ func main() {
 	var eventWriter estoria.EventStreamWriter
 
 	eventStores := map[string]estoria.EventStore{
-		"memory": &memoryes.EventStore{
-			Events: map[string][]estoria.Event{},
-		},
-		// "esdb":  newESDBEventStore(ctx),
+		// "memory": &memoryes.EventStore{
+		// 	Events: map[string][]estoria.Event{},
+		// },
+		"esdb": newESDBEventStore(ctx),
 		// "mongo": newMongoEventStore(ctx),
 		// "redis": newRedisEventStore(ctx),
 		// "pg":    newPostgresEventStore(ctx),
@@ -175,7 +174,6 @@ func newESDBEventStore(ctx context.Context) estoria.EventStore {
 	if err != nil {
 		panic(err)
 	}
-	defer esdbClient.Close()
 
 	esdbEventStore, err := esdbes.NewEventStore(esdbClient)
 	if err != nil {
