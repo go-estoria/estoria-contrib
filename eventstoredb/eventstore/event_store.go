@@ -44,7 +44,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 	}
 
 	if opts.Offset > 0 {
-		readOpts.From = esdb.StreamRevision{Value: uint64(opts.Offset) + 1}
+		readOpts.From = esdb.StreamRevision{Value: uint64(opts.Offset)}
 	}
 
 	count := uint64(opts.Count)
