@@ -41,6 +41,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 	if opts.Direction == estoria.Reverse {
 		slog.Debug("reading stream in reverse", "stream_id", streamID.String())
 		readOpts.Direction = esdb.Backwards
+		readOpts.From = esdb.End{}
 	}
 
 	if opts.Offset > 0 {
