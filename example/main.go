@@ -11,6 +11,7 @@ import (
 	"github.com/go-estoria/estoria"
 	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
+	"github.com/go-estoria/estoria-contrib/mongodb/outbox"
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
@@ -29,8 +30,8 @@ func main() {
 		// "memory": &memoryes.EventStore{
 		// 	Events: map[string][]estoria.Event{},
 		// },
-		"esdb": newESDBEventStore(ctx),
-		// "mongo": newMongoEventStore(ctx),
+		// "esdb": newESDBEventStore(ctx),
+		"mongo": newMongoEventStore(ctx),
 		// "redis": newRedisEventStore(ctx),
 		// "pg":    newPostgresEventStore(ctx),
 	}
@@ -188,7 +189,7 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	if err != nil {
 		panic(err)
 	}
-	defer mongoClient.Disconnect(ctx)
+	// defer mongoClient.Disconnect(ctx)
 
 	slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -197,7 +198,11 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 		log.Fatalf("failed to ping MongoDB: %v", err)
 	}
 
-	mongoEventStore, err := mongoes.NewEventStore(mongoClient)
+	mongoOutbox := outbox.New(mongoClient, "example-app", "outbox")
+	mongoEventStore, err := mongoes.NewEventStore(
+		mongoClient,
+		mongoes.WithOutbox(mongoOutbox),
+	)
 	if err != nil {
 		panic(err)
 	}

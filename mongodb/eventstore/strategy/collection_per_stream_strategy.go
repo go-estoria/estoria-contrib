@@ -75,6 +75,7 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	events []estoria.Event,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
+	slog.Debug("inserting events into Mongo collection", "stream_id", streamID, "events", len(events))
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("getting latest version: %w", err)
@@ -92,6 +93,7 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	collection := s.database.Collection(streamID.String())
 	result, err := collection.InsertMany(ctx, docs)
 	if err != nil {
+		slog.Error("error while inserting events", "error", err)
 		return nil, fmt.Errorf("inserting events: %w", err)
 	}
 

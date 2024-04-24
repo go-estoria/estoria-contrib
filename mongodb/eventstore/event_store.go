@@ -15,13 +15,16 @@ import (
 )
 
 type EventStore struct {
-	mongoClient *mongo.Client
-	strategy    Strategy
-	log         *slog.Logger
+	mongoClient   *mongo.Client
+	strategy      Strategy
+	appendTxHooks []TransactionHook
+	log           *slog.Logger
 }
 
 var _ estoria.EventStreamReader = (*EventStore)(nil)
 var _ estoria.EventStreamWriter = (*EventStore)(nil)
+
+type TransactionHook func(sessCtx mongo.SessionContext, events []estoria.Event) error
 
 type Strategy interface {
 	GetStreamIterator(
@@ -55,8 +58,6 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 
 	if eventStore.strategy == nil {
 		strat, err := strategy.NewCollectionPerStreamStrategy(mongoClient, "streams")
-		// strat, err := strategy.NewDatabasePerStreamStrategy(mongoClient, "events")
-		// strat, err := strategy.NewSingleCollectionStrategy(mongoClient, "example-app", "events")
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}
@@ -65,6 +66,12 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 	}
 
 	return eventStore, nil
+}
+
+// AddTransactionalHook adds a hook to be executed within the transaction when appending events.
+// If an error is returned from any hook, the transaction will be aborted.
+func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
+	s.appendTxHooks = append(s.appendTxHooks, hook)
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
@@ -92,19 +99,27 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 	}
 	defer session.EndSession(ctx)
 
-	transactionFn := func(sessCtx mongo.SessionContext) (any, error) {
+	txOpts := options.Transaction().SetReadPreference(readpref.Primary())
+	_, err = session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		s.log.Debug("inserting events", "events", len(events))
 		result, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
 		if err != nil {
+			slog.Debug("inserting events failed", "err", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
 
-		return result, nil
-	}
+		for i, hook := range s.appendTxHooks {
+			slog.Debug("executing transaction hook", "hook", i)
+			if err := hook(sessCtx, events); err != nil {
+				slog.Debug("transaction hook failed", "hook", i, "err", err)
+				return nil, fmt.Errorf("executing transaction hook: %w", err)
+			}
+		}
 
-	txOpts := options.Transaction().SetReadPreference(readpref.Primary())
-	_, err = session.WithTransaction(ctx, transactionFn, txOpts)
+		return result, nil
+	}, txOpts)
 	if err != nil {
+		slog.Debug("transaction failed", "err", err)
 		return fmt.Errorf("executing transaction: %w", err)
 	}
 

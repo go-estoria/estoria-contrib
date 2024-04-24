@@ -3,6 +3,8 @@ package eventstore
 import (
 	"errors"
 	"log/slog"
+
+	"github.com/go-estoria/estoria-contrib/mongodb/outbox"
 )
 
 type EventStoreOption func(*EventStore) error
@@ -17,6 +19,13 @@ func WithLogger(logger *slog.Logger) EventStoreOption {
 		}
 
 		s.log = logger
+		return nil
+	}
+}
+
+func WithOutbox(outbox *outbox.Outbox) EventStoreOption {
+	return func(s *EventStore) error {
+		s.AddTransactionalHook(outbox.HandleEventsInTransaction)
 		return nil
 	}
 }
