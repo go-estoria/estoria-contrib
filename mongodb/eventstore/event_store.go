@@ -90,19 +90,10 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.Event) error {
 	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
 
-	sessionOpts := options.Session().
-		SetDefaultReadConcern(readconcern.Majority()).
-		SetDefaultReadPreference(readpref.Primary())
-	session, err := s.mongoClient.StartSession(sessionOpts)
-	if err != nil {
-		return fmt.Errorf("starting MongoDB session: %w", err)
-	}
-	defer session.EndSession(ctx)
-
-	txOpts := options.Transaction().SetReadPreference(readpref.Primary())
-	_, err = session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		s.log.Debug("inserting events", "events", len(events))
-		result, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
+		var err error
+		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
 		if err != nil {
 			slog.Debug("inserting events failed", "err", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
@@ -116,12 +107,39 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 			}
 		}
 
-		return result, nil
-	}, txOpts)
-	if err != nil {
-		slog.Debug("transaction failed", "err", err)
-		return fmt.Errorf("executing transaction: %w", err)
+		return insertResult, nil
+	})
+	if txErr != nil {
+		slog.Debug("transaction failed", "err", txErr)
+		return fmt.Errorf("executing transaction: %w", txErr)
+	} else if result == nil {
+		slog.Debug("transaction failed", "err", "no result")
+		return fmt.Errorf("executing transaction: no result")
 	}
 
 	return nil
+}
+
+// Executes the given function within a session transaction.
+// The function passed to this method must be idempotent, as the MongoDB transaction may be retried
+// in the event of a transient error.
+func (s *EventStore) doInTransaction(ctx context.Context, f func(sessCtx mongo.SessionContext) (any, error)) (any, error) {
+	sessionOpts := options.Session().
+		SetDefaultReadConcern(readconcern.Majority()).
+		SetDefaultReadPreference(readpref.Primary())
+	session, err := s.mongoClient.StartSession(sessionOpts)
+	if err != nil {
+		return nil, fmt.Errorf("starting MongoDB session: %w", err)
+	}
+	defer session.EndSession(ctx)
+
+	txOpts := options.Transaction().SetReadPreference(readpref.Primary())
+	result, err := session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+		return f(sessCtx)
+	}, txOpts)
+	if err != nil {
+		return nil, fmt.Errorf("executing transaction: %w", err)
+	}
+
+	return result, nil
 }
