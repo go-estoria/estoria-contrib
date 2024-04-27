@@ -47,14 +47,6 @@ func main() {
 		var aggregateStore aggregatestore.AggregateStore[*Account]
 		aggregateStore = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
 
-		hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
-		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
-			slog.Info("before save", "aggregate_id", aggregate.ID())
-			return nil
-		})
-
-		aggregateStore = hookableStore
-
 		// Enable aggregate snapshots (optional)
 		snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
 		snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
@@ -67,6 +59,18 @@ func main() {
 			UserDeletedEvent{},
 			BalanceChangedEvent{},
 		)
+
+		hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
+		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+			slog.Info("before save", "aggregate_id", aggregate.ID())
+			return nil
+		})
+		hookableStore.AddHook(aggregatestore.AfterSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+			slog.Info("after save", "aggregate_id", aggregate.ID())
+			return nil
+		})
+
+		aggregateStore = hookableStore
 
 		// 4. Create an aggregate instance.
 		aggregate, err := aggregateStore.NewAggregate()
