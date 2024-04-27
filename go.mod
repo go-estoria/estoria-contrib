@@ -1,12 +1,10 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.21.6
-
-replace github.com/go-estoria/estoria => ../estoria
+go 1.22.2
 
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
-	github.com/go-estoria/estoria v0.0.0-20240407200948-83cafb5b4283
+	github.com/go-estoria/estoria v0.0.0-20240427215206-8599d9540c13
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/redis/go-redis/v9 v9.5.1
 	go.jetpack.io/typeid v1.0.0
