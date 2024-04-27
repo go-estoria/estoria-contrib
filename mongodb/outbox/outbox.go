@@ -1,31 +1,36 @@
 package outbox
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/outbox"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
-
-type MongoCollection interface {
-	InsertMany(ctx context.Context, documents []any, opts ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
-}
 
 type Outbox struct {
 	client     *mongo.Client
-	collection MongoCollection
+	database   string
+	collection *mongo.Collection
 }
 
 func New(client *mongo.Client, database, collection string) *Outbox {
 	return &Outbox{
 		client:     client,
+		database:   database,
 		collection: client.Database(database).Collection(collection),
 	}
+}
+
+func (o *Outbox) Iterator() (outbox.Iterator, error) {
+	return &Iterator{
+		client:     o.client,
+		database:   o.database,
+		collection: o.collection.Name(),
+	}, nil
 }
 
 func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.Event) error {

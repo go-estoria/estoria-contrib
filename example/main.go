@@ -206,12 +206,7 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	}
 
 	mongoOutbox := mongooutbox.New(mongoClient, "example-app", "outbox")
-	outboxIterator, err := mongooutbox.NewIterator(mongoClient, "example-app", "outbox")
-	if err != nil {
-		panic(err)
-	}
-
-	outboxProcessor := outbox.NewProcessor(outboxIterator)
+	outboxProcessor := outbox.NewProcessor(mongoOutbox)
 	logger := &OutboxLogger{}
 	outboxProcessor.RegisterHandlers(UserCreatedEvent{}, logger)
 	outboxProcessor.RegisterHandlers(UserDeletedEvent{}, logger)

@@ -19,16 +19,6 @@ type Iterator struct {
 	changeStream *mongo.ChangeStream
 }
 
-func NewIterator(client *mongo.Client, database, collection string) (*Iterator, error) {
-	iterator := &Iterator{
-		client:     client,
-		database:   database,
-		collection: collection,
-	}
-
-	return iterator, nil
-}
-
 func (i *Iterator) Next(ctx context.Context) (outbox.OutboxEntry, error) {
 	if i.changeStream == nil {
 		collection := i.client.Database(i.database).Collection(i.collection)
