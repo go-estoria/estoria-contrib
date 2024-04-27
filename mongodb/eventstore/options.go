@@ -3,8 +3,6 @@ package eventstore
 import (
 	"errors"
 	"log/slog"
-
-	"github.com/go-estoria/estoria-contrib/mongodb/outbox"
 )
 
 type EventStoreOption func(*EventStore) error
@@ -23,10 +21,16 @@ func WithLogger(logger *slog.Logger) EventStoreOption {
 	}
 }
 
-// WithOutbox sets the outbox to use for the event store.
-func WithOutbox(outbox *outbox.Outbox) EventStoreOption {
+// WithTransactionHook adds a hook to be run within the same transaction when
+// a batch of events is appended to the store. The hooks are run in the order
+// they are added, and are run after the events are appended to the store.
+func WithTransactionHook(hook TransactionHook) EventStoreOption {
 	return func(s *EventStore) error {
-		s.AddTransactionalHook(outbox.HandleEvents)
+		if hook == nil {
+			return errors.New("hook cannot be nil")
+		}
+
+		s.appendTxHooks = append(s.appendTxHooks, hook)
 		return nil
 	}
 }

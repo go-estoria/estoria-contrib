@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -33,9 +33,10 @@ func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.Event)
 	documents := make([]any, len(events))
 	for i, event := range events {
 		documents[i] = &outboxDocument{
-			StreamID:  event.StreamID(),
-			Timestamp: time.Now(),
-			Event:     event,
+			Timestamp: primitive.NewDateTimeFromTime(time.Now()),
+			StreamID:  event.StreamID().String(),
+			EventID:   event.ID().String(),
+			EventData: primitive.Binary{Data: event.Data()},
 		}
 	}
 
@@ -48,7 +49,8 @@ func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.Event)
 }
 
 type outboxDocument struct {
-	StreamID  typeid.AnyID  `bson:"stream_id"`
-	Timestamp time.Time     `bson:"timestamp"`
-	Event     estoria.Event `bson:"event"`
+	Timestamp primitive.DateTime `bson:"timestamp"`
+	StreamID  string             `bson:"stream_id"`
+	EventID   string             `bson:"event_id"`
+	EventData primitive.Binary   `bson:"event_data"`
 }

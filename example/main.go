@@ -17,11 +17,13 @@ import (
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
+	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshotter"
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	configureLogging()
 
 	// 1. Create an Event Store to store events.
@@ -33,9 +35,9 @@ func main() {
 		// 	Events: map[string][]estoria.Event{},
 		// },
 		// "esdb": newESDBEventStore(ctx),
-		// "mongo": newMongoEventStore(ctx),
+		"mongo": newMongoEventStore(ctx),
 		// "redis": newRedisEventStore(ctx),
-		"pg": newPostgresEventStore(ctx),
+		// "pg": newPostgresEventStore(ctx),
 	}
 
 	for name, store := range eventStores {
@@ -150,7 +152,7 @@ func main() {
 
 func configureLogging() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: slog.LevelInfo,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			switch a.Key {
 			case "time":
@@ -195,7 +197,6 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	if err != nil {
 		panic(err)
 	}
-	// defer mongoClient.Disconnect(ctx)
 
 	slog.Info("pinging MongoDB", "uri", os.Getenv("MONGODB_URI"))
 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -205,9 +206,25 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	}
 
 	mongoOutbox := mongooutbox.New(mongoClient, "example-app", "outbox")
+	outboxIterator, err := mongooutbox.NewIterator(mongoClient, "example-app", "outbox")
+	if err != nil {
+		panic(err)
+	}
+
+	outboxProcessor := outbox.NewProcessor(outboxIterator)
+	logger := &OutboxLogger{}
+	outboxProcessor.RegisterHandlers(UserCreatedEvent{}, logger)
+	outboxProcessor.RegisterHandlers(UserDeletedEvent{}, logger)
+	outboxProcessor.RegisterHandlers(BalanceChangedEvent{}, logger)
+
+	slog.Info("starting outbox processor")
+	if err := outboxProcessor.Start(ctx); err != nil {
+		panic(err)
+	}
+
 	mongoEventStore, err := mongoes.NewEventStore(
 		mongoClient,
-		mongoes.WithOutbox(mongoOutbox),
+		mongoes.WithTransactionHook(mongoOutbox),
 	)
 	if err != nil {
 		panic(err)
@@ -288,4 +305,11 @@ func newPostgresEventStore(ctx context.Context) estoria.EventStore {
 	}
 
 	return postgresEventStore
+}
+
+type OutboxLogger struct{}
+
+func (l OutboxLogger) Handle(entry outbox.OutboxEntry) error {
+	slog.Info("handling outbox entry", "stream_id", entry.StreamID(), "event_id", entry.EventID())
+	return nil
 }

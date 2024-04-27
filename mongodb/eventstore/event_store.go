@@ -24,7 +24,9 @@ type EventStore struct {
 var _ estoria.EventStreamReader = (*EventStore)(nil)
 var _ estoria.EventStreamWriter = (*EventStore)(nil)
 
-type TransactionHook func(sessCtx mongo.SessionContext, events []estoria.Event) error
+type TransactionHook interface {
+	HandleEvents(sessCtx mongo.SessionContext, events []estoria.Event) error
+}
 
 type Strategy interface {
 	GetStreamIterator(
@@ -68,12 +70,6 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 	return eventStore, nil
 }
 
-// AddTransactionalHook adds a hook to be executed within the transaction when appending events.
-// If an error is returned from any hook, the transaction will be aborted.
-func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
-	s.appendTxHooks = append(s.appendTxHooks, hook)
-}
-
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	s.log.Debug("reading events from stream", "stream_id", streamID.String())
@@ -101,7 +97,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 
 		for i, hook := range s.appendTxHooks {
 			slog.Debug("executing transaction hook", "hook", i)
-			if err := hook(sessCtx, events); err != nil {
+			if err := hook.HandleEvents(sessCtx, events); err != nil {
 				slog.Debug("transaction hook failed", "hook", i, "err", err)
 				return nil, fmt.Errorf("executing transaction hook: %w", err)
 			}
