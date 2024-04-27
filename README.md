@@ -8,26 +8,9 @@ Third party implementatons for [estoria](https://github.com/go-estoria/estoria) 
 
 ## Event Stores
 
-| Name | Description |
-|------|-------------|
-| [EventStoreDB](./eventstoredb/eventstore) | Estoria streams map 1:1 to EventStoreDB streams. |
-| [MongoDB](./mongodb/eventstore) | Estoria streams map to databases, collections, or a single collection for all streams, depending on the strategy chosen. |
-| [Redis](./redis/eventstore) | Estoria streams map 1:1 to Redis streams. |
-
-## Storage Strategies
-
-### 1:1 Stream
-
-Each Estoria event stream maps 1:1 to the implementation's concept of a stream.
-
-### Single-Collection
-
-All events for all streams are stored in a single collection. Streams query this collection, filtering on stream ID.
-
-### Collection-Per-Stream
-
-Each Estoria event stream maps to a collection in the implementation's storage. Streams query their respective collections.
-
-## Examples
-
-See the [example](./example) directory for usage examples.
+| Name | Description | Outbox |
+|------|-------------| ------ |
+| [EventStoreDB](./eventstoredb/eventstore) | Estoria streams map 1:1 to EventStoreDB streams. | No |
+| [MongoDB](./mongodb/eventstore) | Estoria streams map to databases, collections, or a single collection for all streams, depending on the strategy chosen. | Yes |
+| [Postgres](./postgres/eventstore) | Estoria streams use a single table for all events. | Yes |
+| [Redis](./redis/eventstore) | Estoria streams map 1:1 to Redis streams. | No |
