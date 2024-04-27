@@ -32,7 +32,7 @@ func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
 	return outbox, nil
 }
 
-func (o *Outbox) HandleEventsInTransaction(tx *sql.Tx, events []estoria.Event) error {
+func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.Event) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
@@ -57,8 +57,7 @@ func (o *Outbox) HandleEventsInTransaction(tx *sql.Tx, events []estoria.Event) e
 			data = event.Data()
 		}
 
-		_, err = stmt.Exec(event.Timestamp(), event.StreamID(), event.ID(), data)
-		if err != nil {
+		if _, err := stmt.Exec(event.Timestamp(), event.StreamID(), event.ID(), data); err != nil {
 			return fmt.Errorf("executing statement: %w", err)
 		}
 	}

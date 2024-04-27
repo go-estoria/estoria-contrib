@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria-contrib/postgres"
 	"github.com/go-estoria/estoria-contrib/postgres/eventstore/strategy"
 	"go.jetpack.io/typeid"
 )
@@ -87,7 +88,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.Event) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
-	_, txErr := s.doInTransaction(ctx, func(tx *sql.Tx) (sql.Result, error) {
+	_, txErr := postgres.DoInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {
 		s.log.Debug("inserting events", "events", len(events))
 		if _, err := s.strategy.InsertStreamEvents(tx, streamID, events, opts); err != nil {
 			return nil, fmt.Errorf("inserting events: %w", err)
@@ -106,27 +107,4 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 	}
 
 	return nil
-}
-
-// Executes the given function within a transaction.
-func (s *EventStore) doInTransaction(ctx context.Context, f func(tx *sql.Tx) (sql.Result, error)) (any, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("beginning transaction: %w", err)
-	}
-
-	result, err := f(tx)
-	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			s.log.Error("rolling back transaction", "err", rollbackErr)
-		}
-
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("committing transaction: %w", err)
-	}
-
-	return result, nil
 }

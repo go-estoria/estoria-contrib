@@ -24,7 +24,7 @@ func New(client *mongo.Client, database, collection string) *Outbox {
 	}
 }
 
-func (o *Outbox) HandleEventsInTransaction(sess mongo.SessionContext, events []estoria.Event) error {
+func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.Event) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	db := o.client.Database(o.database)

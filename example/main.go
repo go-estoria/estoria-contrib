@@ -12,6 +12,7 @@ import (
 	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	mongooutbox "github.com/go-estoria/estoria-contrib/mongodb/outbox"
+	postgres "github.com/go-estoria/estoria-contrib/postgres"
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
@@ -243,7 +244,7 @@ func newRedisEventStore(ctx context.Context) estoria.EventStore {
 }
 
 func newPostgresEventStore(ctx context.Context) estoria.EventStore {
-	db, err := pges.NewDefaultPostgresClient(ctx, os.Getenv("POSTGRES_URI"))
+	db, err := postgres.NewDefaultDB(ctx, os.Getenv("POSTGRES_URI"))
 	if err != nil {
 		panic(err)
 	}
