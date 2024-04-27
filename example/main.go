@@ -48,7 +48,7 @@ func main() {
 		eventWriter = store
 
 		// 2. Create an AggregateStore to load and store aggregates.
-		var aggregateStore aggregatestore.AggregateStore[*Account]
+		var aggregateStore estoria.AggregateStore[*Account]
 		aggregateStore = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
 
 		// Enable aggregate snapshots (optional)
