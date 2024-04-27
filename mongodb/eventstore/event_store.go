@@ -15,10 +15,10 @@ import (
 )
 
 type EventStore struct {
-	mongoClient   *mongo.Client
-	strategy      Strategy
-	appendTxHooks []TransactionHook
-	log           *slog.Logger
+	mongoClient *mongo.Client
+	strategy    Strategy
+	txHooks     []TransactionHook
+	log         *slog.Logger
 }
 
 var _ estoria.EventStreamReader = (*EventStore)(nil)
@@ -95,7 +95,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
 
-		for i, hook := range s.appendTxHooks {
+		for i, hook := range s.txHooks {
 			slog.Debug("executing transaction hook", "hook", i)
 			if err := hook.HandleEvents(sessCtx, events); err != nil {
 				slog.Debug("transaction hook failed", "hook", i, "err", err)

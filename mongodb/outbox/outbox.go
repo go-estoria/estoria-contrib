@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -8,27 +9,27 @@ import (
 	"github.com/go-estoria/estoria"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+type MongoCollection interface {
+	InsertMany(ctx context.Context, documents []any, opts ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
+}
 
 type Outbox struct {
 	client     *mongo.Client
-	database   string
-	collection string
+	collection MongoCollection
 }
 
 func New(client *mongo.Client, database, collection string) *Outbox {
 	return &Outbox{
 		client:     client,
-		database:   database,
-		collection: collection,
+		collection: client.Database(database).Collection(collection),
 	}
 }
 
 func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.Event) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
-
-	db := o.client.Database(o.database)
-	coll := db.Collection(o.collection)
 
 	documents := make([]any, len(events))
 	for i, event := range events {
@@ -40,7 +41,7 @@ func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.Event)
 		}
 	}
 
-	_, err := coll.InsertMany(sess, documents)
+	_, err := o.collection.InsertMany(sess, documents)
 	if err != nil {
 		return fmt.Errorf("inserting outbox documents: %w", err)
 	}

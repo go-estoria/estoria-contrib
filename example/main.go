@@ -152,7 +152,7 @@ func main() {
 
 func configureLogging() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			switch a.Key {
 			case "time":

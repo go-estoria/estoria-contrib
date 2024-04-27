@@ -30,7 +30,7 @@ func WithTransactionHook(hook TransactionHook) EventStoreOption {
 			return errors.New("hook cannot be nil")
 		}
 
-		s.appendTxHooks = append(s.appendTxHooks, hook)
+		s.txHooks = append(s.txHooks, hook)
 		return nil
 	}
 }
