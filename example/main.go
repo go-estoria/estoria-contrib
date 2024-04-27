@@ -11,8 +11,9 @@ import (
 	"github.com/go-estoria/estoria"
 	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
-	"github.com/go-estoria/estoria-contrib/mongodb/outbox"
+	mongooutbox "github.com/go-estoria/estoria-contrib/mongodb/outbox"
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
+	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/go-estoria/estoria/snapshotter"
@@ -31,9 +32,9 @@ func main() {
 		// 	Events: map[string][]estoria.Event{},
 		// },
 		// "esdb": newESDBEventStore(ctx),
-		"mongo": newMongoEventStore(ctx),
+		// "mongo": newMongoEventStore(ctx),
 		// "redis": newRedisEventStore(ctx),
-		// "pg":    newPostgresEventStore(ctx),
+		"pg": newPostgresEventStore(ctx),
 	}
 
 	for name, store := range eventStores {
@@ -202,7 +203,7 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 		log.Fatalf("failed to ping MongoDB: %v", err)
 	}
 
-	mongoOutbox := outbox.New(mongoClient, "example-app", "outbox")
+	mongoOutbox := mongooutbox.New(mongoClient, "example-app", "outbox")
 	mongoEventStore, err := mongoes.NewEventStore(
 		mongoClient,
 		mongoes.WithOutbox(mongoOutbox),
@@ -262,7 +263,21 @@ func newPostgresEventStore(ctx context.Context) estoria.EventStore {
 		panic(err)
 	}
 
-	postgresEventStore, err := pges.NewEventStore(db)
+	outbox := pgoutbox.New(db, "outbox")
+
+	// create the 'outbox' table if it doesn't exist
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS outbox (
+			id         SERIAL PRIMARY KEY,
+			stream_id  TEXT NOT NULL,
+			timestamp  TIMESTAMPTZ NOT NULL,
+			event      BYTEA NOT NULL
+		);
+	`); err != nil {
+		panic(err)
+	}
+
+	postgresEventStore, err := pges.NewEventStore(db, pges.WithOutbox(outbox))
 	if err != nil {
 		panic(err)
 	}

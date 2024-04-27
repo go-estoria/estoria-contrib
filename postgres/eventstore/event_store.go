@@ -12,13 +12,16 @@ import (
 )
 
 type EventStore struct {
-	db       *sql.DB
-	strategy Strategy
-	log      *slog.Logger
+	db            *sql.DB
+	strategy      Strategy
+	log           *slog.Logger
+	appendTxHooks []TransactionHook
 }
 
 var _ estoria.EventStreamReader = (*EventStore)(nil)
 var _ estoria.EventStreamWriter = (*EventStore)(nil)
+
+type TransactionHook func(tx *sql.Tx, events []estoria.Event) error
 
 type Strategy interface {
 	GetStreamIterator(
@@ -62,6 +65,12 @@ func NewEventStore(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 	return eventStore, nil
 }
 
+// AddTransactionalHook adds a hook to be executed within the transaction when appending events.
+// If an error is returned from any hook, the transaction will be aborted.
+func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
+	s.appendTxHooks = append(s.appendTxHooks, hook)
+}
+
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	s.log.Debug("reading events from Postgres stream", "stream_id", streamID.String())
@@ -78,19 +87,46 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.Event) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("beginning transaction: %w", err)
-	}
+	_, txErr := s.doInTransaction(ctx, func(tx *sql.Tx) (sql.Result, error) {
+		s.log.Debug("inserting events", "events", len(events))
+		if _, err := s.strategy.InsertStreamEvents(tx, streamID, events, opts); err != nil {
+			return nil, fmt.Errorf("inserting events: %w", err)
+		}
 
-	s.log.Debug("inserting events", "events", len(events))
-	if _, err = s.strategy.InsertStreamEvents(tx, streamID, events, opts); err != nil {
-		return fmt.Errorf("inserting events: %w", err)
-	}
+		for _, hook := range s.appendTxHooks {
+			if err := hook(tx, events); err != nil {
+				return nil, fmt.Errorf("executing transaction hook: %w", err)
+			}
+		}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing transaction: %w", err)
+		return nil, nil
+	})
+	if txErr != nil {
+		return fmt.Errorf("inserting events: %w", txErr)
 	}
 
 	return nil
+}
+
+// Executes the given function within a transaction.
+func (s *EventStore) doInTransaction(ctx context.Context, f func(tx *sql.Tx) (sql.Result, error)) (any, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("beginning transaction: %w", err)
+	}
+
+	result, err := f(tx)
+	if err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			s.log.Error("rolling back transaction", "err", rollbackErr)
+		}
+
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return result, nil
 }

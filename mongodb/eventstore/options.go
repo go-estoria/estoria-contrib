@@ -23,6 +23,7 @@ func WithLogger(logger *slog.Logger) EventStoreOption {
 	}
 }
 
+// WithOutbox sets the outbox to use for the event store.
 func WithOutbox(outbox *outbox.Outbox) EventStoreOption {
 	return func(s *EventStore) error {
 		s.AddTransactionalHook(outbox.HandleEventsInTransaction)

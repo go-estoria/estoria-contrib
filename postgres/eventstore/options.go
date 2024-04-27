@@ -3,6 +3,8 @@ package eventstore
 import (
 	"errors"
 	"log/slog"
+
+	"github.com/go-estoria/estoria-contrib/postgres/outbox"
 )
 
 type EventStoreOption func(*EventStore) error
@@ -17,6 +19,14 @@ func WithLogger(logger *slog.Logger) EventStoreOption {
 		}
 
 		s.log = logger
+		return nil
+	}
+}
+
+// WithOutbox sets the outbox to use for the event store.
+func WithOutbox(outbox *outbox.Outbox) EventStoreOption {
+	return func(s *EventStore) error {
+		s.AddTransactionalHook(outbox.HandleEventsInTransaction)
 		return nil
 	}
 }
