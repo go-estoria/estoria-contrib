@@ -11,15 +11,25 @@ import (
 )
 
 type Outbox struct {
-	db    *sql.DB
-	table string
+	db              *sql.DB
+	table           string
+	includeFullData bool
 }
 
-func New(db *sql.DB, table string) *Outbox {
-	return &Outbox{
-		db:    db,
-		table: table,
+func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
+	outbox := &Outbox{
+		db:              db,
+		table:           table,
+		includeFullData: false,
 	}
+
+	for _, opt := range opts {
+		if err := opt(outbox); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
+	}
+
+	return outbox, nil
 }
 
 func (o *Outbox) HandleEventsInTransaction(tx *sql.Tx, events []estoria.Event) error {
@@ -34,14 +44,20 @@ func (o *Outbox) HandleEventsInTransaction(tx *sql.Tx, events []estoria.Event) e
 		}
 	}
 
-	stmt, err := tx.Prepare(fmt.Sprintf("INSERT INTO %s (stream_id, timestamp, event) VALUES ($1, $2, $3)", o.table))
+	statement := fmt.Sprintf("INSERT INTO %s (timestamp, stream_id, event_id, event_data) VALUES ($1, $2, $3, $4)", o.table)
+	stmt, err := tx.Prepare(statement)
 	if err != nil {
 		return fmt.Errorf("preparing statement: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, event := range events {
-		_, err = stmt.Exec(event.StreamID(), event.Timestamp(), event.Data())
+		var data any
+		if o.includeFullData {
+			data = event.Data()
+		}
+
+		_, err = stmt.Exec(event.Timestamp(), event.StreamID(), event.ID(), data)
 		if err != nil {
 			return fmt.Errorf("executing statement: %w", err)
 		}

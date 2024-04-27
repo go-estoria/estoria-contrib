@@ -263,15 +263,19 @@ func newPostgresEventStore(ctx context.Context) estoria.EventStore {
 		panic(err)
 	}
 
-	outbox := pgoutbox.New(db, "outbox")
+	outbox, err := pgoutbox.New(db, "outbox", pgoutbox.WithFullEventData(false))
+	if err != nil {
+		panic(err)
+	}
 
 	// create the 'outbox' table if it doesn't exist
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS outbox (
 			id         SERIAL PRIMARY KEY,
-			stream_id  TEXT NOT NULL,
 			timestamp  TIMESTAMPTZ NOT NULL,
-			event      BYTEA NOT NULL
+			stream_id  TEXT NOT NULL,
+			event_id   TEXT NOT NULL,
+			event_data BYTEA
 		);
 	`); err != nil {
 		panic(err)
