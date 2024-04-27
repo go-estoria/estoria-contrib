@@ -22,9 +22,9 @@ type event struct {
 	data      []byte
 }
 
-var _ estoria.Event = (*event)(nil)
+var _ estoria.EventStoreEvent = (*event)(nil)
 
-func documentFromEvent(e estoria.Event) *eventDocument {
+func documentFromEvent(e estoria.EventStoreEvent) *eventDocument {
 	eventID := e.ID()
 	streamID := e.StreamID()
 	return &eventDocument{

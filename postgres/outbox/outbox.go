@@ -32,7 +32,7 @@ func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
 	return outbox, nil
 }
 
-func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.Event) error {
+func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
@@ -68,5 +68,5 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.Event) error {
 type outboxRow struct {
 	StreamID  typeid.AnyID
 	Timestamp time.Time
-	Event     estoria.Event
+	Event     estoria.EventStoreEvent
 }

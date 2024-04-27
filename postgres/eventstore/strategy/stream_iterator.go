@@ -17,7 +17,7 @@ type streamIterator struct {
 	rows     *sql.Rows
 }
 
-func (i *streamIterator) Next(ctx context.Context) (estoria.Event, error) {
+func (i *streamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, error) {
 	if !i.rows.Next() {
 		return nil, io.EOF
 	}
@@ -52,7 +52,7 @@ type event struct {
 	data      []byte
 }
 
-var _ estoria.Event = (*event)(nil)
+var _ estoria.EventStoreEvent = (*event)(nil)
 
 func (e *event) ID() typeid.AnyID {
 	return e.id

@@ -12,7 +12,7 @@ import (
 )
 
 type eventDocument interface {
-	ToEvent(streamID typeid.AnyID) (estoria.Event, error)
+	ToEvent(streamID typeid.AnyID) (estoria.EventStoreEvent, error)
 }
 
 type streamIterator[D eventDocument] struct {
@@ -21,7 +21,7 @@ type streamIterator[D eventDocument] struct {
 	cursor      *mongo.Cursor
 }
 
-func (i *streamIterator[D]) Next(ctx context.Context) (estoria.Event, error) {
+func (i *streamIterator[D]) Next(ctx context.Context) (estoria.EventStoreEvent, error) {
 	if i.cursor.Next(ctx) {
 		doc := i.docTemplate
 		if err := i.cursor.Decode(&doc); err != nil {
@@ -50,7 +50,7 @@ type event struct {
 	data      []byte
 }
 
-var _ estoria.Event = (*event)(nil)
+var _ estoria.EventStoreEvent = (*event)(nil)
 
 func (e *event) ID() typeid.AnyID {
 	return e.id

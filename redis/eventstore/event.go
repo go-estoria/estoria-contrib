@@ -16,7 +16,7 @@ type event struct {
 	data      []byte
 }
 
-var _ estoria.Event = (*event)(nil)
+var _ estoria.EventStoreEvent = (*event)(nil)
 
 func (e *event) ID() typeid.AnyID {
 	return e.id

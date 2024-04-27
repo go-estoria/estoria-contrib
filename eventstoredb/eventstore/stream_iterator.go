@@ -18,7 +18,7 @@ type StreamIterator struct {
 	stream   *esdb.ReadStream
 }
 
-func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
+func (i *StreamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()

@@ -72,7 +72,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.AnyID,
-	events []estoria.Event,
+	events []estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	slog.Debug("inserting events into Mongo collection", "stream_id", streamID, "events", len(events))
@@ -124,7 +124,7 @@ type collectionPerStreamEventDocument struct {
 	Data      []byte    `bson:"data"`
 }
 
-func collectionPerStreamEventDocumentFromEvent(evt estoria.Event, version int64) collectionPerStreamEventDocument {
+func collectionPerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, version int64) collectionPerStreamEventDocument {
 	return collectionPerStreamEventDocument{
 		EventID:   evt.ID().Suffix(),
 		EventType: evt.ID().Prefix(),
@@ -134,7 +134,7 @@ func collectionPerStreamEventDocumentFromEvent(evt estoria.Event, version int64)
 	}
 }
 
-func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.Event, error) {
+func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.EventStoreEvent, error) {
 	eventID, err := typeid.From(d.EventType, d.EventID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing event ID: %w", err)

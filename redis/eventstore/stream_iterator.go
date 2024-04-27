@@ -20,7 +20,7 @@ type StreamIterator struct {
 	pageSize      int64
 }
 
-func (i *StreamIterator) Next(ctx context.Context) (estoria.Event, error) {
+func (i *StreamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()

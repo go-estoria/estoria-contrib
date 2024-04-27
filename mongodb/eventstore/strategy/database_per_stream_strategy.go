@@ -71,7 +71,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(
 func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.AnyID,
-	events []estoria.Event,
+	events []estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
@@ -123,7 +123,7 @@ type databasePerStreamEventDocument struct {
 	Data      []byte    `bson:"data"`
 }
 
-func databasePerStreamEventDocumentFromEvent(evt estoria.Event, version int64) databasePerStreamEventDocument {
+func databasePerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, version int64) databasePerStreamEventDocument {
 	return databasePerStreamEventDocument{
 		EventID:   evt.ID().Suffix(),
 		EventType: evt.ID().Prefix(),
@@ -133,7 +133,7 @@ func databasePerStreamEventDocumentFromEvent(evt estoria.Event, version int64) d
 	}
 }
 
-func (d databasePerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.Event, error) {
+func (d databasePerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.EventStoreEvent, error) {
 	eventID, err := typeid.From(d.EventType, d.EventID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing event ID: %w", err)

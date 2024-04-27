@@ -47,7 +47,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.Event) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events ...estoria.EventStoreEvent) error {
 	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
 	pipeline := s.redisClient.TxPipeline()
