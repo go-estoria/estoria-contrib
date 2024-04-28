@@ -44,10 +44,11 @@ func (i *streamIterator[D]) Next(ctx context.Context) (estoria.EventStoreEvent, 
 }
 
 type event struct {
-	id        typeid.AnyID
-	streamID  typeid.AnyID
-	timestamp time.Time
-	data      []byte
+	id            typeid.AnyID
+	streamID      typeid.AnyID
+	streamVersion int64
+	timestamp     time.Time
+	data          []byte
 }
 
 var _ estoria.EventStoreEvent = (*event)(nil)
@@ -58,6 +59,10 @@ func (e *event) ID() typeid.AnyID {
 
 func (e *event) StreamID() typeid.AnyID {
 	return e.streamID
+}
+
+func (e *event) StreamVersion() int64 {
+	return e.streamVersion
 }
 
 func (e *event) Timestamp() time.Time {

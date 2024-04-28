@@ -42,6 +42,7 @@ func main() {
 
 	for name, store := range eventStores {
 		fmt.Println("Event Store:", name)
+		var err error
 
 		// Choose an event store from above:
 		eventReader = store
@@ -49,7 +50,10 @@ func main() {
 
 		// 2. Create an AggregateStore to load and store aggregates.
 		var aggregateStore estoria.AggregateStore[*Account]
-		aggregateStore = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
+		aggregateStore, err = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
+		if err != nil {
+			panic(err)
+		}
 
 		// Enable aggregate snapshots (optional)
 		snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
@@ -305,6 +309,6 @@ func newPostgresEventStore(ctx context.Context) estoria.EventStore {
 type OutboxLogger struct{}
 
 func (l OutboxLogger) Handle(_ context.Context, entry outbox.OutboxEntry) error {
-	slog.Info("handling outbox entry", "stream_id", entry.StreamID(), "event_id", entry.EventID())
+	// slog.Info("handling outbox entry", "stream_id", entry.StreamID(), "event_id", entry.EventID())
 	return nil
 }

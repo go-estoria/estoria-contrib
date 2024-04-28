@@ -141,9 +141,10 @@ func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estori
 	}
 
 	return &event{
-		id:        eventID,
-		streamID:  streamID,
-		timestamp: d.Timestamp,
-		data:      d.Data,
+		id:            eventID,
+		streamID:      streamID,
+		streamVersion: d.Version,
+		timestamp:     d.Timestamp,
+		data:          d.Data,
 	}, nil
 }
