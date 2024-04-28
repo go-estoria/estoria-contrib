@@ -914,8 +914,8 @@ github.com/fogleman/gg v1.3.0/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzP
 github.com/frankban/quicktest v1.11.3/go.mod h1:wRf/ReqHper53s+kmmSZizM8NamnL3IM0I9ntUbOk+k=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
-github.com/go-estoria/estoria v0.0.0-20240427225138-fbc6ca5e6b29 h1:J8zyOaoIvJnpmHlGNtklrN72hCpHQIjbpF/L2akpwNU=
-github.com/go-estoria/estoria v0.0.0-20240427225138-fbc6ca5e6b29/go.mod h1:tgAHxByH6Oxi6Ei1XsCTNmo0cGwFmd8F7TBKxGqBBGM=
+github.com/go-estoria/estoria v0.0.0-20240428041240-e3cab02645f6 h1:VfcJUdzzeNCjS03hL7zcXxBmFp2L8xa3wrA2yxGEQtM=
+github.com/go-estoria/estoria v0.0.0-20240428041240-e3cab02645f6/go.mod h1:tgAHxByH6Oxi6Ei1XsCTNmo0cGwFmd8F7TBKxGqBBGM=
 github.com/go-fonts/dejavu v0.1.0/go.mod h1:4Wt4I4OU2Nq9asgDCteaAaWZOV24E+0/Pwo0gppep4g=
 github.com/go-fonts/latin-modern v0.2.0/go.mod h1:rQVLdDMK+mK1xscDwsqM5J8U2jrRa3T0ecnM9pNujks=
 github.com/go-fonts/liberation v0.1.1/go.mod h1:K6qoJYypsmfVjWg8KOVDQhLc8UDgIK2HYqyqAO9z7GY=
