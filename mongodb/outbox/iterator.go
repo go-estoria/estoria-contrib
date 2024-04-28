@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-estoria/estoria/outbox"
 	"go.jetpack.io/typeid"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -21,55 +21,60 @@ type Iterator struct {
 
 func (i *Iterator) Next(ctx context.Context) (outbox.OutboxEntry, error) {
 	if i.changeStream == nil {
-		collection := i.client.Database(i.database).Collection(i.collection)
-		opts := options.ChangeStream().SetFullDocument("updateLookup")
-		changeStream, err := collection.Watch(ctx, mongo.Pipeline{}, opts)
+		changeStream, err := i.getChangeStream(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("creating change stream: %w", err)
+			return nil, fmt.Errorf("getting change stream: %w", err)
 		}
 
 		i.changeStream = changeStream
 	}
 
 	if i.changeStream.Next(ctx) {
-		changeStreamDoc := map[string]any{}
+		changeStreamDoc := changeStreamDocument{}
 		if err := i.changeStream.Decode(&changeStreamDoc); err != nil {
 			return nil, fmt.Errorf("decoding change stream event: %w", err)
 		}
 
-		fullDocument, ok := changeStreamDoc["fullDocument"].(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("can't get full document from change stream document")
-		}
+		outboxDoc := changeStreamDoc.OutboxDocument
 
-		doc := outboxDocument{
-			Timestamp: fullDocument["timestamp"].(primitive.DateTime),
-			StreamID:  fullDocument["stream_id"].(string),
-			EventID:   fullDocument["event_id"].(string),
-			EventData: fullDocument["event_data"].(primitive.Binary),
-		}
-
-		streamID, err := typeid.FromString(doc.StreamID)
+		streamID, err := typeid.FromString(outboxDoc.StreamID)
 		if err != nil {
 			return nil, fmt.Errorf("parsing stream ID: %w", err)
 		}
 
-		eventID, err := typeid.FromString(doc.EventID)
+		eventID, err := typeid.FromString(outboxDoc.EventID)
 		if err != nil {
 			return nil, fmt.Errorf("parsing event ID: %w", err)
 		}
 
 		entry := outboxEntry{
-			timestamp: doc.Timestamp.Time(),
+			timestamp: outboxDoc.Timestamp.Time(),
 			streamID:  streamID,
 			eventID:   eventID,
-			eventData: doc.EventData.Data,
+			eventData: outboxDoc.EventData.Data,
 		}
 
 		return entry, nil
 	}
 
 	return nil, fmt.Errorf("iterating change stream: %w", i.changeStream.Err())
+}
+
+func (i *Iterator) getChangeStream(ctx context.Context) (*mongo.ChangeStream, error) {
+	collection := i.client.Database(i.database).Collection(i.collection)
+	opts := options.ChangeStream().SetFullDocument("updateLookup")
+	changeStream, err := collection.Watch(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"operationType": "insert"}}},
+	}, opts)
+	if err != nil {
+		return nil, fmt.Errorf("creating change stream: %w", err)
+	}
+
+	return changeStream, nil
+}
+
+type changeStreamDocument struct {
+	OutboxDocument outboxDocument `bson:"fullDocument"`
 }
 
 type outboxEntry struct {

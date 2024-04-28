@@ -216,7 +216,6 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	outboxProcessor.RegisterHandlers(UserDeletedEvent{}, logger)
 	outboxProcessor.RegisterHandlers(BalanceChangedEvent{}, logger)
 
-	slog.Info("starting outbox processor")
 	if err := outboxProcessor.Start(ctx); err != nil {
 		panic(err)
 	}
@@ -309,6 +308,6 @@ func newPostgresEventStore(ctx context.Context) estoria.EventStore {
 type OutboxLogger struct{}
 
 func (l OutboxLogger) Handle(_ context.Context, entry outbox.OutboxEntry) error {
-	// slog.Info("handling outbox entry", "stream_id", entry.StreamID(), "event_id", entry.EventID())
+	slog.Info("handling outbox entry", "stream_id", entry.StreamID(), "event_id", entry.EventID())
 	return nil
 }
