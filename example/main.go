@@ -17,6 +17,7 @@ import (
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
+	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshotter"
 )
@@ -31,11 +32,9 @@ func main() {
 	var eventWriter estoria.EventStreamWriter
 
 	eventStores := map[string]estoria.EventStore{
-		// "memory": &memoryes.EventStore{
-		// 	Events: map[string][]estoria.Event{},
-		// },
+		"memory": memoryes.NewEventStore(),
 		// "esdb": newESDBEventStore(ctx),
-		"mongo": newMongoEventStore(ctx),
+		// "mongo": newMongoEventStore(ctx),
 		// "redis": newRedisEventStore(ctx),
 		// "pg": newPostgresEventStore(ctx),
 	}
