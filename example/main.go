@@ -49,7 +49,7 @@ func main() {
 
 		// 2. Create an AggregateStore to load and store aggregates.
 		var aggregateStore estoria.AggregateStore[*Account]
-		aggregateStore, err = estoria.NewAggregateStore(eventReader, eventWriter, NewAccount)
+		aggregateStore, err = aggregatestore.New(eventReader, eventWriter, NewAccount)
 		if err != nil {
 			panic(err)
 		}
