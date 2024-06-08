@@ -121,7 +121,7 @@ type collectionPerStreamEventDocument struct {
 	EventType string    `bson:"event_type"`
 	Timestamp time.Time `bson:"timestamp"`
 	Version   int64     `bson:"version"`
-	Data      []byte    `bson:"data"`
+	Data      []byte    `bson:"data"` // QUESITON: should the event store API use []byte or any, to allow for different serialization strategies?
 }
 
 func collectionPerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, version int64) collectionPerStreamEventDocument {
