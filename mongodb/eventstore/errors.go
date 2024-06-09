@@ -3,12 +3,12 @@ package eventstore
 import (
 	"fmt"
 
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 // ErrEventExists is returned when attempting to write an event that already exists.
 type ErrEventExists struct {
-	EventID typeid.AnyID
+	EventID typeid.TypeID
 }
 
 // Error returns the error message.

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/typeid"
 	"github.com/redis/go-redis/v9"
-	"go.jetpack.io/typeid"
 )
 
 const (
@@ -36,7 +36,7 @@ func NewEventStore(redisClient *redis.Client, opts ...EventStoreOption) (*EventS
 	return eventStore, nil
 }
 
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	s.log.Debug("reading stream", "stream_id", streamID.String())
 
 	return &StreamIterator{
@@ -47,7 +47,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
 	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
 	pipeline := s.redisClient.TxPipeline()

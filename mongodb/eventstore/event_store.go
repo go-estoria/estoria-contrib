@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
@@ -31,12 +31,12 @@ type TransactionHook interface {
 type Strategy interface {
 	GetStreamIterator(
 		ctx context.Context,
-		streamID typeid.AnyID,
+		streamID typeid.TypeID,
 		opts estoria.ReadStreamOptions,
 	) (estoria.EventStreamIterator, error)
 	InsertStreamEvents(
 		ctx mongo.SessionContext,
-		streamID typeid.AnyID,
+		streamID typeid.TypeID,
 		events []estoria.EventStoreEvent,
 		opts estoria.AppendStreamOptions,
 	) (*mongo.InsertManyResult, error)
@@ -71,7 +71,7 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	s.log.Debug("reading events from stream", "stream_id", streamID.String())
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
@@ -83,7 +83,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
 	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {

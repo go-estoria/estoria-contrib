@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 type Outbox struct {
@@ -66,7 +66,7 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) erro
 }
 
 type outboxRow struct {
-	StreamID  typeid.AnyID
+	StreamID  typeid.TypeID
 	Timestamp time.Time
 	Event     estoria.EventStoreEvent
 }

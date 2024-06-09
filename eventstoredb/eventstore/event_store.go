@@ -7,8 +7,8 @@ import (
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid"
-	"go.jetpack.io/typeid"
 )
 
 type EventStore struct {
@@ -32,7 +32,7 @@ func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventSto
 	return eventStore, nil
 }
 
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	readOpts := esdb.ReadStreamOptions{
 		Direction: esdb.Forwards,
 		From:      esdb.Start{},
@@ -67,7 +67,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
@@ -81,8 +81,13 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, op
 
 	streamEvents := make([]esdb.EventData, len(events))
 	for i, e := range events {
+		eventID, err := uuid.FromString(e.ID().Suffix())
+		if err != nil {
+			return fmt.Errorf("parsing event ID: %w", err)
+		}
+
 		streamEvents[i] = esdb.EventData{
-			EventID:     uuid.UUID(e.ID().UUIDBytes()),
+			EventID:     eventID,
 			ContentType: esdb.ContentTypeJson,
 			EventType:   e.ID().Prefix(),
 			Data:        e.Data(),

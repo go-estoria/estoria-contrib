@@ -7,16 +7,16 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type eventDocument interface {
-	ToEvent(streamID typeid.AnyID) (estoria.EventStoreEvent, error)
+	ToEvent(streamID typeid.TypeID) (estoria.EventStoreEvent, error)
 }
 
 type streamIterator[D eventDocument] struct {
-	streamID    typeid.AnyID
+	streamID    typeid.TypeID
 	docTemplate D
 	cursor      *mongo.Cursor
 }
@@ -44,8 +44,8 @@ func (i *streamIterator[D]) Next(ctx context.Context) (estoria.EventStoreEvent, 
 }
 
 type event struct {
-	id            typeid.AnyID
-	streamID      typeid.AnyID
+	id            typeid.TypeID
+	streamID      typeid.TypeID
 	streamVersion int64
 	timestamp     time.Time
 	data          []byte
@@ -53,11 +53,11 @@ type event struct {
 
 var _ estoria.EventStoreEvent = (*event)(nil)
 
-func (e *event) ID() typeid.AnyID {
+func (e *event) ID() typeid.TypeID {
 	return e.id
 }
 
-func (e *event) StreamID() typeid.AnyID {
+func (e *event) StreamID() typeid.TypeID {
 	return e.streamID
 }
 

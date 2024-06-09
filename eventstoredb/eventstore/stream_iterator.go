@@ -9,11 +9,11 @@ import (
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 type StreamIterator struct {
-	streamID typeid.AnyID
+	streamID typeid.TypeID
 	client   *esdb.Client
 	stream   *esdb.ReadStream
 }
@@ -46,7 +46,7 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, err
 		return nil, fmt.Errorf("parsing stream ID: %w", err)
 	}
 
-	eventID, err := typeid.FromUUID[typeid.AnyID](resolvedEvent.Event.EventType, resolvedEvent.Event.EventID.String())
+	eventID, err := typeid.From(resolvedEvent.Event.EventType, resolvedEvent.Event.EventID.String())
 	if err != nil {
 		return nil, fmt.Errorf("parsing event ID: %w", err)
 	}

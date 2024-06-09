@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -37,7 +37,7 @@ func NewCollectionPerStreamStrategy(client *mongo.Client, database string) (*Col
 
 func (s *CollectionPerStreamStrategy) GetStreamIterator(
 	ctx context.Context,
-	streamID typeid.AnyID,
+	streamID typeid.TypeID,
 	opts estoria.ReadStreamOptions,
 ) (estoria.EventStreamIterator, error) {
 	collection := s.database.Collection(streamID.String())
@@ -71,7 +71,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 
 func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
-	streamID typeid.AnyID,
+	streamID typeid.TypeID,
 	events []estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
@@ -100,7 +100,7 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	return result, nil
 }
 
-func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.AnyID) (int64, error) {
+func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.TypeID) (int64, error) {
 	collection := s.database.Collection(streamID.String())
 
 	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
@@ -134,7 +134,7 @@ func collectionPerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, vers
 	}
 }
 
-func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.AnyID) (estoria.EventStoreEvent, error) {
+func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.TypeID) (estoria.EventStoreEvent, error) {
 	eventID, err := typeid.From(d.EventType, d.EventID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing event ID: %w", err)

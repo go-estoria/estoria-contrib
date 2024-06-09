@@ -9,7 +9,7 @@ import (
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/postgres"
 	"github.com/go-estoria/estoria-contrib/postgres/eventstore/strategy"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 type EventStore struct {
@@ -27,12 +27,12 @@ type TransactionHook func(tx *sql.Tx, events []estoria.EventStoreEvent) error
 type Strategy interface {
 	GetStreamIterator(
 		ctx context.Context,
-		streamID typeid.AnyID,
+		streamID typeid.TypeID,
 		opts estoria.ReadStreamOptions,
 	) (estoria.EventStreamIterator, error)
 	InsertStreamEvents(
 		tx *sql.Tx,
-		streamID typeid.AnyID,
+		streamID typeid.TypeID,
 		events []estoria.EventStoreEvent,
 		opts estoria.AppendStreamOptions,
 	) (sql.Result, error)
@@ -73,7 +73,7 @@ func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	s.log.Debug("reading events from Postgres stream", "stream_id", streamID.String())
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
@@ -85,7 +85,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.AnyID, opts
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.AnyID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
 	_, txErr := postgres.DoInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {

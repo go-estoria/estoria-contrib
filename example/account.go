@@ -6,12 +6,12 @@ import (
 	"log/slog"
 
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 // An Account is an example entity that satifies the requirements of the estoria.Entity interface.
 type Account struct {
-	ID      typeid.AnyID
+	ID      typeid.TypeID
 	Users   []string
 	Balance int
 }
@@ -26,7 +26,7 @@ func NewAccount() *Account {
 }
 
 // EntityID returns the ID of the entity.
-func (a *Account) EntityID() typeid.AnyID {
+func (a *Account) EntityID() typeid.TypeID {
 	return a.ID
 }
 

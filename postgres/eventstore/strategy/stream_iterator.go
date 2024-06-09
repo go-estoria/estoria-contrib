@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 type streamIterator struct {
-	streamID typeid.AnyID
+	streamID typeid.TypeID
 	rows     *sql.Rows
 }
 
@@ -46,8 +46,8 @@ func (i *streamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, err
 }
 
 type event struct {
-	id            typeid.AnyID
-	streamID      typeid.AnyID
+	id            typeid.TypeID
+	streamID      typeid.TypeID
 	streamVersion int64
 	timestamp     time.Time
 	data          []byte
@@ -55,11 +55,11 @@ type event struct {
 
 var _ estoria.EventStoreEvent = (*event)(nil)
 
-func (e *event) ID() typeid.AnyID {
+func (e *event) ID() typeid.TypeID {
 	return e.id
 }
 
-func (e *event) StreamID() typeid.AnyID {
+func (e *event) StreamID() typeid.TypeID {
 	return e.streamID
 }
 

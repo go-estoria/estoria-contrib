@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria/outbox"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -79,8 +79,8 @@ type changeStreamDocument struct {
 
 type outboxEntry struct {
 	timestamp time.Time
-	streamID  typeid.AnyID
-	eventID   typeid.AnyID
+	streamID  typeid.TypeID
+	eventID   typeid.TypeID
 	eventData []byte
 }
 
@@ -88,11 +88,11 @@ func (e outboxEntry) Timestamp() time.Time {
 	return e.timestamp
 }
 
-func (e outboxEntry) StreamID() typeid.AnyID {
+func (e outboxEntry) StreamID() typeid.TypeID {
 	return e.streamID
 }
 
-func (e outboxEntry) EventID() typeid.AnyID {
+func (e outboxEntry) EventID() typeid.TypeID {
 	return e.eventID
 }
 

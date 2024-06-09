@@ -5,13 +5,13 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/typeid"
 	"github.com/redis/go-redis/v9"
-	"go.jetpack.io/typeid"
 )
 
 type event struct {
-	id            typeid.AnyID
-	streamID      typeid.AnyID
+	id            typeid.TypeID
+	streamID      typeid.TypeID
 	streamVersion int64
 	timestamp     time.Time
 	data          []byte
@@ -19,11 +19,11 @@ type event struct {
 
 var _ estoria.EventStoreEvent = (*event)(nil)
 
-func (e *event) ID() typeid.AnyID {
+func (e *event) ID() typeid.TypeID {
 	return e.id
 }
 
-func (e *event) StreamID() typeid.AnyID {
+func (e *event) StreamID() typeid.TypeID {
 	return e.streamID
 }
 
@@ -39,7 +39,7 @@ func (e *event) Data() []byte {
 	return e.data
 }
 
-func eventFromRedisMessage(streamID typeid.AnyID, message redis.XMessage) (*event, error) {
+func eventFromRedisMessage(streamID typeid.TypeID, message redis.XMessage) (*event, error) {
 	eventData := message.Values
 
 	eventIDStr, ok := eventData["event_id"].(string)

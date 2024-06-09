@@ -7,12 +7,12 @@ import (
 	"log/slog"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/typeid"
 	"github.com/redis/go-redis/v9"
-	"go.jetpack.io/typeid"
 )
 
 type StreamIterator struct {
-	streamID      typeid.AnyID
+	streamID      typeid.TypeID
 	redis         *redis.Client
 	batch         []redis.XMessage
 	lastMessageID string

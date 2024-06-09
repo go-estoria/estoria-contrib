@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"go.jetpack.io/typeid"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 type eventDocument struct {
@@ -16,8 +16,8 @@ type eventDocument struct {
 }
 
 type event struct {
-	id            typeid.AnyID
-	streamID      typeid.AnyID
+	id            typeid.TypeID
+	streamID      typeid.TypeID
 	streamVersion int64
 	timestamp     time.Time
 	data          []byte
@@ -56,11 +56,11 @@ func eventFromDocument(d *eventDocument) (*event, error) {
 	}, nil
 }
 
-func (e *event) ID() typeid.AnyID {
+func (e *event) ID() typeid.TypeID {
 	return e.id
 }
 
-func (e *event) StreamID() typeid.AnyID {
+func (e *event) StreamID() typeid.TypeID {
 	return e.streamID
 }
 
