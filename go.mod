@@ -1,17 +1,16 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.22.2
+go 1.22.4
 
 replace github.com/go-estoria/estoria => ../estoria
 
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
 	github.com/go-estoria/estoria v0.0.0-20240428041240-e3cab02645f6
+	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/redis/go-redis/v9 v9.5.1
 	go.mongodb.org/mongo-driver v1.13.1
 )
-
-require github.com/gofrs/uuid v4.4.0+incompatible
 
 require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
