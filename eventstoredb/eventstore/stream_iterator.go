@@ -41,7 +41,7 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, err
 		return nil, fmt.Errorf("receiving event: %w", err)
 	}
 
-	streamID, err := typeid.FromString(resolvedEvent.Event.StreamID)
+	streamID, err := typeid.ParseString(resolvedEvent.Event.StreamID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing stream ID: %w", err)
 	}

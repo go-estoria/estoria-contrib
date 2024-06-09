@@ -37,12 +37,12 @@ func (i *Iterator) Next(ctx context.Context) (outbox.OutboxEntry, error) {
 
 		outboxDoc := changeStreamDoc.OutboxDocument
 
-		streamID, err := typeid.FromString(outboxDoc.StreamID)
+		streamID, err := typeid.ParseString(outboxDoc.StreamID)
 		if err != nil {
 			return nil, fmt.Errorf("parsing stream ID: %w", err)
 		}
 
-		eventID, err := typeid.FromString(outboxDoc.EventID)
+		eventID, err := typeid.ParseString(outboxDoc.EventID)
 		if err != nil {
 			return nil, fmt.Errorf("parsing event ID: %w", err)
 		}

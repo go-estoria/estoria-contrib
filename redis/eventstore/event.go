@@ -47,7 +47,7 @@ func eventFromRedisMessage(streamID typeid.TypeID, message redis.XMessage) (*eve
 		return nil, fmt.Errorf("event ID is not string")
 	}
 
-	eventID, err := typeid.FromString(eventIDStr)
+	eventID, err := typeid.ParseString(eventIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("parsing event ID: %w", err)
 	}

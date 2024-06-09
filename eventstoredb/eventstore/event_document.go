@@ -43,7 +43,7 @@ func eventFromDocument(d *eventDocument) (*event, error) {
 		return nil, err
 	}
 
-	streamID, err := typeid.FromString(d.StreamID)
+	streamID, err := typeid.ParseString(d.StreamID)
 	if err != nil {
 		return nil, err
 	}
