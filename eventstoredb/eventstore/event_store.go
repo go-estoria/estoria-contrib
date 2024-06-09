@@ -81,7 +81,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, o
 
 	streamEvents := make([]esdb.EventData, len(events))
 	for i, e := range events {
-		eventID, err := uuid.FromString(e.ID().Suffix())
+		eventID, err := uuid.FromString(e.ID().Value())
 		if err != nil {
 			return fmt.Errorf("parsing event ID: %w", err)
 		}
@@ -89,7 +89,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, o
 		streamEvents[i] = esdb.EventData{
 			EventID:     eventID,
 			ContentType: esdb.ContentTypeJson,
-			EventType:   e.ID().Prefix(),
+			EventType:   e.ID().TypeName(),
 			Data:        e.Data(),
 		}
 	}

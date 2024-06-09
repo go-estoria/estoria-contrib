@@ -125,8 +125,8 @@ type databasePerStreamEventDocument struct {
 
 func databasePerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, version int64) databasePerStreamEventDocument {
 	return databasePerStreamEventDocument{
-		EventID:   evt.ID().Suffix(),
-		EventType: evt.ID().Prefix(),
+		EventID:   evt.ID().Value(),
+		EventType: evt.ID().TypeName(),
 		Timestamp: evt.Timestamp(),
 		Version:   version,
 		Data:      evt.Data(),

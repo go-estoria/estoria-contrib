@@ -30,8 +30,8 @@ func documentFromEvent(e estoria.EventStoreEvent) *eventDocument {
 	streamID := e.StreamID()
 	return &eventDocument{
 		StreamID:  streamID.String(),
-		EventID:   eventID.Suffix(),
-		EventType: eventID.Prefix(),
+		EventID:   eventID.Value(),
+		EventType: eventID.TypeName(),
 		Timestamp: e.Timestamp(),
 		Data:      e.Data(),
 	}

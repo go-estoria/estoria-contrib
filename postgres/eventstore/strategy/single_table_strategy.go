@@ -54,7 +54,7 @@ func (s *SingleTableStrategy) GetStreamIterator(
 		ORDER BY version %s
 		%s
 		OFFSET $3
-	`, s.table, sortDirection, limitClause), streamID.Prefix(), streamID.Suffix(), opts.Offset)
+	`, s.table, sortDirection, limitClause), streamID.TypeName(), streamID.Value(), opts.Offset)
 	if err != nil {
 		return nil, fmt.Errorf("querying events: %w", err)
 	}
@@ -97,10 +97,10 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 	for _, event := range events {
 		version++
 		_, err := stmt.Exec(
-			event.ID().Suffix(),
-			event.StreamID().Prefix(),
-			event.StreamID().Suffix(),
-			event.ID().Prefix(),
+			event.ID().Value(),
+			event.StreamID().TypeName(),
+			event.StreamID().Value(),
+			event.ID().TypeName(),
 			event.Timestamp(),
 			version,
 			event.Data(),
@@ -120,7 +120,7 @@ func (s *SingleTableStrategy) getLatestVersion(tx *sql.Tx, streamID typeid.TypeI
 		SELECT COALESCE(MAX(version), 0)
 		FROM %s
 		WHERE stream_type = $1 AND stream_id = $2
-	`, s.table), streamID.Prefix(), streamID.Suffix()).Scan(&version); err != nil {
+	`, s.table), streamID.TypeName(), streamID.Value()).Scan(&version); err != nil {
 		return 0, fmt.Errorf("querying latest version: %w", err)
 	}
 
