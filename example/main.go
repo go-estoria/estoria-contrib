@@ -19,7 +19,7 @@ import (
 	"github.com/go-estoria/estoria/aggregatestore"
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
-	"github.com/go-estoria/estoria/snapshotter"
+	"github.com/go-estoria/estoria/snapshot"
 )
 
 func main() {
@@ -28,9 +28,6 @@ func main() {
 	configureLogging()
 
 	// 1. Create an Event Store to store events.
-	var eventReader estoria.EventStreamReader
-	var eventWriter estoria.EventStreamWriter
-
 	eventStores := map[string]estoria.EventStore{
 		"memory": memoryes.NewEventStore(),
 		// "esdb": newESDBEventStore(ctx),
@@ -39,24 +36,20 @@ func main() {
 		// "pg": newPostgresEventStore(ctx),
 	}
 
-	for name, store := range eventStores {
+	for name, eventStore := range eventStores {
 		fmt.Println("Event Store:", name)
 		var err error
 
-		// Choose an event store from above:
-		eventReader = store
-		eventWriter = store
-
 		// 2. Create an AggregateStore to load and store aggregates.
 		var aggregateStore estoria.AggregateStore[*Account]
-		aggregateStore, err = aggregatestore.New(eventReader, eventWriter, NewAccount)
+		aggregateStore, err = aggregatestore.New(eventStore, eventStore, NewAccount)
 		if err != nil {
 			panic(err)
 		}
 
 		// Enable aggregate snapshots (optional)
-		snapshotReader := snapshotter.NewEventStreamSnapshotReader(eventReader)
-		snapshotWriter := snapshotter.NewEventStreamSnapshotWriter(eventWriter)
+		snapshotReader := snapshot.NewEventStreamReader(eventStore)
+		snapshotWriter := snapshot.NewEventStreamWriter(eventStore)
 		snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
 		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
 

@@ -7,9 +7,11 @@ type UserCreatedEvent struct {
 	Username string
 }
 
+var _ estoria.EntityEventData = (*UserCreatedEvent)(nil)
+
 func (UserCreatedEvent) EventType() string { return "usercreated" }
 
-func (UserCreatedEvent) New() estoria.EventData {
+func (UserCreatedEvent) New() estoria.EntityEventData {
 	return &UserCreatedEvent{}
 }
 
@@ -18,9 +20,11 @@ type UserDeletedEvent struct {
 	Username string
 }
 
+var _ estoria.EntityEventData = (*UserDeletedEvent)(nil)
+
 func (UserDeletedEvent) EventType() string { return "userdeleted" }
 
-func (UserDeletedEvent) New() estoria.EventData {
+func (UserDeletedEvent) New() estoria.EntityEventData {
 	return &UserDeletedEvent{}
 }
 
@@ -29,8 +33,10 @@ type BalanceChangedEvent struct {
 	Amount int
 }
 
+var _ estoria.EntityEventData = (*BalanceChangedEvent)(nil)
+
 func (BalanceChangedEvent) EventType() string { return "balancechanged" }
 
-func (BalanceChangedEvent) New() estoria.EventData {
+func (BalanceChangedEvent) New() estoria.EntityEventData {
 	return &BalanceChangedEvent{}
 }

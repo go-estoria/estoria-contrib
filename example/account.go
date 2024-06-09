@@ -35,7 +35,7 @@ func (a *Account) EntityType() string {
 }
 
 // ApplyEvent applies an event to the entity.
-func (a *Account) ApplyEvent(_ context.Context, event estoria.EventData) error {
+func (a *Account) ApplyEvent(_ context.Context, event estoria.EntityEventData) error {
 	switch e := event.(type) {
 
 	case *BalanceChangedEvent:
