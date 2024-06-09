@@ -12,6 +12,8 @@ require (
 	go.mongodb.org/mongo-driver v1.13.1
 )
 
+require go.jetify.com/typeid v1.2.0
+
 require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
@@ -21,7 +23,6 @@ require (
 	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/lib/pq v1.10.9
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
-	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect

@@ -16,16 +16,20 @@ import (
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
+	jetpackio "github.com/go-estoria/estoria-contrib/typeid/jetpack.io"
 	"github.com/go-estoria/estoria/aggregatestore"
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshot"
+	"github.com/go-estoria/estoria/typeid"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	configureLogging()
+
+	typeid.SetDefaultParser(&jetpackio.TypeIDParser{})
 
 	// 1. Create an Event Store to store events.
 	eventStores := map[string]estoria.EventStore{
