@@ -78,6 +78,8 @@ func main() {
 			panic(err)
 		}
 
+		fmt.Println("created new aggregate with ID", aggregate.ID())
+
 		if err := aggregate.Append(
 			&UserCreatedEvent{Username: "jdoe"},
 			&BalanceChangedEvent{Amount: 100},
@@ -115,6 +117,8 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+
+		fmt.Println("loaded aggregate with ID", loadedAggregate.ID())
 
 		// newEvents, err := aggregate.Data.Diff(&Account{
 		// 	ID:      "123",
