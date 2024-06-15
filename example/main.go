@@ -15,8 +15,8 @@ import (
 	postgres "github.com/go-estoria/estoria-contrib/postgres"
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
-	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
+	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshot"
 )
@@ -28,11 +28,10 @@ func main() {
 
 	// 1. Create an Event Store to store events.
 	eventStores := map[string]estoria.EventStore{
-		// "memory": memoryes.NewEventStore(),
+		"memory": memoryes.NewEventStore(),
 		// "esdb": newESDBEventStore(ctx),
 		// "mongo": newMongoEventStore(ctx),
-		// "redis": newRedisEventStore(ctx),
-		"pg": newPostgresEventStore(ctx),
+		// "pg": newPostgresEventStore(ctx),
 	}
 
 	for name, eventStore := range eventStores {
@@ -224,37 +223,6 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	}
 
 	return mongoEventStore
-}
-
-func newRedisEventStore(ctx context.Context) estoria.EventStore {
-	redisClient, err := redises.NewDefaultRedisClient(
-		ctx,
-		os.Getenv("REDIS_URI"),
-		os.Getenv("REDIS_USERNAME"),
-		os.Getenv("REDIS_PASSWORD"),
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	go func() {
-		<-ctx.Done()
-		redisClient.Close()
-	}()
-
-	slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
-	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
-		log.Fatalf("failed to ping Redis: %v", err)
-	}
-
-	redisEventStore, err := redises.NewEventStore(redisClient)
-	if err != nil {
-		panic(err)
-	}
-
-	return redisEventStore
 }
 
 func newPostgresEventStore(ctx context.Context) estoria.EventStore {

@@ -8,15 +8,12 @@ require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
 	github.com/go-estoria/estoria v0.0.0-20240428041240-e3cab02645f6
 	github.com/gofrs/uuid v4.4.0+incompatible
-	github.com/redis/go-redis/v9 v9.5.1
 	go.mongodb.org/mongo-driver v1.13.1
 )
 
 require go.jetify.com/typeid v1.2.0
 
 require (
-	github.com/cespare/xxhash/v2 v2.2.0 // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
