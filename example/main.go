@@ -17,7 +17,6 @@ import (
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	redises "github.com/go-estoria/estoria-contrib/redis/eventstore"
 	"github.com/go-estoria/estoria/aggregatestore"
-	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshot"
 )
@@ -29,11 +28,11 @@ func main() {
 
 	// 1. Create an Event Store to store events.
 	eventStores := map[string]estoria.EventStore{
-		"memory": memoryes.NewEventStore(),
+		// "memory": memoryes.NewEventStore(),
 		// "esdb": newESDBEventStore(ctx),
 		// "mongo": newMongoEventStore(ctx),
 		// "redis": newRedisEventStore(ctx),
-		// "pg": newPostgresEventStore(ctx),
+		"pg": newPostgresEventStore(ctx),
 	}
 
 	for name, eventStore := range eventStores {
@@ -237,7 +236,11 @@ func newRedisEventStore(ctx context.Context) estoria.EventStore {
 	if err != nil {
 		panic(err)
 	}
-	defer redisClient.Close()
+
+	go func() {
+		<-ctx.Done()
+		redisClient.Close()
+	}()
 
 	slog.Info("pinging Redis", "uri", os.Getenv("REDIS_URI"))
 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)

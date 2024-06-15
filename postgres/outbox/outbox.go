@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-estoria/estoria"
-	"github.com/go-estoria/estoria/typeid"
 )
 
 type Outbox struct {
@@ -38,7 +37,7 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) erro
 	documents := make([]any, len(events))
 	for i, event := range events {
 		documents[i] = &outboxRow{
-			StreamID:  event.StreamID(),
+			StreamID:  event.StreamID().String(),
 			Timestamp: time.Now(),
 			Event:     event,
 		}
@@ -52,12 +51,12 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) erro
 	defer stmt.Close()
 
 	for _, event := range events {
-		var data any
+		var data []byte
 		if o.includeFullData {
 			data = event.Data()
 		}
 
-		if _, err := stmt.Exec(event.Timestamp(), event.StreamID(), event.ID(), data); err != nil {
+		if _, err := stmt.Exec(event.Timestamp(), event.StreamID().String(), event.ID().String(), data); err != nil {
 			return fmt.Errorf("executing statement: %w", err)
 		}
 	}
@@ -66,7 +65,7 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) erro
 }
 
 type outboxRow struct {
-	StreamID  typeid.TypeID
+	StreamID  string
 	Timestamp time.Time
 	Event     estoria.EventStoreEvent
 }
