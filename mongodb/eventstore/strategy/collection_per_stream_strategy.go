@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -117,7 +118,7 @@ func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, stre
 }
 
 type collectionPerStreamEventDocument struct {
-	EventID   string    `bson:"event_id"`
+	EventID   uuid.UUID `bson:"event_id"`
 	EventType string    `bson:"event_type"`
 	Timestamp time.Time `bson:"timestamp"`
 	Version   int64     `bson:"version"`
@@ -126,7 +127,7 @@ type collectionPerStreamEventDocument struct {
 
 func collectionPerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, version int64) collectionPerStreamEventDocument {
 	return collectionPerStreamEventDocument{
-		EventID:   evt.ID().Value(),
+		EventID:   evt.ID().UUID(),
 		EventType: evt.ID().TypeName(),
 		Timestamp: evt.Timestamp(),
 		Version:   version,
@@ -135,13 +136,8 @@ func collectionPerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, vers
 }
 
 func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.TypeID) (estoria.EventStoreEvent, error) {
-	eventID, err := typeid.From(d.EventType, d.EventID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing event ID: %w", err)
-	}
-
 	return &event{
-		id:            eventID,
+		id:            typeid.FromUUID(d.EventType, d.EventID),
 		streamID:      streamID,
 		streamVersion: d.Version,
 		timestamp:     d.Timestamp,

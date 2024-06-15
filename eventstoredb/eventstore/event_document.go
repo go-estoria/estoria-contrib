@@ -5,6 +5,8 @@ import (
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid"
+	uuidv5 "github.com/gofrs/uuid/v5"
 )
 
 type eventDocument struct {
@@ -16,7 +18,7 @@ type eventDocument struct {
 }
 
 type event struct {
-	id            typeid.TypeID
+	id            typeid.UUID
 	streamID      typeid.TypeID
 	streamVersion int64
 	timestamp     time.Time
@@ -38,7 +40,12 @@ func documentFromEvent(e estoria.EventStoreEvent) *eventDocument {
 }
 
 func eventFromDocument(d *eventDocument) (*event, error) {
-	eventID, err := typeid.From(d.EventType, d.EventID)
+	uid, err := uuid.FromString(d.EventID)
+	if err != nil {
+		return nil, err
+	}
+
+	uidV5, err := uuidv5.FromBytes(uid.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -49,14 +56,14 @@ func eventFromDocument(d *eventDocument) (*event, error) {
 	}
 
 	return &event{
-		id:        eventID,
+		id:        typeid.FromUUID(d.EventType, uidV5),
 		streamID:  streamID,
 		timestamp: d.Timestamp,
 		data:      d.Data,
 	}, nil
 }
 
-func (e *event) ID() typeid.TypeID {
+func (e *event) ID() typeid.UUID {
 	return e.id
 }
 

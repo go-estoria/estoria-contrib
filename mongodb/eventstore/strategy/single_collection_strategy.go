@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -126,7 +127,7 @@ func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, st
 type singleCollectionEventDocument struct {
 	StreamType string    `bson:"stream_type"`
 	StreamID   string    `bson:"stream_id"`
-	EventID    string    `bson:"event_id"`
+	EventID    uuid.UUID `bson:"event_id"`
 	EventType  string    `bson:"event_type"`
 	Timestamp  time.Time `bson:"timestamp"`
 	Version    int64     `bson:"version"`
@@ -137,7 +138,7 @@ func singleCollectionEventDocumentFromEvent(evt estoria.EventStoreEvent, version
 	return singleCollectionEventDocument{
 		StreamType: evt.StreamID().TypeName(),
 		StreamID:   evt.StreamID().Value(),
-		EventID:    evt.ID().Value(),
+		EventID:    evt.ID().UUID(),
 		EventType:  evt.ID().TypeName(),
 		Timestamp:  evt.Timestamp(),
 		Version:    version,
@@ -146,19 +147,9 @@ func singleCollectionEventDocumentFromEvent(evt estoria.EventStoreEvent, version
 }
 
 func (d singleCollectionEventDocument) ToEvent(_ typeid.TypeID) (estoria.EventStoreEvent, error) {
-	eventID, err := typeid.From(d.EventType, d.EventID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing event ID: %w", err)
-	}
-
-	streamID, err := typeid.From(d.StreamType, d.StreamID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing stream ID: %w", err)
-	}
-
 	return &event{
-		id:        eventID,
-		streamID:  streamID,
+		id:        typeid.FromUUID(d.EventType, d.EventID),
+		streamID:  typeid.FromString(d.StreamType, d.StreamID),
 		timestamp: d.Timestamp,
 		data:      d.Data,
 	}, nil

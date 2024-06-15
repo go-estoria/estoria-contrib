@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 )
 
 type streamIterator struct {
@@ -29,24 +30,19 @@ func (i *streamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, err
 	}
 
 	var e event
-	var eventID string
+	var eventID uuid.UUID
 	var eventType string
 	if err := i.rows.Scan(&eventID, &eventType, &e.timestamp, &e.data); err != nil {
 		return nil, fmt.Errorf("scanning row: %w", err)
 	}
 
-	eventTID, err := typeid.From(eventType, eventID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing event type and ID into typeid: %w", err)
-	}
-
-	e.id = eventTID
+	e.id = typeid.FromUUID(eventType, eventID)
 
 	return &e, nil
 }
 
 type event struct {
-	id            typeid.TypeID
+	id            typeid.UUID
 	streamID      typeid.TypeID
 	streamVersion int64
 	timestamp     time.Time
@@ -55,7 +51,7 @@ type event struct {
 
 var _ estoria.EventStoreEvent = (*event)(nil)
 
-func (e *event) ID() typeid.TypeID {
+func (e *event) ID() typeid.UUID {
 	return e.id
 }
 

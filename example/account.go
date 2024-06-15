@@ -19,7 +19,7 @@ type Account struct {
 // NewAccount creates a new account.
 func NewAccount() *Account {
 	return &Account{
-		ID:      typeid.Must(typeid.New("account")),
+		ID:      typeid.Must(typeid.NewUUID("account")),
 		Users:   make([]string, 0),
 		Balance: 0,
 	}

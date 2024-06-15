@@ -10,7 +10,7 @@ import (
 )
 
 type event struct {
-	id            typeid.TypeID
+	id            typeid.UUID
 	streamID      typeid.TypeID
 	streamVersion int64
 	timestamp     time.Time
@@ -19,7 +19,7 @@ type event struct {
 
 var _ estoria.EventStoreEvent = (*event)(nil)
 
-func (e *event) ID() typeid.TypeID {
+func (e *event) ID() typeid.UUID {
 	return e.id
 }
 
@@ -47,7 +47,7 @@ func eventFromRedisMessage(streamID typeid.TypeID, message redis.XMessage) (*eve
 		return nil, fmt.Errorf("event ID is not string")
 	}
 
-	eventID, err := typeid.ParseString(eventIDStr)
+	eventID, err := typeid.ParseUUID(eventIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("parsing event ID: %w", err)
 	}

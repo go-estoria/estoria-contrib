@@ -17,7 +17,7 @@ require go.jetify.com/typeid v1.2.0
 require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/gofrs/uuid/v5 v5.2.0 // indirect
+	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect

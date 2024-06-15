@@ -10,6 +10,7 @@ import (
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/typeid"
+	uuidv5 "github.com/gofrs/uuid/v5"
 )
 
 type StreamIterator struct {
@@ -46,14 +47,14 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, err
 		return nil, fmt.Errorf("parsing stream ID: %w", err)
 	}
 
-	eventID, err := typeid.From(resolvedEvent.Event.EventType, resolvedEvent.Event.EventID.String())
+	uidV5, err := uuidv5.FromBytes(resolvedEvent.Event.EventID.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("parsing event ID: %w", err)
+		return nil, fmt.Errorf("converting UUID: %w", err)
 	}
 
 	return &event{
 		streamID:  streamID,
-		id:        eventID,
+		id:        typeid.FromUUID(resolvedEvent.Event.EventType, uidV5),
 		timestamp: resolvedEvent.Event.CreatedDate,
 		data:      resolvedEvent.Event.Data,
 	}, nil
