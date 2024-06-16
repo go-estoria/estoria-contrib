@@ -52,7 +52,7 @@ func main() {
 		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
 
 		// 3. Allow the aggregate store to store events of a specific type.
-		aggregateStore.Allow(
+		aggregateStore.AllowEvents(
 			UserCreatedEvent{},
 			UserDeletedEvent{},
 			BalanceChangedEvent{},
