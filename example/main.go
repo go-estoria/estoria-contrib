@@ -28,7 +28,7 @@ func main() {
 
 	// 1. Create an Event Store to store events.
 	eventStores := map[string]estoria.EventStore{
-		"memory": memoryes.NewEventStore(),
+		"memory": newInMemoryEventStore(ctx),
 		// "esdb": newESDBEventStore(ctx),
 		// "mongo": newMongoEventStore(ctx),
 		// "pg": newPostgresEventStore(ctx),
@@ -145,6 +145,8 @@ func main() {
 		fmt.Println()
 		fmt.Println(account)
 		fmt.Println()
+
+		<-time.After(10 * time.Second)
 	}
 }
 
@@ -169,6 +171,28 @@ func configureLogging() {
 			return a
 		},
 	})))
+}
+
+func newInMemoryEventStore(ctx context.Context) estoria.EventStore {
+	inMemoryOutbox := memoryes.NewOutbox()
+
+	logger := &OutboxLogger{}
+	inMemoryOutbox.RegisterHandlers(UserCreatedEvent{}, logger)
+	inMemoryOutbox.RegisterHandlers(UserDeletedEvent{}, logger)
+	inMemoryOutbox.RegisterHandlers(BalanceChangedEvent{}, logger)
+
+	outboxProcessor := outbox.NewProcessor(inMemoryOutbox)
+	outboxProcessor.RegisterHandlers(UserCreatedEvent{}, logger)
+	outboxProcessor.RegisterHandlers(UserDeletedEvent{}, logger)
+	outboxProcessor.RegisterHandlers(BalanceChangedEvent{}, logger)
+
+	if err := outboxProcessor.Start(ctx); err != nil {
+		panic(err)
+	}
+
+	return memoryes.NewEventStore(
+		memoryes.WithOutbox(inMemoryOutbox),
+	)
 }
 
 func newESDBEventStore(ctx context.Context) estoria.EventStore {
@@ -274,7 +298,11 @@ func newPostgresEventStore(ctx context.Context) estoria.EventStore {
 
 type OutboxLogger struct{}
 
-func (l OutboxLogger) Handle(_ context.Context, entry outbox.OutboxEntry) error {
-	slog.Info("handling outbox entry", "stream_id", entry.StreamID(), "event_id", entry.EventID())
+func (l OutboxLogger) Name() string {
+	return "logger"
+}
+
+func (l OutboxLogger) Handle(_ context.Context, item outbox.OutboxItem) error {
+	slog.Info("handling outbox item", "stream_id", item.StreamID(), "event_id", item.EventID(), "handlers", item.Handlers())
 	return nil
 }

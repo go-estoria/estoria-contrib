@@ -25,7 +25,7 @@ func New(client *mongo.Client, database, collection string) *Outbox {
 	}
 }
 
-func (o *Outbox) Iterator() (outbox.Iterator, error) {
+func (o *Outbox) Iterator(matchEventTypes []string) (outbox.Iterator, error) {
 	return &Iterator{
 		client:     o.client,
 		database:   o.database,

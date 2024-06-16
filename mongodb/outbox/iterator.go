@@ -19,7 +19,7 @@ type Iterator struct {
 	changeStream *mongo.ChangeStream
 }
 
-func (i *Iterator) Next(ctx context.Context) (outbox.OutboxEntry, error) {
+func (i *Iterator) Next(ctx context.Context) (outbox.OutboxItem, error) {
 	if i.changeStream == nil {
 		changeStream, err := i.getChangeStream(ctx)
 		if err != nil {
@@ -42,7 +42,7 @@ func (i *Iterator) Next(ctx context.Context) (outbox.OutboxEntry, error) {
 			return nil, fmt.Errorf("parsing stream ID: %w", err)
 		}
 
-		eventID, err := typeid.ParseString(outboxDoc.EventID)
+		eventID, err := typeid.ParseUUID(outboxDoc.EventID)
 		if err != nil {
 			return nil, fmt.Errorf("parsing event ID: %w", err)
 		}
@@ -80,7 +80,8 @@ type changeStreamDocument struct {
 type outboxEntry struct {
 	timestamp time.Time
 	streamID  typeid.TypeID
-	eventID   typeid.TypeID
+	eventID   typeid.UUID
+	handlers  map[string]outbox.HandlerResult
 	eventData []byte
 }
 
@@ -92,10 +93,20 @@ func (e outboxEntry) StreamID() typeid.TypeID {
 	return e.streamID
 }
 
-func (e outboxEntry) EventID() typeid.TypeID {
+func (e outboxEntry) EventID() typeid.UUID {
 	return e.eventID
 }
 
 func (e outboxEntry) EventData() []byte {
 	return e.eventData
 }
+
+func (e outboxEntry) Handlers() map[string]outbox.HandlerResult {
+	return e.handlers
+}
+
+func (e outboxEntry) Lock() {}
+
+func (e outboxEntry) Unlock() {}
+
+func (e outboxEntry) SetHandlerError(handlerName string, err error) {}
