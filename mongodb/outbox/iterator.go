@@ -81,7 +81,7 @@ type outboxEntry struct {
 	timestamp time.Time
 	streamID  typeid.TypeID
 	eventID   typeid.UUID
-	handlers  map[string]outbox.HandlerResult
+	handlers  map[string]*outbox.HandlerResult
 	eventData []byte
 }
 
@@ -101,7 +101,7 @@ func (e outboxEntry) EventData() []byte {
 	return e.eventData
 }
 
-func (e outboxEntry) Handlers() map[string]outbox.HandlerResult {
+func (e outboxEntry) Handlers() outbox.HandlerResultMap {
 	return e.handlers
 }
 
