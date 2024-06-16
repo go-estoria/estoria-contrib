@@ -299,6 +299,6 @@ func (l OutboxLogger) Name() string {
 }
 
 func (l OutboxLogger) Handle(_ context.Context, item outbox.OutboxItem) error {
-	slog.Info("OUTBOX LOGGER HANDLER", "event_id", item.EventID(), "handlers", item.Handlers())
+	slog.Info("OUTBOX LOGGER HANDLER", "event_id", item.EventID(), "handlers", len(item.Handlers()))
 	return nil
 }
