@@ -110,3 +110,5 @@ func (e outboxEntry) Lock() {}
 func (e outboxEntry) Unlock() {}
 
 func (e outboxEntry) SetHandlerError(handlerName string, err error) {}
+
+func (e outboxEntry) SetCompletedAt(handlerName string, at time.Time) {}

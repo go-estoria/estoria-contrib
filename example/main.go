@@ -76,7 +76,7 @@ func main() {
 			panic(err)
 		}
 
-		fmt.Println("created new aggregate with ID", aggregate.ID())
+		// fmt.Println("created new aggregate with ID", aggregate.ID())
 
 		if err := aggregate.Append(
 			&UserCreatedEvent{Username: "jdoe"},
@@ -116,7 +116,7 @@ func main() {
 			panic(err)
 		}
 
-		fmt.Println("loaded aggregate with ID", loadedAggregate.ID())
+		// fmt.Println("loaded aggregate with ID", loadedAggregate.ID())
 
 		// newEvents, err := aggregate.Data.Diff(&Account{
 		// 	ID:      "123",
@@ -142,9 +142,9 @@ func main() {
 
 		// get the aggregate data
 		account := loadedAggregate.Entity()
-		fmt.Println()
+		// fmt.Println()
 		fmt.Println(account)
-		fmt.Println()
+		// fmt.Println()
 
 		<-time.After(10 * time.Second)
 	}
@@ -152,7 +152,7 @@ func main() {
 
 func configureLogging() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: slog.LevelInfo,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			switch a.Key {
 			case "time":
@@ -182,9 +182,7 @@ func newInMemoryEventStore(ctx context.Context) estoria.EventStore {
 	inMemoryOutbox.RegisterHandlers(BalanceChangedEvent{}, logger)
 
 	outboxProcessor := outbox.NewProcessor(inMemoryOutbox)
-	outboxProcessor.RegisterHandlers(UserCreatedEvent{}, logger)
-	outboxProcessor.RegisterHandlers(UserDeletedEvent{}, logger)
-	outboxProcessor.RegisterHandlers(BalanceChangedEvent{}, logger)
+	outboxProcessor.RegisterHandlers(logger)
 
 	if err := outboxProcessor.Start(ctx); err != nil {
 		panic(err)
@@ -230,9 +228,7 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	mongoOutbox := mongooutbox.New(mongoClient, "example-app", "outbox")
 	outboxProcessor := outbox.NewProcessor(mongoOutbox)
 	logger := &OutboxLogger{}
-	outboxProcessor.RegisterHandlers(UserCreatedEvent{}, logger)
-	outboxProcessor.RegisterHandlers(UserDeletedEvent{}, logger)
-	outboxProcessor.RegisterHandlers(BalanceChangedEvent{}, logger)
+	outboxProcessor.RegisterHandlers(logger)
 
 	if err := outboxProcessor.Start(ctx); err != nil {
 		panic(err)
@@ -303,6 +299,6 @@ func (l OutboxLogger) Name() string {
 }
 
 func (l OutboxLogger) Handle(_ context.Context, item outbox.OutboxItem) error {
-	slog.Info("handling outbox item", "stream_id", item.StreamID(), "event_id", item.EventID(), "handlers", item.Handlers())
+	slog.Info("OUTBOX LOGGER HANDLER", "event_id", item.EventID(), "handlers", item.Handlers())
 	return nil
 }
