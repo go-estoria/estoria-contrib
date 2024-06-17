@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -78,11 +79,16 @@ type changeStreamDocument struct {
 }
 
 type outboxEntry struct {
+	id        uuid.UUID
 	timestamp time.Time
 	streamID  typeid.TypeID
 	eventID   typeid.UUID
 	handlers  map[string]*outbox.HandlerResult
 	eventData []byte
+}
+
+func (e outboxEntry) ID() uuid.UUID {
+	return e.id
 }
 
 func (e outboxEntry) Timestamp() time.Time {
@@ -112,3 +118,7 @@ func (e outboxEntry) Unlock() {}
 func (e outboxEntry) SetHandlerError(handlerName string, err error) {}
 
 func (e outboxEntry) SetCompletedAt(handlerName string, at time.Time) {}
+
+func (e outboxEntry) FullyProcessed() bool {
+	return false
+}

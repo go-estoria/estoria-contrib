@@ -1,12 +1,14 @@
 package outbox
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/outbox"
+	"github.com/gofrs/uuid/v5"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -51,6 +53,10 @@ func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.EventS
 		return fmt.Errorf("inserting outbox documents: %w", err)
 	}
 
+	return nil
+}
+
+func (o *Outbox) MarkHandled(ctx context.Context, itemID uuid.UUID, result outbox.HandlerResult) error {
 	return nil
 }
 
