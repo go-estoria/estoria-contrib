@@ -51,13 +51,6 @@ func main() {
 		snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
 		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
 
-		// 3. Allow the aggregate store to store events of a specific type.
-		aggregateStore.AllowEvents(
-			UserCreatedEvent{},
-			UserDeletedEvent{},
-			BalanceChangedEvent{},
-		)
-
 		hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
 		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
 			slog.Info("before save", "aggregate_id", aggregate.ID())
@@ -146,7 +139,7 @@ func main() {
 		fmt.Println(account)
 		// fmt.Println()
 
-		<-time.After(10 * time.Second)
+		<-time.After(5 * time.Second)
 	}
 }
 

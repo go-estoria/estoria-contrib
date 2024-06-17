@@ -41,6 +41,15 @@ func (a *Account) SetEntityID(id typeid.TypeID) {
 	a.ID = id.Value()
 }
 
+// EventTypes returns the event types that can be applied to the entity.
+func (a *Account) EventTypes() []estoria.EntityEventData {
+	return []estoria.EntityEventData{
+		&BalanceChangedEvent{},
+		&UserCreatedEvent{},
+		&UserDeletedEvent{},
+	}
+}
+
 // ApplyEvent applies an event to the entity.
 func (a *Account) ApplyEvent(_ context.Context, event estoria.EntityEventData) error {
 	switch e := event.(type) {
