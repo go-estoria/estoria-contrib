@@ -18,7 +18,7 @@ import (
 	"github.com/go-estoria/estoria/aggregatestore"
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
-	"github.com/go-estoria/estoria/snapshot"
+	"github.com/go-estoria/estoria/snapshotstore"
 )
 
 func main() {
@@ -46,8 +46,8 @@ func main() {
 		}
 
 		// Enable aggregate snapshots (optional)
-		snapshotReader := snapshot.NewEventStreamReader(eventStore)
-		snapshotWriter := snapshot.NewEventStreamWriter(eventStore)
+		snapshotReader := snapshotstore.NewEventStreamReader(eventStore)
+		snapshotWriter := snapshotstore.NewEventStreamWriter(eventStore)
 		snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
 		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
 
