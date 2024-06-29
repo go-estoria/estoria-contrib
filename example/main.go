@@ -64,7 +64,7 @@ func main() {
 		aggregateStore = hookableStore
 
 		// 4. Create an aggregate instance.
-		aggregate, err := aggregateStore.NewAggregate()
+		aggregate, err := aggregateStore.NewAggregate(nil)
 		if err != nil {
 			panic(err)
 		}
