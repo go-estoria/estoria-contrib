@@ -38,7 +38,7 @@ func (i *Iterator) Next(ctx context.Context) (outbox.OutboxItem, error) {
 
 		outboxDoc := changeStreamDoc.OutboxDocument
 
-		streamID, err := typeid.ParseString(outboxDoc.StreamID)
+		streamID, err := typeid.ParseUUID(outboxDoc.StreamID)
 		if err != nil {
 			return nil, fmt.Errorf("parsing stream ID: %w", err)
 		}
@@ -81,7 +81,7 @@ type changeStreamDocument struct {
 type outboxEntry struct {
 	id        uuid.UUID
 	timestamp time.Time
-	streamID  typeid.TypeID
+	streamID  typeid.UUID
 	eventID   typeid.UUID
 	handlers  map[string]*outbox.HandlerResult
 	eventData []byte
@@ -95,7 +95,7 @@ func (e outboxEntry) Timestamp() time.Time {
 	return e.timestamp
 }
 
-func (e outboxEntry) StreamID() typeid.TypeID {
+func (e outboxEntry) StreamID() typeid.UUID {
 	return e.streamID
 }
 

@@ -27,12 +27,12 @@ type TransactionHook func(tx *sql.Tx, events []estoria.EventStoreEvent) error
 type Strategy interface {
 	GetStreamIterator(
 		ctx context.Context,
-		streamID typeid.TypeID,
+		streamID typeid.UUID,
 		opts estoria.ReadStreamOptions,
 	) (estoria.EventStreamIterator, error)
 	InsertStreamEvents(
 		tx *sql.Tx,
-		streamID typeid.TypeID,
+		streamID typeid.UUID,
 		events []estoria.EventStoreEvent,
 		opts estoria.AppendStreamOptions,
 	) (sql.Result, error)
@@ -73,7 +73,7 @@ func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	s.log.Debug("reading events from Postgres stream", "stream_id", streamID.String())
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
@@ -85,7 +85,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opt
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
 	_, txErr := postgres.DoInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {

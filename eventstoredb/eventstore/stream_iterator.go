@@ -14,7 +14,7 @@ import (
 )
 
 type StreamIterator struct {
-	streamID typeid.TypeID
+	streamID typeid.UUID
 	client   *esdb.Client
 	stream   *esdb.ReadStream
 }
@@ -42,7 +42,7 @@ func (i *StreamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, err
 		return nil, fmt.Errorf("receiving event: %w", err)
 	}
 
-	streamID, err := typeid.ParseString(resolvedEvent.Event.StreamID)
+	streamID, err := typeid.ParseUUID(resolvedEvent.Event.StreamID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing stream ID: %w", err)
 	}

@@ -8,7 +8,7 @@ import (
 
 // ErrEventExists is returned when attempting to write an event that already exists.
 type ErrEventExists struct {
-	EventID typeid.TypeID
+	EventID typeid.UUID
 }
 
 // Error returns the error message.

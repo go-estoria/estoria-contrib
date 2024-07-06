@@ -40,7 +40,7 @@ func main() {
 
 		// 2. Create an AggregateStore to load and store aggregates.
 		var aggregateStore estoria.AggregateStore[*Account]
-		aggregateStore, err = aggregatestore.New(eventStore, eventStore, NewAccount)
+		aggregateStore, err = aggregatestore.NewEventSourcedAggregateStore(eventStore, eventStore, NewAccount)
 		if err != nil {
 			panic(err)
 		}
@@ -145,7 +145,7 @@ func main() {
 
 func configureLogging() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			switch a.Key {
 			case "time":
@@ -292,6 +292,6 @@ func (l OutboxLogger) Name() string {
 }
 
 func (l OutboxLogger) Handle(_ context.Context, item outbox.OutboxItem) error {
-	slog.Info("OUTBOX LOGGER HANDLER", "event_id", item.EventID(), "handlers", len(item.Handlers()))
+	// slog.Info("OUTBOX LOGGER HANDLER", "event_id", item.EventID(), "handlers", len(item.Handlers()))
 	return nil
 }

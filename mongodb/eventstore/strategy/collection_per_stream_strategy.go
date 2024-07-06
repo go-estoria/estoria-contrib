@@ -38,7 +38,7 @@ func NewCollectionPerStreamStrategy(client *mongo.Client, database string) (*Col
 
 func (s *CollectionPerStreamStrategy) GetStreamIterator(
 	ctx context.Context,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	opts estoria.ReadStreamOptions,
 ) (estoria.EventStreamIterator, error) {
 	collection := s.database.Collection(streamID.String())
@@ -72,7 +72,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 
 func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	events []estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
@@ -101,7 +101,7 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	return result, nil
 }
 
-func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.TypeID) (int64, error) {
+func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {
 	collection := s.database.Collection(streamID.String())
 
 	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
@@ -135,7 +135,7 @@ func collectionPerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, vers
 	}
 }
 
-func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.TypeID) (estoria.EventStoreEvent, error) {
+func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.UUID) (estoria.EventStoreEvent, error) {
 	return &event{
 		id:            typeid.FromUUID(d.EventType, d.EventID),
 		streamID:      streamID,

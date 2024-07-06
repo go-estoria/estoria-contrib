@@ -2,6 +2,7 @@ package jetpackio
 
 import (
 	etypeid "github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 	"go.jetify.com/typeid"
 )
 
@@ -21,22 +22,26 @@ func (t typeID) Value() string {
 	return t.tid.Suffix()
 }
 
-type TypeIDParser struct{}
-
-func (p TypeIDParser) New(typ string) (etypeid.TypeID, error) {
-	tid, err := typeid.From(typ, "")
-	if err != nil {
-		return nil, err
-	}
-
-	return typeID{tid: tid}, nil
+func (t typeID) UUID() uuid.UUID {
+	return uuid.UUID(t.tid.UUIDBytes())
 }
 
-func (p TypeIDParser) ParseString(s string) (etypeid.TypeID, error) {
-	tid, err := typeid.FromString(s)
+type TypeIDParser struct{}
+
+func (p TypeIDParser) New(typ string) (etypeid.UUID, error) {
+	tid, err := typeid.From(typ, "")
 	if err != nil {
-		return nil, err
+		return etypeid.UUID{}, err
 	}
 
-	return typeID{tid: tid}, nil
+	return etypeid.FromUUID(typ, uuid.UUID(tid.UUIDBytes())), nil
+}
+
+func (p TypeIDParser) ParseString(s string) (etypeid.UUID, error) {
+	tid, err := typeid.FromString(s)
+	if err != nil {
+		return etypeid.UUID{}, err
+	}
+
+	return etypeid.FromUUID(tid.Prefix(), uuid.UUID(tid.UUIDBytes())), nil
 }

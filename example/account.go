@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 )
 
 const (
@@ -15,30 +16,34 @@ const (
 
 // An Account is an example entity that satifies the requirements of the estoria.Entity interface.
 type Account struct {
-	ID      string
+	ID      uuid.UUID
 	Users   []string
 	Balance int
 }
 
 // NewAccount creates a new account.
 func NewAccount() *Account {
-	tid := typeid.Must(typeid.NewString(accountType))
+	tid, err := typeid.NewUUID(accountType)
+	if err != nil {
+		panic(err)
+	}
+
 	slog.Debug("creating new account", "type", accountType, "id", tid)
 	return &Account{
-		ID:      tid.Value(),
+		ID:      tid.UUID(),
 		Users:   make([]string, 0),
 		Balance: 0,
 	}
 }
 
 // EntityID returns the ID of the entity.
-func (a *Account) EntityID() typeid.TypeID {
-	return typeid.FromString(accountType, a.ID)
+func (a *Account) EntityID() typeid.UUID {
+	return typeid.FromUUID(accountType, a.ID)
 }
 
 // SetEntityID sets the ID of the entity.
-func (a *Account) SetEntityID(id typeid.TypeID) {
-	a.ID = id.Value()
+func (a *Account) SetEntityID(id typeid.UUID) {
+	a.ID = id.UUID()
 }
 
 // EventTypes returns the event types that can be applied to the entity.

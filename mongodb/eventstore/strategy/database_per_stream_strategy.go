@@ -36,7 +36,7 @@ func NewDatabasePerStreamStrategy(client *mongo.Client, collection string) (*Dat
 
 func (s *DatabasePerStreamStrategy) GetStreamIterator(
 	ctx context.Context,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	opts estoria.ReadStreamOptions,
 ) (estoria.EventStreamIterator, error) {
 	database := s.client.Database(streamID.String())
@@ -71,7 +71,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(
 
 func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	events []estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
@@ -99,7 +99,7 @@ func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	return result, nil
 }
 
-func (s *DatabasePerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.TypeID) (int64, error) {
+func (s *DatabasePerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {
 	database := s.client.Database(streamID.String())
 	collection := database.Collection(s.collectionName)
 
@@ -134,7 +134,7 @@ func databasePerStreamEventDocumentFromEvent(evt estoria.EventStoreEvent, versio
 	}
 }
 
-func (d databasePerStreamEventDocument) ToEvent(streamID typeid.TypeID) (estoria.EventStoreEvent, error) {
+func (d databasePerStreamEventDocument) ToEvent(streamID typeid.UUID) (estoria.EventStoreEvent, error) {
 	return &event{
 		id:        typeid.FromUUID(d.EventType, d.EventID),
 		streamID:  streamID,

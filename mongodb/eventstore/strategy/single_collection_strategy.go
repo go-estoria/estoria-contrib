@@ -43,7 +43,7 @@ func NewSingleCollectionStrategy(client *mongo.Client, database, collection stri
 
 func (s *SingleCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	opts estoria.ReadStreamOptions,
 ) (estoria.EventStreamIterator, error) {
 	offset := opts.Offset
@@ -77,7 +77,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 
 func (s *SingleCollectionStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	events []estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
@@ -103,7 +103,7 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	return result, nil
 }
 
-func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, streamID typeid.TypeID) (int64, error) {
+func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, streamID typeid.UUID) (int64, error) {
 	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
@@ -126,7 +126,7 @@ func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, st
 
 type singleCollectionEventDocument struct {
 	StreamType string    `bson:"stream_type"`
-	StreamID   string    `bson:"stream_id"`
+	StreamID   uuid.UUID `bson:"stream_id"`
 	EventID    uuid.UUID `bson:"event_id"`
 	EventType  string    `bson:"event_type"`
 	Timestamp  time.Time `bson:"timestamp"`
@@ -137,7 +137,7 @@ type singleCollectionEventDocument struct {
 func singleCollectionEventDocumentFromEvent(evt estoria.EventStoreEvent, version int64) singleCollectionEventDocument {
 	return singleCollectionEventDocument{
 		StreamType: evt.StreamID().TypeName(),
-		StreamID:   evt.StreamID().Value(),
+		StreamID:   evt.StreamID().UUID(),
 		EventID:    evt.ID().UUID(),
 		EventType:  evt.ID().TypeName(),
 		Timestamp:  evt.Timestamp(),
@@ -146,10 +146,10 @@ func singleCollectionEventDocumentFromEvent(evt estoria.EventStoreEvent, version
 	}
 }
 
-func (d singleCollectionEventDocument) ToEvent(_ typeid.TypeID) (estoria.EventStoreEvent, error) {
+func (d singleCollectionEventDocument) ToEvent(_ typeid.UUID) (estoria.EventStoreEvent, error) {
 	return &event{
 		id:        typeid.FromUUID(d.EventType, d.EventID),
-		streamID:  typeid.FromString(d.StreamType, d.StreamID),
+		streamID:  typeid.FromUUID(d.StreamType, d.StreamID),
 		timestamp: d.Timestamp,
 		data:      d.Data,
 	}, nil

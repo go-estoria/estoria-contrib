@@ -31,12 +31,12 @@ type TransactionHook interface {
 type Strategy interface {
 	GetStreamIterator(
 		ctx context.Context,
-		streamID typeid.TypeID,
+		streamID typeid.UUID,
 		opts estoria.ReadStreamOptions,
 	) (estoria.EventStreamIterator, error)
 	InsertStreamEvents(
 		ctx mongo.SessionContext,
-		streamID typeid.TypeID,
+		streamID typeid.UUID,
 		events []estoria.EventStoreEvent,
 		opts estoria.AppendStreamOptions,
 	) (*mongo.InsertManyResult, error)
@@ -71,7 +71,7 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
 	s.log.Debug("reading events from stream", "stream_id", streamID.String())
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
@@ -83,7 +83,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.TypeID, opt
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.TypeID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
 	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {

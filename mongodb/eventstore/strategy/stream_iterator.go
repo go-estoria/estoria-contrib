@@ -12,11 +12,11 @@ import (
 )
 
 type eventDocument interface {
-	ToEvent(streamID typeid.TypeID) (estoria.EventStoreEvent, error)
+	ToEvent(streamID typeid.UUID) (estoria.EventStoreEvent, error)
 }
 
 type streamIterator[D eventDocument] struct {
-	streamID    typeid.TypeID
+	streamID    typeid.UUID
 	docTemplate D
 	cursor      *mongo.Cursor
 }
@@ -45,7 +45,7 @@ func (i *streamIterator[D]) Next(ctx context.Context) (estoria.EventStoreEvent, 
 
 type event struct {
 	id            typeid.UUID
-	streamID      typeid.TypeID
+	streamID      typeid.UUID
 	streamVersion int64
 	timestamp     time.Time
 	data          []byte
@@ -57,7 +57,7 @@ func (e *event) ID() typeid.UUID {
 	return e.id
 }
 
-func (e *event) StreamID() typeid.TypeID {
+func (e *event) StreamID() typeid.UUID {
 	return e.streamID
 }
 

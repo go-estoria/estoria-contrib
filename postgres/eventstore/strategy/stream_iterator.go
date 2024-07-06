@@ -14,7 +14,7 @@ import (
 )
 
 type streamIterator struct {
-	streamID typeid.TypeID
+	streamID typeid.UUID
 	rows     *sql.Rows
 }
 
@@ -43,7 +43,7 @@ func (i *streamIterator) Next(ctx context.Context) (estoria.EventStoreEvent, err
 
 type event struct {
 	id            typeid.UUID
-	streamID      typeid.TypeID
+	streamID      typeid.UUID
 	streamVersion int64
 	timestamp     time.Time
 	data          []byte
@@ -55,7 +55,7 @@ func (e *event) ID() typeid.UUID {
 	return e.id
 }
 
-func (e *event) StreamID() typeid.TypeID {
+func (e *event) StreamID() typeid.UUID {
 	return e.streamID
 }
 

@@ -32,7 +32,7 @@ func NewSingleTableStrategy(db *sql.DB, table string) (*SingleTableStrategy, err
 
 func (s *SingleTableStrategy) GetStreamIterator(
 	ctx context.Context,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	opts estoria.ReadStreamOptions,
 ) (estoria.EventStreamIterator, error) {
 	sortDirection := "ASC"
@@ -67,7 +67,7 @@ func (s *SingleTableStrategy) GetStreamIterator(
 
 func (s *SingleTableStrategy) InsertStreamEvents(
 	tx *sql.Tx,
-	streamID typeid.TypeID,
+	streamID typeid.UUID,
 	events []estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (sql.Result, error) {
@@ -114,7 +114,7 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 
 }
 
-func (s *SingleTableStrategy) getLatestVersion(tx *sql.Tx, streamID typeid.TypeID) (int64, error) {
+func (s *SingleTableStrategy) getLatestVersion(tx *sql.Tx, streamID typeid.UUID) (int64, error) {
 	var version int64
 	if err := tx.QueryRow(fmt.Sprintf(`
 		SELECT COALESCE(MAX(version), 0)

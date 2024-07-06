@@ -19,7 +19,7 @@ type eventDocument struct {
 
 type event struct {
 	id            typeid.UUID
-	streamID      typeid.TypeID
+	streamID      typeid.UUID
 	streamVersion int64
 	timestamp     time.Time
 	data          []byte
@@ -50,7 +50,7 @@ func eventFromDocument(d *eventDocument) (*event, error) {
 		return nil, err
 	}
 
-	streamID, err := typeid.ParseString(d.StreamID)
+	streamID, err := typeid.ParseUUID(d.StreamID)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (e *event) ID() typeid.UUID {
 	return e.id
 }
 
-func (e *event) StreamID() typeid.TypeID {
+func (e *event) StreamID() typeid.UUID {
 	return e.streamID
 }
 
