@@ -40,7 +40,10 @@ func main() {
 
 		// 2. Create an AggregateStore to load and store aggregates.
 		var aggregateStore estoria.AggregateStore[*Account]
-		aggregateStore, err = aggregatestore.NewEventSourcedAggregateStore(eventStore, eventStore, NewAccount)
+		aggregateStore, err = aggregatestore.NewEventSourcedAggregateStore(eventStore, NewAccount,
+			aggregatestore.WithEventStreamReader[*Account](eventStore), // optional: override the stream reader
+			aggregatestore.WithEventStreamWriter[*Account](eventStore), // optional: override the stream writer
+		)
 		if err != nil {
 			panic(err)
 		}

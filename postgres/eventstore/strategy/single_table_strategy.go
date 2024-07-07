@@ -68,7 +68,7 @@ func (s *SingleTableStrategy) GetStreamIterator(
 func (s *SingleTableStrategy) InsertStreamEvents(
 	tx *sql.Tx,
 	streamID typeid.UUID,
-	events []estoria.EventStoreEvent,
+	events []*estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (sql.Result, error) {
 	latestVersion, err := s.getLatestVersion(tx, streamID)
@@ -97,13 +97,13 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 	for _, event := range events {
 		version++
 		_, err := stmt.Exec(
-			event.ID().Value(),
-			event.StreamID().TypeName(),
-			event.StreamID().Value(),
-			event.ID().TypeName(),
-			event.Timestamp(),
+			event.ID.Value(),
+			event.StreamID.TypeName(),
+			event.StreamID.Value(),
+			event.ID.TypeName(),
+			event.Timestamp,
 			version,
-			event.Data(),
+			event.Data,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("executing statement: %w", err)

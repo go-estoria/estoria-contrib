@@ -17,29 +17,19 @@ type eventDocument struct {
 	Data      []byte    `json:"data"`
 }
 
-type event struct {
-	id            typeid.UUID
-	streamID      typeid.UUID
-	streamVersion int64
-	timestamp     time.Time
-	data          []byte
-}
-
-var _ estoria.EventStoreEvent = (*event)(nil)
-
 func documentFromEvent(e estoria.EventStoreEvent) *eventDocument {
-	eventID := e.ID()
-	streamID := e.StreamID()
+	eventID := e.ID
+	streamID := e.StreamID
 	return &eventDocument{
 		StreamID:  streamID.String(),
 		EventID:   eventID.Value(),
 		EventType: eventID.TypeName(),
-		Timestamp: e.Timestamp(),
-		Data:      e.Data(),
+		Timestamp: e.Timestamp,
+		Data:      e.Data,
 	}
 }
 
-func eventFromDocument(d *eventDocument) (*event, error) {
+func eventFromDocument(d *eventDocument) (*estoria.EventStoreEvent, error) {
 	uid, err := uuid.FromString(d.EventID)
 	if err != nil {
 		return nil, err
@@ -55,30 +45,10 @@ func eventFromDocument(d *eventDocument) (*event, error) {
 		return nil, err
 	}
 
-	return &event{
-		id:        typeid.FromUUID(d.EventType, uidV5),
-		streamID:  streamID,
-		timestamp: d.Timestamp,
-		data:      d.Data,
+	return &estoria.EventStoreEvent{
+		ID:        typeid.FromUUID(d.EventType, uidV5),
+		StreamID:  streamID,
+		Timestamp: d.Timestamp,
+		Data:      d.Data,
 	}, nil
-}
-
-func (e *event) ID() typeid.UUID {
-	return e.id
-}
-
-func (e *event) StreamID() typeid.UUID {
-	return e.streamID
-}
-
-func (e *event) StreamVersion() int64 {
-	return e.streamVersion
-}
-
-func (e *event) Timestamp() time.Time {
-	return e.timestamp
-}
-
-func (e *event) Data() []byte {
-	return e.data
 }

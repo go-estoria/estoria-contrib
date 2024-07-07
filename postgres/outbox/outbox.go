@@ -31,13 +31,13 @@ func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
 	return outbox, nil
 }
 
-func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) error {
+func (o *Outbox) HandleEvents(tx *sql.Tx, events []*estoria.EventStoreEvent) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
 	for i, event := range events {
 		documents[i] = &outboxRow{
-			StreamID:  event.StreamID().String(),
+			StreamID:  event.StreamID.String(),
 			Timestamp: time.Now(),
 			Event:     event,
 		}
@@ -53,10 +53,10 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) erro
 	for _, event := range events {
 		var data []byte
 		if o.includeFullData {
-			data = event.Data()
+			data = event.Data
 		}
 
-		if _, err := stmt.Exec(event.Timestamp(), event.StreamID().String(), event.ID().String(), data); err != nil {
+		if _, err := stmt.Exec(event.Timestamp, event.StreamID.String(), event.ID.String(), data); err != nil {
 			return fmt.Errorf("executing statement: %w", err)
 		}
 	}
@@ -67,5 +67,5 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []estoria.EventStoreEvent) erro
 type outboxRow struct {
 	StreamID  string
 	Timestamp time.Time
-	Event     estoria.EventStoreEvent
+	Event     *estoria.EventStoreEvent
 }

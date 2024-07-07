@@ -35,16 +35,16 @@ func (o *Outbox) Iterator() (outbox.Iterator, error) {
 	}, nil
 }
 
-func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []estoria.EventStoreEvent) error {
+func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []*estoria.EventStoreEvent) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
 	for i, event := range events {
 		documents[i] = &outboxDocument{
 			Timestamp: primitive.NewDateTimeFromTime(time.Now()),
-			StreamID:  event.StreamID().String(),
-			EventID:   event.ID().String(),
-			EventData: primitive.Binary{Data: event.Data()},
+			StreamID:  event.StreamID.String(),
+			EventID:   event.ID.String(),
+			EventData: primitive.Binary{Data: event.Data},
 		}
 	}
 

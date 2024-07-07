@@ -67,7 +67,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts estoria.AppendStreamOptions, events []*estoria.EventStoreEvent) error {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
@@ -81,7 +81,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opt
 
 	streamEvents := make([]esdb.EventData, len(events))
 	for i, e := range events {
-		eventID, err := uuid.FromString(e.ID().Value())
+		eventID, err := uuid.FromString(e.ID.Value())
 		if err != nil {
 			return fmt.Errorf("parsing event ID: %w", err)
 		}
@@ -89,8 +89,8 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opt
 		streamEvents[i] = esdb.EventData{
 			EventID:     eventID,
 			ContentType: esdb.ContentTypeJson,
-			EventType:   e.ID().TypeName(),
-			Data:        e.Data(),
+			EventType:   e.ID.TypeName(),
+			Data:        e.Data,
 		}
 	}
 

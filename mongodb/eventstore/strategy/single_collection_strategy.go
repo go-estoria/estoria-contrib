@@ -78,7 +78,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 func (s *SingleCollectionStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
-	events []estoria.EventStoreEvent,
+	events []*estoria.EventStoreEvent,
 	opts estoria.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
@@ -134,23 +134,23 @@ type singleCollectionEventDocument struct {
 	Data       []byte    `bson:"data"`
 }
 
-func singleCollectionEventDocumentFromEvent(evt estoria.EventStoreEvent, version int64) singleCollectionEventDocument {
+func singleCollectionEventDocumentFromEvent(evt *estoria.EventStoreEvent, version int64) singleCollectionEventDocument {
 	return singleCollectionEventDocument{
-		StreamType: evt.StreamID().TypeName(),
-		StreamID:   evt.StreamID().UUID(),
-		EventID:    evt.ID().UUID(),
-		EventType:  evt.ID().TypeName(),
-		Timestamp:  evt.Timestamp(),
+		StreamType: evt.StreamID.TypeName(),
+		StreamID:   evt.StreamID.UUID(),
+		EventID:    evt.ID.UUID(),
+		EventType:  evt.ID.TypeName(),
+		Timestamp:  evt.Timestamp,
 		Version:    version,
-		Data:       evt.Data(),
+		Data:       evt.Data,
 	}
 }
 
-func (d singleCollectionEventDocument) ToEvent(_ typeid.UUID) (estoria.EventStoreEvent, error) {
-	return &event{
-		id:        typeid.FromUUID(d.EventType, d.EventID),
-		streamID:  typeid.FromUUID(d.StreamType, d.StreamID),
-		timestamp: d.Timestamp,
-		data:      d.Data,
+func (d singleCollectionEventDocument) ToEvent(_ typeid.UUID) (*estoria.EventStoreEvent, error) {
+	return &estoria.EventStoreEvent{
+		ID:        typeid.FromUUID(d.EventType, d.EventID),
+		StreamID:  typeid.FromUUID(d.StreamType, d.StreamID),
+		Timestamp: d.Timestamp,
+		Data:      d.Data,
 	}, nil
 }

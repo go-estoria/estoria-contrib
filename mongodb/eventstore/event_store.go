@@ -25,7 +25,7 @@ var _ estoria.EventStreamReader = (*EventStore)(nil)
 var _ estoria.EventStreamWriter = (*EventStore)(nil)
 
 type TransactionHook interface {
-	HandleEvents(sessCtx mongo.SessionContext, events []estoria.EventStoreEvent) error
+	HandleEvents(sessCtx mongo.SessionContext, events []*estoria.EventStoreEvent) error
 }
 
 type Strategy interface {
@@ -37,7 +37,7 @@ type Strategy interface {
 	InsertStreamEvents(
 		ctx mongo.SessionContext,
 		streamID typeid.UUID,
-		events []estoria.EventStoreEvent,
+		events []*estoria.EventStoreEvent,
 		opts estoria.AppendStreamOptions,
 	) (*mongo.InsertManyResult, error)
 }
@@ -83,7 +83,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts estoria.AppendStreamOptions, events []estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts estoria.AppendStreamOptions, events []*estoria.EventStoreEvent) error {
 	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {

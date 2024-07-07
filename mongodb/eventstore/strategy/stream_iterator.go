@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/typeid"
@@ -12,7 +11,7 @@ import (
 )
 
 type eventDocument interface {
-	ToEvent(streamID typeid.UUID) (estoria.EventStoreEvent, error)
+	ToEvent(streamID typeid.UUID) (*estoria.EventStoreEvent, error)
 }
 
 type streamIterator[D eventDocument] struct {
@@ -21,7 +20,7 @@ type streamIterator[D eventDocument] struct {
 	cursor      *mongo.Cursor
 }
 
-func (i *streamIterator[D]) Next(ctx context.Context) (estoria.EventStoreEvent, error) {
+func (i *streamIterator[D]) Next(ctx context.Context) (*estoria.EventStoreEvent, error) {
 	if i.cursor.Next(ctx) {
 		doc := i.docTemplate
 		if err := i.cursor.Decode(&doc); err != nil {
@@ -41,34 +40,4 @@ func (i *streamIterator[D]) Next(ctx context.Context) (estoria.EventStoreEvent, 
 	}
 
 	return nil, io.EOF
-}
-
-type event struct {
-	id            typeid.UUID
-	streamID      typeid.UUID
-	streamVersion int64
-	timestamp     time.Time
-	data          []byte
-}
-
-var _ estoria.EventStoreEvent = (*event)(nil)
-
-func (e *event) ID() typeid.UUID {
-	return e.id
-}
-
-func (e *event) StreamID() typeid.UUID {
-	return e.streamID
-}
-
-func (e *event) StreamVersion() int64 {
-	return e.streamVersion
-}
-
-func (e *event) Timestamp() time.Time {
-	return e.timestamp
-}
-
-func (e *event) Data() []byte {
-	return e.data
 }
