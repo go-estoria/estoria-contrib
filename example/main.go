@@ -18,7 +18,9 @@ import (
 	"github.com/go-estoria/estoria/aggregatestore"
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
-	"github.com/go-estoria/estoria/snapshotstore"
+
+	// "github.com/go-estoria/estoria/snapshotstore/eventstream"
+	memorysnapshotstore "github.com/go-estoria/estoria/snapshotstore/memory"
 )
 
 func main() {
@@ -49,10 +51,12 @@ func main() {
 		}
 
 		// Enable aggregate snapshots (optional)
-		snapshotReader := snapshotstore.NewEventStreamReader(eventStore)
-		snapshotWriter := snapshotstore.NewEventStreamWriter(eventStore)
+		// snapshotReader := eventstream.NewSnapshotReader(eventStore)
+		// snapshotWriter := eventstream.NewSnapshotWriter(eventStore)
+		snapshotStore := memorysnapshotstore.NewSnapshotStore()
 		snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
-		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
+		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotStore, snapshotStore, snapshotPolicy)
+		// aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotReader, snapshotWriter, snapshotPolicy)
 
 		hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
 		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
