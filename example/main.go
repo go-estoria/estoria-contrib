@@ -55,7 +55,7 @@ func main() {
 		}
 
 		snapshotStore := snapshotStores["memory"] // choose a snapshot store
-		snapshotPolicy := estoria.EventCountSnapshotPolicy{N: 8}
+		snapshotPolicy := snapshotstore.EventCountSnapshotPolicy{N: 8}
 		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotStore, snapshotPolicy)
 
 		hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
