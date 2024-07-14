@@ -51,7 +51,7 @@ func main() {
 
 		// Enable aggregate snapshots (optional)
 		snapshotStores := map[string]aggregatestore.SnapshotStore{
-			"memory":      snapshotstore.NewMemorySnapshotStore(),
+			"memory":      snapshotstore.NewMemoryStore(),
 			"eventstream": snapshotstore.NewEventStreamSnapshotStore(eventStore),
 		}
 
