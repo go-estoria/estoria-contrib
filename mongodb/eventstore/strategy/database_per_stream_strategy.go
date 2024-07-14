@@ -38,7 +38,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.EventStreamIterator, error) {
+) (eventstore.StreamIterator, error) {
 	database := s.client.Database(streamID.String())
 	collection := database.Collection(s.collectionName)
 

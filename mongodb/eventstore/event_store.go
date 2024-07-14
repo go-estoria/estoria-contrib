@@ -21,8 +21,8 @@ type EventStore struct {
 	log         *slog.Logger
 }
 
-var _ eventstore.EventStreamReader = (*EventStore)(nil)
-var _ eventstore.EventStreamWriter = (*EventStore)(nil)
+var _ eventstore.StreamReader = (*EventStore)(nil)
+var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 type TransactionHook interface {
 	HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.EventStoreEvent) error
@@ -33,7 +33,7 @@ type Strategy interface {
 		ctx context.Context,
 		streamID typeid.UUID,
 		opts eventstore.ReadStreamOptions,
-	) (eventstore.EventStreamIterator, error)
+	) (eventstore.StreamIterator, error)
 	InsertStreamEvents(
 		ctx mongo.SessionContext,
 		streamID typeid.UUID,
@@ -71,7 +71,7 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from stream", "stream_id", streamID.String())
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)

@@ -32,7 +32,7 @@ func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventSto
 	return eventStore, nil
 }
 
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	readOpts := esdb.ReadStreamOptions{
 		Direction: esdb.Forwards,
 		From:      esdb.Start{},

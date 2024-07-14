@@ -45,7 +45,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.EventStreamIterator, error) {
+) (eventstore.StreamIterator, error) {
 	offset := opts.Offset
 	count := opts.Count
 	sortDirection := 1

@@ -28,7 +28,7 @@ func main() {
 	configureLogging()
 
 	// 1. Create an Event Store to store events.
-	eventStores := map[string]eventstore.EventStore{
+	eventStores := map[string]eventstore.Store{
 		"memory": newInMemoryEventStore(ctx),
 		// "esdb": newESDBEventStore(ctx),
 		// "mongo": newMongoEventStore(ctx),
@@ -41,9 +41,9 @@ func main() {
 
 		// 2. Create an AggregateStore to load and store aggregates.
 		var aggregateStore aggregatestore.Store[*Account]
-		aggregateStore, err = aggregatestore.NewEventSourcedAggregateStore(eventStore, NewAccount,
-			aggregatestore.WithEventStreamReader[*Account](eventStore), // optional: override the stream reader
-			aggregatestore.WithEventStreamWriter[*Account](eventStore), // optional: override the stream writer
+		aggregateStore, err = aggregatestore.NewEventSourcedStore(eventStore, NewAccount,
+			aggregatestore.WithStreamReader[*Account](eventStore), // optional: override the stream reader
+			aggregatestore.WithStreamWriter[*Account](eventStore), // optional: override the stream writer
 		)
 		if err != nil {
 			panic(err)
@@ -57,9 +57,9 @@ func main() {
 
 		snapshotStore := snapshotStores["memory"] // choose a snapshot store
 		snapshotPolicy := snapshotstore.EventCountSnapshotPolicy{N: 8}
-		aggregateStore = aggregatestore.NewSnapshottingAggregateStore(aggregateStore, snapshotStore, snapshotPolicy)
+		aggregateStore = aggregatestore.NewSnapshottingStore(aggregateStore, snapshotStore, snapshotPolicy)
 
-		hookableStore := aggregatestore.NewHookableAggregateStore(aggregateStore)
+		hookableStore := aggregatestore.NewHookableStore(aggregateStore)
 		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
 			slog.Info("before save", "aggregate_id", aggregate.ID())
 			return nil
@@ -72,7 +72,7 @@ func main() {
 		aggregateStore = hookableStore
 
 		// 4. Create an aggregate instance.
-		aggregate, err := aggregateStore.NewAggregate(nil)
+		aggregate, err := aggregateStore.New(nil)
 		if err != nil {
 			panic(err)
 		}
@@ -174,7 +174,7 @@ func configureLogging() {
 	})))
 }
 
-func newInMemoryEventStore(ctx context.Context) eventstore.EventStore {
+func newInMemoryEventStore(ctx context.Context) eventstore.Store {
 	inMemoryOutbox := memoryes.NewOutbox()
 
 	logger := &OutboxLogger{}
@@ -194,7 +194,7 @@ func newInMemoryEventStore(ctx context.Context) eventstore.EventStore {
 	)
 }
 
-func newESDBEventStore(ctx context.Context) eventstore.EventStore {
+func newESDBEventStore(ctx context.Context) eventstore.Store {
 	esdbClient, err := esdbes.NewDefaultEventStoreDBClient(
 		ctx,
 		os.Getenv("EVENTSTOREDB_URI"),
@@ -213,7 +213,7 @@ func newESDBEventStore(ctx context.Context) eventstore.EventStore {
 	return esdbEventStore
 }
 
-func newMongoEventStore(ctx context.Context) eventstore.EventStore {
+func newMongoEventStore(ctx context.Context) eventstore.Store {
 	mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
 	if err != nil {
 		panic(err)
@@ -246,7 +246,7 @@ func newMongoEventStore(ctx context.Context) eventstore.EventStore {
 	return mongoEventStore
 }
 
-func newPostgresEventStore(ctx context.Context) eventstore.EventStore {
+func newPostgresEventStore(ctx context.Context) eventstore.Store {
 	db, err := postgres.NewDefaultDB(ctx, os.Getenv("POSTGRES_URI"))
 	if err != nil {
 		panic(err)

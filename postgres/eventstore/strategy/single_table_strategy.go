@@ -34,7 +34,7 @@ func (s *SingleTableStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.EventStreamIterator, error) {
+) (eventstore.StreamIterator, error) {
 	sortDirection := "ASC"
 	if opts.Direction == eventstore.Reverse {
 		sortDirection = "DESC"

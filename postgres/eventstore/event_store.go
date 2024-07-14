@@ -19,8 +19,8 @@ type EventStore struct {
 	appendTxHooks []TransactionHook
 }
 
-var _ eventstore.EventStreamReader = (*EventStore)(nil)
-var _ eventstore.EventStreamWriter = (*EventStore)(nil)
+var _ eventstore.StreamReader = (*EventStore)(nil)
+var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 type TransactionHook func(tx *sql.Tx, events []*eventstore.EventStoreEvent) error
 
@@ -29,7 +29,7 @@ type Strategy interface {
 		ctx context.Context,
 		streamID typeid.UUID,
 		opts eventstore.ReadStreamOptions,
-	) (eventstore.EventStreamIterator, error)
+	) (eventstore.StreamIterator, error)
 	InsertStreamEvents(
 		tx *sql.Tx,
 		streamID typeid.UUID,
@@ -73,7 +73,7 @@ func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from Postgres stream", "stream_id", streamID.String())
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)

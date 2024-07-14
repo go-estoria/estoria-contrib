@@ -40,7 +40,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.EventStreamIterator, error) {
+) (eventstore.StreamIterator, error) {
 	collection := s.database.Collection(streamID.String())
 
 	offset := opts.Offset
