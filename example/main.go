@@ -39,7 +39,7 @@ func main() {
 		var err error
 
 		// 2. Create an AggregateStore to load and store aggregates.
-		var aggregateStore estoria.AggregateStore[*Account]
+		var aggregateStore aggregatestore.Store[*Account]
 		aggregateStore, err = aggregatestore.NewEventSourcedAggregateStore(eventStore, NewAccount,
 			aggregatestore.WithEventStreamReader[*Account](eventStore), // optional: override the stream reader
 			aggregatestore.WithEventStreamWriter[*Account](eventStore), // optional: override the stream writer
@@ -104,12 +104,12 @@ func main() {
 		}
 
 		// save the aggregate
-		if err := aggregateStore.Save(ctx, aggregate, estoria.SaveAggregateOptions{}); err != nil {
+		if err := aggregateStore.Save(ctx, aggregate, aggregatestore.SaveOptions{}); err != nil {
 			panic(err)
 		}
 
 		// load the aggregate
-		loadedAggregate, err := aggregateStore.Load(ctx, aggregate.ID(), estoria.LoadAggregateOptions{
+		loadedAggregate, err := aggregateStore.Load(ctx, aggregate.ID(), aggregatestore.LoadOptions{
 			// ToVersion: 15,
 		})
 		if err != nil {
