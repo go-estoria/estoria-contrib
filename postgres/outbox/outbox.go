@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 )
 
 type Outbox struct {
@@ -31,7 +31,7 @@ func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
 	return outbox, nil
 }
 
-func (o *Outbox) HandleEvents(tx *sql.Tx, events []*estoria.EventStoreEvent) error {
+func (o *Outbox) HandleEvents(tx *sql.Tx, events []*eventstore.EventStoreEvent) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
@@ -67,5 +67,5 @@ func (o *Outbox) HandleEvents(tx *sql.Tx, events []*estoria.EventStoreEvent) err
 type outboxRow struct {
 	StreamID  string
 	Timestamp time.Time
-	Event     *estoria.EventStoreEvent
+	Event     *eventstore.EventStoreEvent
 }

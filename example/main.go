@@ -16,6 +16,7 @@ import (
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	"github.com/go-estoria/estoria/aggregatestore"
+	"github.com/go-estoria/estoria/eventstore"
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshotstore"
@@ -27,7 +28,7 @@ func main() {
 	configureLogging()
 
 	// 1. Create an Event Store to store events.
-	eventStores := map[string]estoria.EventStore{
+	eventStores := map[string]eventstore.EventStore{
 		"memory": newInMemoryEventStore(ctx),
 		// "esdb": newESDBEventStore(ctx),
 		// "mongo": newMongoEventStore(ctx),
@@ -173,7 +174,7 @@ func configureLogging() {
 	})))
 }
 
-func newInMemoryEventStore(ctx context.Context) estoria.EventStore {
+func newInMemoryEventStore(ctx context.Context) eventstore.EventStore {
 	inMemoryOutbox := memoryes.NewOutbox()
 
 	logger := &OutboxLogger{}
@@ -193,7 +194,7 @@ func newInMemoryEventStore(ctx context.Context) estoria.EventStore {
 	)
 }
 
-func newESDBEventStore(ctx context.Context) estoria.EventStore {
+func newESDBEventStore(ctx context.Context) eventstore.EventStore {
 	esdbClient, err := esdbes.NewDefaultEventStoreDBClient(
 		ctx,
 		os.Getenv("EVENTSTOREDB_URI"),
@@ -212,7 +213,7 @@ func newESDBEventStore(ctx context.Context) estoria.EventStore {
 	return esdbEventStore
 }
 
-func newMongoEventStore(ctx context.Context) estoria.EventStore {
+func newMongoEventStore(ctx context.Context) eventstore.EventStore {
 	mongoClient, err := mongoes.NewDefaultMongoDBClient(ctx, "example-app", os.Getenv("MONGODB_URI"))
 	if err != nil {
 		panic(err)
@@ -245,7 +246,7 @@ func newMongoEventStore(ctx context.Context) estoria.EventStore {
 	return mongoEventStore
 }
 
-func newPostgresEventStore(ctx context.Context) estoria.EventStore {
+func newPostgresEventStore(ctx context.Context) eventstore.EventStore {
 	db, err := postgres.NewDefaultDB(ctx, os.Getenv("POSTGRES_URI"))
 	if err != nil {
 		panic(err)

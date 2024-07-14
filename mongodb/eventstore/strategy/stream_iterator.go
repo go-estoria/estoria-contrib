@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type eventDocument interface {
-	ToEvent(streamID typeid.UUID) (*estoria.EventStoreEvent, error)
+	ToEvent(streamID typeid.UUID) (*eventstore.EventStoreEvent, error)
 }
 
 type streamIterator[D eventDocument] struct {
@@ -20,7 +20,7 @@ type streamIterator[D eventDocument] struct {
 	cursor      *mongo.Cursor
 }
 
-func (i *streamIterator[D]) Next(ctx context.Context) (*estoria.EventStoreEvent, error) {
+func (i *streamIterator[D]) Next(ctx context.Context) (*eventstore.EventStoreEvent, error) {
 	if i.cursor.Next(ctx) {
 		doc := i.docTemplate
 		if err := i.cursor.Decode(&doc); err != nil {

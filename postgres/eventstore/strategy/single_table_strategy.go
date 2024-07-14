@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 )
 
@@ -33,10 +33,10 @@ func NewSingleTableStrategy(db *sql.DB, table string) (*SingleTableStrategy, err
 func (s *SingleTableStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
-	opts estoria.ReadStreamOptions,
-) (estoria.EventStreamIterator, error) {
+	opts eventstore.ReadStreamOptions,
+) (eventstore.EventStreamIterator, error) {
 	sortDirection := "ASC"
-	if opts.Direction == estoria.Reverse {
+	if opts.Direction == eventstore.Reverse {
 		sortDirection = "DESC"
 	}
 
@@ -68,8 +68,8 @@ func (s *SingleTableStrategy) GetStreamIterator(
 func (s *SingleTableStrategy) InsertStreamEvents(
 	tx *sql.Tx,
 	streamID typeid.UUID,
-	events []*estoria.EventStoreEvent,
-	opts estoria.AppendStreamOptions,
+	events []*eventstore.EventStoreEvent,
+	opts eventstore.AppendStreamOptions,
 ) (sql.Result, error) {
 	latestVersion, err := s.getLatestVersion(tx, streamID)
 	if err != nil {

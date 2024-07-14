@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
 	"go.mongodb.org/mongo-driver/bson"
@@ -37,8 +37,8 @@ func NewDatabasePerStreamStrategy(client *mongo.Client, collection string) (*Dat
 func (s *DatabasePerStreamStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
-	opts estoria.ReadStreamOptions,
-) (estoria.EventStreamIterator, error) {
+	opts eventstore.ReadStreamOptions,
+) (eventstore.EventStreamIterator, error) {
 	database := s.client.Database(streamID.String())
 	collection := database.Collection(s.collectionName)
 
@@ -46,7 +46,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(
 	count := opts.Count
 	sortDirection := 1
 	versionFilterKey := "$gt"
-	if opts.Direction == estoria.Reverse {
+	if opts.Direction == eventstore.Reverse {
 		sortDirection = -1
 		// versionFilterKey = "$lt"
 	}
@@ -72,8 +72,8 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(
 func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
-	events []*estoria.EventStoreEvent,
-	opts estoria.AppendStreamOptions,
+	events []*eventstore.EventStoreEvent,
+	opts eventstore.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
 	if err != nil {
@@ -124,7 +124,7 @@ type databasePerStreamEventDocument struct {
 	Data      []byte    `bson:"data"`
 }
 
-func databasePerStreamEventDocumentFromEvent(evt *estoria.EventStoreEvent, version int64) databasePerStreamEventDocument {
+func databasePerStreamEventDocumentFromEvent(evt *eventstore.EventStoreEvent, version int64) databasePerStreamEventDocument {
 	return databasePerStreamEventDocument{
 		EventID:   evt.ID.UUID(),
 		EventType: evt.ID.TypeName(),
@@ -134,8 +134,8 @@ func databasePerStreamEventDocumentFromEvent(evt *estoria.EventStoreEvent, versi
 	}
 }
 
-func (d databasePerStreamEventDocument) ToEvent(streamID typeid.UUID) (*estoria.EventStoreEvent, error) {
-	return &estoria.EventStoreEvent{
+func (d databasePerStreamEventDocument) ToEvent(streamID typeid.UUID) (*eventstore.EventStoreEvent, error) {
+	return &eventstore.EventStoreEvent{
 		ID:        typeid.FromUUID(d.EventType, d.EventID),
 		StreamID:  streamID,
 		Timestamp: d.Timestamp,

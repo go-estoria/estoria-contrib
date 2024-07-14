@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/gofrs/uuid/v5"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -35,7 +35,7 @@ func (o *Outbox) Iterator() (outbox.Iterator, error) {
 	}, nil
 }
 
-func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []*estoria.EventStoreEvent) error {
+func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []*eventstore.EventStoreEvent) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))

@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid"
 )
@@ -32,13 +32,13 @@ func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventSto
 	return eventStore, nil
 }
 
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts estoria.ReadStreamOptions) (estoria.EventStreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.EventStreamIterator, error) {
 	readOpts := esdb.ReadStreamOptions{
 		Direction: esdb.Forwards,
 		From:      esdb.Start{},
 	}
 
-	if opts.Direction == estoria.Reverse {
+	if opts.Direction == eventstore.Reverse {
 		slog.Debug("reading stream in reverse", "stream_id", streamID.String())
 		readOpts.Direction = esdb.Backwards
 		readOpts.From = esdb.End{}
@@ -67,7 +67,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts estoria.AppendStreamOptions, events []*estoria.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts eventstore.AppendStreamOptions, events []*eventstore.EventStoreEvent) error {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 

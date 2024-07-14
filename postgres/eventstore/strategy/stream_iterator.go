@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
 )
@@ -17,7 +17,7 @@ type streamIterator struct {
 	rows     *sql.Rows
 }
 
-func (i *streamIterator) Next(ctx context.Context) (*estoria.EventStoreEvent, error) {
+func (i *streamIterator) Next(ctx context.Context) (*eventstore.EventStoreEvent, error) {
 	if !i.rows.Next() {
 		return nil, io.EOF
 	}
@@ -28,7 +28,7 @@ func (i *streamIterator) Next(ctx context.Context) (*estoria.EventStoreEvent, er
 		return nil, fmt.Errorf("iterating rows: %w", err)
 	}
 
-	var e estoria.EventStoreEvent
+	var e eventstore.EventStoreEvent
 	var eventID uuid.UUID
 	var eventType string
 	if err := i.rows.Scan(&eventID, &eventType, &e.Timestamp, &e.Data); err != nil {

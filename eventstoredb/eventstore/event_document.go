@@ -3,7 +3,7 @@ package eventstore
 import (
 	"time"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid"
 	uuidv5 "github.com/gofrs/uuid/v5"
@@ -17,7 +17,7 @@ type eventDocument struct {
 	Data      []byte    `json:"data"`
 }
 
-func documentFromEvent(e estoria.EventStoreEvent) *eventDocument {
+func documentFromEvent(e eventstore.EventStoreEvent) *eventDocument {
 	eventID := e.ID
 	streamID := e.StreamID
 	return &eventDocument{
@@ -29,7 +29,7 @@ func documentFromEvent(e estoria.EventStoreEvent) *eventDocument {
 	}
 }
 
-func eventFromDocument(d *eventDocument) (*estoria.EventStoreEvent, error) {
+func eventFromDocument(d *eventDocument) (*eventstore.EventStoreEvent, error) {
 	uid, err := uuid.FromString(d.EventID)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func eventFromDocument(d *eventDocument) (*estoria.EventStoreEvent, error) {
 		return nil, err
 	}
 
-	return &estoria.EventStoreEvent{
+	return &eventstore.EventStoreEvent{
 		ID:        typeid.FromUUID(d.EventType, uidV5),
 		StreamID:  streamID,
 		Timestamp: d.Timestamp,

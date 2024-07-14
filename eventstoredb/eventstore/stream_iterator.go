@@ -8,7 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	uuidv5 "github.com/gofrs/uuid/v5"
 )
@@ -19,7 +19,7 @@ type StreamIterator struct {
 	stream   *esdb.ReadStream
 }
 
-func (i *StreamIterator) Next(ctx context.Context) (*estoria.EventStoreEvent, error) {
+func (i *StreamIterator) Next(ctx context.Context) (*eventstore.EventStoreEvent, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -52,7 +52,7 @@ func (i *StreamIterator) Next(ctx context.Context) (*estoria.EventStoreEvent, er
 		return nil, fmt.Errorf("converting UUID: %w", err)
 	}
 
-	return &estoria.EventStoreEvent{
+	return &eventstore.EventStoreEvent{
 		StreamID:  streamID,
 		ID:        typeid.FromUUID(resolvedEvent.Event.EventType, uidV5),
 		Timestamp: resolvedEvent.Event.CreatedDate,

@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
 	"go.mongodb.org/mongo-driver/bson"
@@ -44,13 +44,13 @@ func NewSingleCollectionStrategy(client *mongo.Client, database, collection stri
 func (s *SingleCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
-	opts estoria.ReadStreamOptions,
-) (estoria.EventStreamIterator, error) {
+	opts eventstore.ReadStreamOptions,
+) (eventstore.EventStreamIterator, error) {
 	offset := opts.Offset
 	count := opts.Count
 	sortDirection := 1
 	versionFilterKey := "$gt"
-	if opts.Direction == estoria.Reverse {
+	if opts.Direction == eventstore.Reverse {
 		sortDirection = -1
 		// versionFilterKey = "$lt"
 	}
@@ -78,8 +78,8 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 func (s *SingleCollectionStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
-	events []*estoria.EventStoreEvent,
-	opts estoria.AppendStreamOptions,
+	events []*eventstore.EventStoreEvent,
+	opts eventstore.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
 	if err != nil {
@@ -134,7 +134,7 @@ type singleCollectionEventDocument struct {
 	Data       []byte    `bson:"data"`
 }
 
-func singleCollectionEventDocumentFromEvent(evt *estoria.EventStoreEvent, version int64) singleCollectionEventDocument {
+func singleCollectionEventDocumentFromEvent(evt *eventstore.EventStoreEvent, version int64) singleCollectionEventDocument {
 	return singleCollectionEventDocument{
 		StreamType: evt.StreamID.TypeName(),
 		StreamID:   evt.StreamID.UUID(),
@@ -146,8 +146,8 @@ func singleCollectionEventDocumentFromEvent(evt *estoria.EventStoreEvent, versio
 	}
 }
 
-func (d singleCollectionEventDocument) ToEvent(_ typeid.UUID) (*estoria.EventStoreEvent, error) {
-	return &estoria.EventStoreEvent{
+func (d singleCollectionEventDocument) ToEvent(_ typeid.UUID) (*eventstore.EventStoreEvent, error) {
+	return &eventstore.EventStoreEvent{
 		ID:        typeid.FromUUID(d.EventType, d.EventID),
 		StreamID:  typeid.FromUUID(d.StreamType, d.StreamID),
 		Timestamp: d.Timestamp,
