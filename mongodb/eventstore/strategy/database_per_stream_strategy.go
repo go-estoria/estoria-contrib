@@ -15,22 +15,22 @@ import (
 )
 
 type DatabasePerStreamStrategy struct {
-	client         *mongo.Client
+	client         MongoClient
 	collectionName string
 	log            *slog.Logger
 	marshaler      DocumentMarshaler
 }
 
-func NewDatabasePerStreamStrategy(client *mongo.Client, collection string, opts ...DatabasePerStreamStrategyOption) (*DatabasePerStreamStrategy, error) {
+func NewDatabasePerStreamStrategy(client MongoClient, collectionName string, opts ...DatabasePerStreamStrategyOption) (*DatabasePerStreamStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
-	} else if collection == "" {
-		return nil, fmt.Errorf("collection is required")
+	} else if collectionName == "" {
+		return nil, fmt.Errorf("collectionName is required")
 	}
 
 	strategy := &DatabasePerStreamStrategy{
 		client:         client,
-		collectionName: collection,
+		collectionName: collectionName,
 		log:            slog.Default().WithGroup("eventstore"),
 	}
 

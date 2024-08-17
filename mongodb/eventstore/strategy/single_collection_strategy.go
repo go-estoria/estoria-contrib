@@ -15,29 +15,18 @@ import (
 )
 
 type SingleCollectionStrategy struct {
-	client     *mongo.Client
-	database   *mongo.Database
-	collection *mongo.Collection
+	collection MongoCollection
 	log        *slog.Logger
 	marshaler  DocumentMarshaler
 }
 
-func NewSingleCollectionStrategy(client *mongo.Client, database, collection string, opts ...SingleCollectionStrategyOption) (*SingleCollectionStrategy, error) {
-	if client == nil {
-		return nil, fmt.Errorf("client is required")
-	} else if database == "" {
-		return nil, fmt.Errorf("database is required")
-	} else if collection == "" {
+func NewSingleCollectionStrategy(collection MongoCollection, opts ...SingleCollectionStrategyOption) (*SingleCollectionStrategy, error) {
+	if collection == nil {
 		return nil, fmt.Errorf("collection is required")
 	}
 
-	db := client.Database(database)
-	coll := db.Collection(collection)
-
 	strategy := &SingleCollectionStrategy{
-		client:     client,
-		database:   db,
-		collection: coll,
+		collection: collection,
 		log:        slog.Default().WithGroup("eventstore"),
 	}
 
