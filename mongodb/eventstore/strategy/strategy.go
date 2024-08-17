@@ -20,3 +20,10 @@ type MongoCollection interface {
 	FindOne(ctx context.Context, filter interface{}, opts ...*options.FindOneOptions) *mongo.SingleResult
 	InsertMany(ctx context.Context, documents []interface{}, opts ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
 }
+
+type MongoCursor interface {
+	Next(ctx context.Context) bool
+	Decode(v interface{}) error
+	Err() error
+	Close(ctx context.Context) error
+}

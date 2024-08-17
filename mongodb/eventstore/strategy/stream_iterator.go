@@ -7,12 +7,11 @@ import (
 
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type streamIterator struct {
 	streamID  typeid.UUID
-	cursor    *mongo.Cursor
+	cursor    MongoCursor
 	marshaler DocumentMarshaler
 }
 
@@ -31,4 +30,8 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	}
 
 	return nil, io.EOF
+}
+
+func (i *streamIterator) Close(ctx context.Context) error {
+	return i.cursor.Close(ctx)
 }

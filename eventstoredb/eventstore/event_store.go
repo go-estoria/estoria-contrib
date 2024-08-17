@@ -62,7 +62,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
 
-	return &StreamIterator{
+	return &streamIterator{
 		streamID: streamID,
 		client:   s.esdbClient,
 		stream:   result,

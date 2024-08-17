@@ -39,3 +39,7 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 
 	return &e, nil
 }
+
+func (i *streamIterator) Close(_ context.Context) error {
+	return i.rows.Close()
+}
