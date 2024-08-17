@@ -11,8 +11,13 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+type ESDBClient interface {
+	ReadStream(context context.Context, streamID string, opts esdb.ReadStreamOptions, count uint64) (*esdb.ReadStream, error)
+	AppendToStream(context context.Context, streamID string, opts esdb.AppendToStreamOptions, events ...esdb.EventData) (*esdb.WriteResult, error)
+}
+
 type EventStore struct {
-	esdbClient *esdb.Client
+	esdbClient ESDBClient
 	log        *slog.Logger
 }
 
@@ -20,7 +25,7 @@ var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 // NewEventStore creates a new event store using the given ESDB client.
-func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventStore, error) {
+func NewEventStore(esdbClient ESDBClient, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		esdbClient: esdbClient,
 		log:        slog.Default(),
@@ -64,7 +69,6 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 
 	return &streamIterator{
 		streamID: streamID,
-		client:   s.esdbClient,
 		stream:   result,
 	}, nil
 }

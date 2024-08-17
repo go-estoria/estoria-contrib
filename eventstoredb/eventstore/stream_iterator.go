@@ -15,7 +15,6 @@ import (
 
 type streamIterator struct {
 	streamID typeid.UUID
-	client   *esdb.Client
 	stream   *esdb.ReadStream
 }
 

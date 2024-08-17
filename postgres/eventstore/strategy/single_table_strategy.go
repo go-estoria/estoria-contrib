@@ -10,23 +10,33 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
-type SingleTableStrategy struct {
-	db    *sql.DB
-	table string
-	log   *slog.Logger
+type SQLDB interface {
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 }
 
-func NewSingleTableStrategy(db *sql.DB, table string) (*SingleTableStrategy, error) {
+type SQLTx interface {
+	QueryRow(query string, args ...any) *sql.Row
+	Rollback() error
+	Prepare(query string) (*sql.Stmt, error)
+}
+
+type SingleTableStrategy struct {
+	db        SQLDB
+	tableName string
+	log       *slog.Logger
+}
+
+func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
-	} else if table == "" {
+	} else if tableName == "" {
 		return nil, fmt.Errorf("table is required")
 	}
 
 	return &SingleTableStrategy{
-		db:    db,
-		table: table,
-		log:   slog.Default().WithGroup("eventstore"),
+		db:        db,
+		tableName: tableName,
+		log:       slog.Default().WithGroup("eventstore"),
 	}, nil
 }
 
@@ -54,7 +64,7 @@ func (s *SingleTableStrategy) GetStreamIterator(
 		ORDER BY version %s
 		%s
 		OFFSET $3
-	`, s.table, sortDirection, limitClause), streamID.TypeName(), streamID.Value(), opts.Offset)
+	`, s.tableName, sortDirection, limitClause), streamID.TypeName(), streamID.Value(), opts.Offset)
 	if err != nil {
 		return nil, fmt.Errorf("querying events: %w", err)
 	}
@@ -66,7 +76,7 @@ func (s *SingleTableStrategy) GetStreamIterator(
 }
 
 func (s *SingleTableStrategy) InsertStreamEvents(
-	tx *sql.Tx,
+	tx SQLTx,
 	streamID typeid.UUID,
 	events []*eventstore.Event,
 	opts eventstore.AppendStreamOptions,
@@ -87,7 +97,7 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 	stmt, err := tx.Prepare(fmt.Sprintf(`
 		INSERT INTO %s (event_id, stream_type, stream_id, event_type, timestamp, version, data)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, s.table))
+	`, s.tableName))
 	if err != nil {
 		return nil, fmt.Errorf("preparing statement: %w", err)
 	}
@@ -114,13 +124,13 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 
 }
 
-func (s *SingleTableStrategy) getLatestVersion(tx *sql.Tx, streamID typeid.UUID) (int64, error) {
+func (s *SingleTableStrategy) getLatestVersion(tx SQLTx, streamID typeid.UUID) (int64, error) {
 	var version int64
 	if err := tx.QueryRow(fmt.Sprintf(`
 		SELECT COALESCE(MAX(version), 0)
 		FROM %s
 		WHERE stream_type = $1 AND stream_id = $2
-	`, s.table), streamID.TypeName(), streamID.Value()).Scan(&version); err != nil {
+	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&version); err != nil {
 		return 0, fmt.Errorf("querying latest version: %w", err)
 	}
 
