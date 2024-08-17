@@ -59,7 +59,7 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 	}
 
 	if eventStore.strategy == nil {
-		strat, err := strategy.NewCollectionPerStreamStrategy(mongoClient, "streams")
+		strat, err := strategy.NewDatabasePerStreamStrategy(mongoClient, "events")
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}

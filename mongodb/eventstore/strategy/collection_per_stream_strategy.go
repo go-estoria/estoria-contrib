@@ -43,7 +43,7 @@ func NewCollectionPerStreamStrategy(client *mongo.Client, database string, opts 
 	}
 
 	if strategy.marshaler == nil {
-		if err := WithDocumentMarshaler(DefaultCollectionPerStreamDocumentMarshaler{})(strategy); err != nil {
+		if err := WithCPSSDocumentMarshaler(DefaultCollectionPerStreamDocumentMarshaler{})(strategy); err != nil {
 			return nil, fmt.Errorf("setting default document marshaler: %w", err)
 		}
 	}
@@ -143,8 +143,14 @@ type DefaultCollectionPerStreamDocumentMarshaler struct{}
 
 var _ DocumentMarshaler = DefaultCollectionPerStreamDocumentMarshaler{}
 
-func (DefaultCollectionPerStreamDocumentMarshaler) NewDocument() any {
-	return collectionPerStreamEventDocument{}
+type collectionPerStreamEventDocument struct {
+	StreamType string    `bson:"stream_type"`
+	StreamID   string    `bson:"stream_id"`
+	EventType  string    `bson:"event_type"`
+	EventID    string    `bson:"event_id"`
+	Version    int64     `bson:"version"`
+	Timestamp  time.Time `bson:"timestamp"`
+	EventData  []byte    `bson:"event_data"`
 }
 
 func (DefaultCollectionPerStreamDocumentMarshaler) MarshalDocument(event *eventstore.Event) (any, error) {
@@ -157,16 +163,6 @@ func (DefaultCollectionPerStreamDocumentMarshaler) MarshalDocument(event *events
 		Timestamp:  event.Timestamp,
 		EventData:  event.Data,
 	}, nil
-}
-
-type collectionPerStreamEventDocument struct {
-	StreamType string    `bson:"stream_type"`
-	StreamID   string    `bson:"stream_id"`
-	EventType  string    `bson:"event_type"`
-	EventID    string    `bson:"event_id"`
-	Version    int64     `bson:"version"`
-	Timestamp  time.Time `bson:"timestamp"`
-	EventData  []byte    `bson:"event_data"`
 }
 
 func (DefaultCollectionPerStreamDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*eventstore.Event, error) {
@@ -196,7 +192,7 @@ func (DefaultCollectionPerStreamDocumentMarshaler) UnmarshalDocument(decode Deco
 
 type CollectionPerStreamStrategyOption func(*CollectionPerStreamStrategy) error
 
-func WithDocumentMarshaler(marshaler DocumentMarshaler) CollectionPerStreamStrategyOption {
+func WithCPSSDocumentMarshaler(marshaler DocumentMarshaler) CollectionPerStreamStrategyOption {
 	return func(s *CollectionPerStreamStrategy) error {
 		s.marshaler = marshaler
 		return nil
