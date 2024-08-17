@@ -72,7 +72,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(
 func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
-	events []*eventstore.EventStoreEvent,
+	events []*eventstore.Event,
 	opts eventstore.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
@@ -124,7 +124,7 @@ type databasePerStreamEventDocument struct {
 	Data      []byte    `bson:"data"`
 }
 
-func databasePerStreamEventDocumentFromEvent(evt *eventstore.EventStoreEvent, version int64) databasePerStreamEventDocument {
+func databasePerStreamEventDocumentFromEvent(evt *eventstore.Event, version int64) databasePerStreamEventDocument {
 	return databasePerStreamEventDocument{
 		EventID:   evt.ID.UUID(),
 		EventType: evt.ID.TypeName(),
@@ -134,8 +134,8 @@ func databasePerStreamEventDocumentFromEvent(evt *eventstore.EventStoreEvent, ve
 	}
 }
 
-func (d databasePerStreamEventDocument) ToEvent(streamID typeid.UUID) (*eventstore.EventStoreEvent, error) {
-	return &eventstore.EventStoreEvent{
+func (d databasePerStreamEventDocument) ToEvent(streamID typeid.UUID) (*eventstore.Event, error) {
+	return &eventstore.Event{
 		ID:        typeid.FromUUID(d.EventType, d.EventID),
 		StreamID:  streamID,
 		Timestamp: d.Timestamp,

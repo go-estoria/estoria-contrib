@@ -16,6 +16,9 @@ type EventStore struct {
 	log        *slog.Logger
 }
 
+var _ eventstore.StreamReader = (*EventStore)(nil)
+var _ eventstore.StreamWriter = (*EventStore)(nil)
+
 // NewEventStore creates a new event store using the given ESDB client.
 func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
@@ -67,7 +70,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts eventstore.AppendStreamOptions, events []*eventstore.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 

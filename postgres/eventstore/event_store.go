@@ -22,7 +22,7 @@ type EventStore struct {
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
-type TransactionHook func(tx *sql.Tx, events []*eventstore.EventStoreEvent) error
+type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
 
 type Strategy interface {
 	GetStreamIterator(
@@ -33,7 +33,7 @@ type Strategy interface {
 	InsertStreamEvents(
 		tx *sql.Tx,
 		streamID typeid.UUID,
-		events []*eventstore.EventStoreEvent,
+		events []*eventstore.Event,
 		opts eventstore.AppendStreamOptions,
 	) (sql.Result, error)
 }
@@ -85,7 +85,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts eventstore.AppendStreamOptions, events []*eventstore.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
 	_, txErr := postgres.DoInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {

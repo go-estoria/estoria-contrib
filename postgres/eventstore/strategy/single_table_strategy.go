@@ -68,7 +68,7 @@ func (s *SingleTableStrategy) GetStreamIterator(
 func (s *SingleTableStrategy) InsertStreamEvents(
 	tx *sql.Tx,
 	streamID typeid.UUID,
-	events []*eventstore.EventStoreEvent,
+	events []*eventstore.Event,
 	opts eventstore.AppendStreamOptions,
 ) (sql.Result, error) {
 	latestVersion, err := s.getLatestVersion(tx, streamID)

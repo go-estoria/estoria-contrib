@@ -17,7 +17,7 @@ type eventDocument struct {
 	Data      []byte    `json:"data"`
 }
 
-func documentFromEvent(e eventstore.EventStoreEvent) *eventDocument {
+func documentFromEvent(e eventstore.Event) *eventDocument {
 	eventID := e.ID
 	streamID := e.StreamID
 	return &eventDocument{
@@ -29,7 +29,7 @@ func documentFromEvent(e eventstore.EventStoreEvent) *eventDocument {
 	}
 }
 
-func eventFromDocument(d *eventDocument) (*eventstore.EventStoreEvent, error) {
+func eventFromDocument(d *eventDocument) (*eventstore.Event, error) {
 	uid, err := uuid.FromString(d.EventID)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func eventFromDocument(d *eventDocument) (*eventstore.EventStoreEvent, error) {
 		return nil, err
 	}
 
-	return &eventstore.EventStoreEvent{
+	return &eventstore.Event{
 		ID:        typeid.FromUUID(d.EventType, uidV5),
 		StreamID:  streamID,
 		Timestamp: d.Timestamp,

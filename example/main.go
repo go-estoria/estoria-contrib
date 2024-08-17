@@ -20,6 +20,8 @@ import (
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshotstore"
+	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 )
 
 func main() {
@@ -52,7 +54,7 @@ func main() {
 		// Enable aggregate snapshots (optional)
 		snapshotStores := map[string]aggregatestore.SnapshotStore{
 			"memory":      snapshotstore.NewMemoryStore(),
-			"eventstream": snapshotstore.NewEventStreamSnapshotStore(eventStore),
+			"eventstream": snapshotstore.NewEventStreamStore(eventStore),
 		}
 
 		snapshotStore := snapshotStores["memory"] // choose a snapshot store
@@ -60,26 +62,29 @@ func main() {
 		aggregateStore = aggregatestore.NewSnapshottingStore(aggregateStore, snapshotStore, snapshotPolicy)
 
 		hookableStore := aggregatestore.NewHookableStore(aggregateStore)
-		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
 			slog.Info("before save", "aggregate_id", aggregate.ID())
 			return nil
 		})
-		hookableStore.AddHook(aggregatestore.AfterSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+		hookableStore.AddHook(aggregatestore.AfterSave, func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
 			slog.Info("after save", "aggregate_id", aggregate.ID())
 			return nil
 		})
 
 		aggregateStore = hookableStore
 
-		// 4. Create an aggregate instance.
-		aggregate, err := aggregateStore.New(nil)
+		uid, err := uuid.NewV4()
 		if err != nil {
 			panic(err)
 		}
 
-		// fmt.Println("created new aggregate with ID", aggregate.ID())
+		// 4. Create an aggregate instance.
+		aggregate, err := aggregateStore.New(uid)
+		if err != nil {
+			panic(err)
+		}
 
-		if err := aggregate.Append(
+		events := []estoria.EntityEvent{
 			&UserCreatedEvent{Username: "jdoe"},
 			&BalanceChangedEvent{Amount: 100},
 			&BalanceChangedEvent{Amount: -72},
@@ -100,8 +105,21 @@ func main() {
 			&BalanceChangedEvent{Amount: 883},
 			&BalanceChangedEvent{Amount: 626},
 			&BalanceChangedEvent{Amount: -620},
-		); err != nil {
-			panic(err)
+		}
+
+		for _, event := range events {
+			eventID, err := typeid.NewUUID(event.EventType())
+			if err != nil {
+				panic(err)
+			}
+
+			if err := aggregate.Append(&aggregatestore.AggregateEvent{
+				ID:          eventID,
+				Timestamp:   time.Now(),
+				EntityEvent: event,
+			}); err != nil {
+				panic(err)
+			}
 		}
 
 		// save the aggregate

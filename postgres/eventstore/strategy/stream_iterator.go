@@ -17,7 +17,7 @@ type streamIterator struct {
 	rows     *sql.Rows
 }
 
-func (i *streamIterator) Next(ctx context.Context) (*eventstore.EventStoreEvent, error) {
+func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	if !i.rows.Next() {
 		return nil, io.EOF
 	}
@@ -28,7 +28,7 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.EventStoreEvent,
 		return nil, fmt.Errorf("iterating rows: %w", err)
 	}
 
-	var e eventstore.EventStoreEvent
+	var e eventstore.Event
 	var eventID uuid.UUID
 	var eventType string
 	if err := i.rows.Scan(&eventID, &eventType, &e.Timestamp, &e.Data); err != nil {

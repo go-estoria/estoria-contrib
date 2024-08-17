@@ -19,7 +19,7 @@ type StreamIterator struct {
 	stream   *esdb.ReadStream
 }
 
-func (i *StreamIterator) Next(ctx context.Context) (*eventstore.EventStoreEvent, error) {
+func (i *StreamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -52,7 +52,7 @@ func (i *StreamIterator) Next(ctx context.Context) (*eventstore.EventStoreEvent,
 		return nil, fmt.Errorf("converting UUID: %w", err)
 	}
 
-	return &eventstore.EventStoreEvent{
+	return &eventstore.Event{
 		StreamID:  streamID,
 		ID:        typeid.FromUUID(resolvedEvent.Event.EventType, uidV5),
 		Timestamp: resolvedEvent.Event.CreatedDate,

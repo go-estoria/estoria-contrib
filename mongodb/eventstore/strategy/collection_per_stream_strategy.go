@@ -73,7 +73,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
-	events []*eventstore.EventStoreEvent,
+	events []*eventstore.Event,
 	opts eventstore.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	slog.Debug("inserting events into Mongo collection", "stream_id", streamID, "events", len(events))
@@ -125,7 +125,7 @@ type collectionPerStreamEventDocument struct {
 	Data      []byte    `bson:"data"` // QUESITON: should the event store API use []byte or any, to allow for different serialization strategies?
 }
 
-func collectionPerStreamEventDocumentFromEvent(evt *eventstore.EventStoreEvent, version int64) collectionPerStreamEventDocument {
+func collectionPerStreamEventDocumentFromEvent(evt *eventstore.Event, version int64) collectionPerStreamEventDocument {
 	return collectionPerStreamEventDocument{
 		EventID:   evt.ID.UUID(),
 		EventType: evt.ID.TypeName(),
@@ -135,8 +135,8 @@ func collectionPerStreamEventDocumentFromEvent(evt *eventstore.EventStoreEvent, 
 	}
 }
 
-func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.UUID) (*eventstore.EventStoreEvent, error) {
-	return &eventstore.EventStoreEvent{
+func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.UUID) (*eventstore.Event, error) {
+	return &eventstore.Event{
 		ID:            typeid.FromUUID(d.EventType, d.EventID),
 		StreamID:      streamID,
 		StreamVersion: d.Version,

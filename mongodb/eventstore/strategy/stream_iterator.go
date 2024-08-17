@@ -11,7 +11,7 @@ import (
 )
 
 type eventDocument interface {
-	ToEvent(streamID typeid.UUID) (*eventstore.EventStoreEvent, error)
+	ToEvent(streamID typeid.UUID) (*eventstore.Event, error)
 }
 
 type streamIterator[D eventDocument] struct {
@@ -20,7 +20,7 @@ type streamIterator[D eventDocument] struct {
 	cursor      *mongo.Cursor
 }
 
-func (i *streamIterator[D]) Next(ctx context.Context) (*eventstore.EventStoreEvent, error) {
+func (i *streamIterator[D]) Next(ctx context.Context) (*eventstore.Event, error) {
 	if i.cursor.Next(ctx) {
 		doc := i.docTemplate
 		if err := i.cursor.Decode(&doc); err != nil {
