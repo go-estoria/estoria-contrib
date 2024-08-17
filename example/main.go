@@ -31,9 +31,9 @@ func main() {
 
 	// 1. Create an Event Store to store events.
 	eventStores := map[string]eventstore.Store{
-		"memory": newInMemoryEventStore(ctx),
+		// "memory": newInMemoryEventStore(ctx),
 		// "esdb": newESDBEventStore(ctx),
-		// "mongo": newMongoEventStore(ctx),
+		"mongo": newMongoEventStore(ctx),
 		// "pg": newPostgresEventStore(ctx),
 	}
 

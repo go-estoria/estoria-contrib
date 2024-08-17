@@ -15,12 +15,13 @@ import (
 )
 
 type CollectionPerStreamStrategy struct {
-	client   *mongo.Client
-	database *mongo.Database
-	log      *slog.Logger
+	client    *mongo.Client
+	database  *mongo.Database
+	log       *slog.Logger
+	marshaler DocumentMarshaler
 }
 
-func NewCollectionPerStreamStrategy(client *mongo.Client, database string) (*CollectionPerStreamStrategy, error) {
+func NewCollectionPerStreamStrategy(client *mongo.Client, database string, opts ...CollectionPerStreamStrategyOption) (*CollectionPerStreamStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	} else if database == "" {
@@ -29,11 +30,25 @@ func NewCollectionPerStreamStrategy(client *mongo.Client, database string) (*Col
 
 	db := client.Database(database)
 
-	return &CollectionPerStreamStrategy{
+	strategy := &CollectionPerStreamStrategy{
 		client:   client,
 		database: db,
 		log:      slog.Default().WithGroup("eventstore"),
-	}, nil
+	}
+
+	for _, opt := range opts {
+		if err := opt(strategy); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
+	}
+
+	if strategy.marshaler == nil {
+		if err := WithDocumentMarshaler(DefaultCollectionPerStreamDocumentMarshaler{})(strategy); err != nil {
+			return nil, fmt.Errorf("setting default document marshaler: %w", err)
+		}
+	}
+
+	return strategy, nil
 }
 
 func (s *CollectionPerStreamStrategy) GetStreamIterator(
@@ -64,9 +79,10 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &streamIterator[collectionPerStreamEventDocument]{
-		streamID: streamID,
-		cursor:   cursor,
+	return &streamIterator{
+		streamID:  streamID,
+		cursor:    cursor,
+		marshaler: s.marshaler,
 	}, nil
 }
 
@@ -88,7 +104,13 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 
 	docs := make([]any, len(events))
 	for i, event := range events {
-		docs[i] = collectionPerStreamEventDocumentFromEvent(event, latestVersion+int64(i+1))
+		event.StreamVersion = latestVersion + int64(i) + 1
+		doc, err := s.marshaler.MarshalDocument(event)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling event: %w", err)
+		}
+
+		docs[i] = doc
 	}
 
 	collection := s.database.Collection(streamID.String())
@@ -117,30 +139,66 @@ func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, stre
 	return doc.Version, nil
 }
 
-type collectionPerStreamEventDocument struct {
-	EventID   uuid.UUID `bson:"event_id"`
-	EventType string    `bson:"event_type"`
-	Timestamp time.Time `bson:"timestamp"`
-	Version   int64     `bson:"version"`
-	Data      []byte    `bson:"data"` // QUESITON: should the event store API use []byte or any, to allow for different serialization strategies?
+type DefaultCollectionPerStreamDocumentMarshaler struct{}
+
+var _ DocumentMarshaler = DefaultCollectionPerStreamDocumentMarshaler{}
+
+func (DefaultCollectionPerStreamDocumentMarshaler) NewDocument() any {
+	return collectionPerStreamEventDocument{}
 }
 
-func collectionPerStreamEventDocumentFromEvent(evt *eventstore.Event, version int64) collectionPerStreamEventDocument {
+func (DefaultCollectionPerStreamDocumentMarshaler) MarshalDocument(event *eventstore.Event) (any, error) {
 	return collectionPerStreamEventDocument{
-		EventID:   evt.ID.UUID(),
-		EventType: evt.ID.TypeName(),
-		Timestamp: evt.Timestamp,
-		Version:   version,
-		Data:      evt.Data,
-	}
+		StreamType: event.StreamID.TypeName(),
+		StreamID:   event.StreamID.UUID().String(),
+		EventType:  event.ID.TypeName(),
+		EventID:    event.ID.UUID().String(),
+		Version:    event.StreamVersion,
+		Timestamp:  event.Timestamp,
+		EventData:  event.Data,
+	}, nil
 }
 
-func (d collectionPerStreamEventDocument) ToEvent(streamID typeid.UUID) (*eventstore.Event, error) {
+type collectionPerStreamEventDocument struct {
+	StreamType string    `bson:"stream_type"`
+	StreamID   string    `bson:"stream_id"`
+	EventType  string    `bson:"event_type"`
+	EventID    string    `bson:"event_id"`
+	Version    int64     `bson:"version"`
+	Timestamp  time.Time `bson:"timestamp"`
+	EventData  []byte    `bson:"event_data"`
+}
+
+func (DefaultCollectionPerStreamDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*eventstore.Event, error) {
+	doc := collectionPerStreamEventDocument{}
+	if err := decode(&doc); err != nil {
+		return nil, fmt.Errorf("decoding event document: %w", err)
+	}
+
+	streamID, err := uuid.FromString(doc.StreamID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing stream ID: %w", err)
+	}
+
+	eventID, err := uuid.FromString(doc.EventID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing event ID: %w", err)
+	}
+
 	return &eventstore.Event{
-		ID:            typeid.FromUUID(d.EventType, d.EventID),
-		StreamID:      streamID,
-		StreamVersion: d.Version,
-		Timestamp:     d.Timestamp,
-		Data:          d.Data,
+		ID:            typeid.FromUUID(doc.EventType, eventID),
+		StreamID:      typeid.FromUUID(doc.StreamType, streamID),
+		StreamVersion: doc.Version,
+		Timestamp:     doc.Timestamp,
+		Data:          doc.EventData,
 	}, nil
+}
+
+type CollectionPerStreamStrategyOption func(*CollectionPerStreamStrategy) error
+
+func WithDocumentMarshaler(marshaler DocumentMarshaler) CollectionPerStreamStrategyOption {
+	return func(s *CollectionPerStreamStrategy) error {
+		s.marshaler = marshaler
+		return nil
+	}
 }

@@ -10,24 +10,15 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-type eventDocument interface {
-	ToEvent(streamID typeid.UUID) (*eventstore.Event, error)
+type streamIterator struct {
+	streamID  typeid.UUID
+	cursor    *mongo.Cursor
+	marshaler DocumentMarshaler
 }
 
-type streamIterator[D eventDocument] struct {
-	streamID    typeid.UUID
-	docTemplate D
-	cursor      *mongo.Cursor
-}
-
-func (i *streamIterator[D]) Next(ctx context.Context) (*eventstore.Event, error) {
+func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	if i.cursor.Next(ctx) {
-		doc := i.docTemplate
-		if err := i.cursor.Decode(&doc); err != nil {
-			return nil, fmt.Errorf("decoding event document: %w", err)
-		}
-
-		evt, err := doc.ToEvent(i.streamID)
+		evt, err := i.marshaler.UnmarshalDocument(i.cursor.Decode)
 		if err != nil {
 			return nil, fmt.Errorf("parsing event document: %w", err)
 		}

@@ -63,7 +63,7 @@ func (s *DatabasePerStreamStrategy) GetStreamIterator(
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &streamIterator[databasePerStreamEventDocument]{
+	return &streamIterator{
 		streamID: streamID,
 		cursor:   cursor,
 	}, nil

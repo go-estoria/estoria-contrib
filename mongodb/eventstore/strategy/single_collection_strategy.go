@@ -69,7 +69,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &streamIterator[singleCollectionEventDocument]{
+	return &streamIterator{
 		streamID: streamID,
 		cursor:   cursor,
 	}, nil
