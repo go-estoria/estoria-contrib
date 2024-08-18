@@ -2,17 +2,19 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"time"
 
+	_ "github.com/lib/pq"
+
 	"github.com/go-estoria/estoria"
 	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	mongooutbox "github.com/go-estoria/estoria-contrib/mongodb/outbox"
-	postgres "github.com/go-estoria/estoria-contrib/postgres"
 	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	"github.com/go-estoria/estoria/aggregatestore"
@@ -33,8 +35,8 @@ func main() {
 	eventStores := map[string]eventstore.Store{
 		// "memory": newInMemoryEventStore(ctx),
 		// "esdb": newESDBEventStore(ctx),
-		"mongo": newMongoEventStore(ctx),
-		// "pg": newPostgresEventStore(ctx),
+		// "mongo": newMongoEventStore(ctx),
+		"pg": newPostgresEventStore(ctx),
 	}
 
 	for name, eventStore := range eventStores {
@@ -265,9 +267,13 @@ func newMongoEventStore(ctx context.Context) eventstore.Store {
 }
 
 func newPostgresEventStore(ctx context.Context) eventstore.Store {
-	db, err := postgres.NewDefaultDB(ctx, os.Getenv("POSTGRES_URI"))
+	db, err := sql.Open("postgres", os.Getenv("POSTGRES_URI"))
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("opening database connection: %w", err))
+	}
+
+	if err := db.PingContext(ctx); err != nil {
+		panic(fmt.Errorf("pinging database: %w", err))
 	}
 
 	// create the 'events' table if it doesn't exist
