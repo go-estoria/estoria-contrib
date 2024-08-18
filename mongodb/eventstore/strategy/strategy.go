@@ -16,14 +16,14 @@ type MongoDatabase interface {
 }
 
 type MongoCollection interface {
-	Find(ctx context.Context, filter interface{}, opts ...*options.FindOptions) (cur *mongo.Cursor, err error)
-	FindOne(ctx context.Context, filter interface{}, opts ...*options.FindOneOptions) *mongo.SingleResult
-	InsertMany(ctx context.Context, documents []interface{}, opts ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
+	Find(ctx context.Context, filter any, opts ...*options.FindOptions) (cur *mongo.Cursor, err error)
+	FindOne(ctx context.Context, filter any, opts ...*options.FindOneOptions) *mongo.SingleResult
+	InsertMany(ctx context.Context, documents []any, opts ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
 }
 
 type MongoCursor interface {
 	Next(ctx context.Context) bool
-	Decode(v interface{}) error
+	Decode(v any) error
 	Err() error
 	Close(ctx context.Context) error
 }
