@@ -15,8 +15,8 @@ import (
 	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	mongooutbox "github.com/go-estoria/estoria-contrib/mongodb/outbox"
-	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
-	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
+	sqles "github.com/go-estoria/estoria-contrib/sql/eventstore"
+	sqloutbox "github.com/go-estoria/estoria-contrib/sql/outbox"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/go-estoria/estoria/eventstore"
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
@@ -291,7 +291,7 @@ func newPostgresEventStore(ctx context.Context) eventstore.Store {
 		panic(err)
 	}
 
-	outbox, err := pgoutbox.New(db, "outbox", pgoutbox.WithFullEventData(false))
+	outbox, err := sqloutbox.New(db, "outbox", sqloutbox.WithFullEventData(false))
 	if err != nil {
 		panic(err)
 	}
@@ -309,7 +309,7 @@ func newPostgresEventStore(ctx context.Context) eventstore.Store {
 		panic(err)
 	}
 
-	postgresEventStore, err := pges.NewEventStore(db, pges.WithOutbox(outbox))
+	postgresEventStore, err := sqles.NewEventStore(db, sqles.WithOutbox(outbox))
 	if err != nil {
 		panic(err)
 	}

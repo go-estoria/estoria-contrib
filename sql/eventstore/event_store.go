@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/go-estoria/estoria-contrib/postgres/eventstore/strategy"
+	"github.com/go-estoria/estoria-contrib/sql/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 )
 
-type SQLDB interface {
+type SQLDatabase interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 type EventStore struct {
-	db            SQLDB
+	db            SQLDatabase
 	strategy      Strategy
 	log           *slog.Logger
 	appendTxHooks []TransactionHook
@@ -43,7 +43,7 @@ type Strategy interface {
 }
 
 // NewEventStore creates a new event store using the given database connection.
-func NewEventStore(db SQLDB, opts ...EventStoreOption) (*EventStore, error) {
+func NewEventStore(db SQLDatabase, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		db: db,
 	}
@@ -114,7 +114,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 }
 
 // Executes the given function within a transaction.
-func doInTransaction(ctx context.Context, db SQLDB, f func(tx *sql.Tx) (sql.Result, error)) (any, error) {
+func doInTransaction(ctx context.Context, db SQLDatabase, f func(tx *sql.Tx) (sql.Result, error)) (any, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("beginning transaction: %w", err)
