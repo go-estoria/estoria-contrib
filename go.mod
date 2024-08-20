@@ -4,7 +4,7 @@ go 1.22.5
 
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
-	github.com/go-estoria/estoria v0.1.3
+	github.com/go-estoria/estoria v0.1.4
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/lib/pq v1.10.9
