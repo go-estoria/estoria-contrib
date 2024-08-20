@@ -22,15 +22,10 @@ type Account struct {
 }
 
 // NewAccount creates a new account.
-func NewAccount() *Account {
-	tid, err := typeid.NewUUID(accountType)
-	if err != nil {
-		panic(err)
-	}
-
-	slog.Debug("creating new account", "type", accountType, "id", tid)
+func NewAccount(id uuid.UUID) *Account {
+	slog.Debug("creating new account", "type", accountType, "id", id)
 	return &Account{
-		ID:      tid.UUID(),
+		ID:      id,
 		Users:   make([]string, 0),
 		Balance: 0,
 	}
@@ -86,14 +81,10 @@ func (a *Account) ApplyEvent(_ context.Context, event estoria.EntityEvent) error
 
 // Diff diffs the entity against another entity and returns a series
 // of events that represent the state changes between the two.
-func (a *Account) Diff(newer estoria.Entity) ([]any, error) {
+func (a *Account) Diff(newer *Account) ([]estoria.EntityEvent, error) {
 	slog.Info("diffing account", "account", a, "newer", newer)
-	newerAccount, ok := newer.(*Account)
-	if !ok {
-		return nil, fmt.Errorf("invalid entity type")
-	}
 
-	events := make([]any, 0)
+	events := make([]estoria.EntityEvent, 0)
 
 	// map of user: newly-added
 	userMap := make(map[string]bool)
@@ -101,7 +92,7 @@ func (a *Account) Diff(newer estoria.Entity) ([]any, error) {
 		userMap[user] = false
 	}
 
-	for _, user := range newerAccount.Users {
+	for _, user := range newer.Users {
 		if _, exists := userMap[user]; exists {
 			userMap[user] = true
 		} else {
@@ -120,9 +111,9 @@ func (a *Account) Diff(newer estoria.Entity) ([]any, error) {
 	}
 
 	// balance difference
-	if a.Balance != newerAccount.Balance {
+	if a.Balance != newer.Balance {
 		events = append(events, &BalanceChangedEvent{
-			Amount: newerAccount.Balance - a.Balance,
+			Amount: newer.Balance - a.Balance,
 		})
 	}
 

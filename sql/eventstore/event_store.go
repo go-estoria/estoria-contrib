@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/go-estoria/estoria-contrib/postgres"
-	"github.com/go-estoria/estoria-contrib/postgres/eventstore/strategy"
+	"github.com/go-estoria/estoria-contrib/sql/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 )
 
+type SQLDatabase interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 type EventStore struct {
-	db            *sql.DB
+	db            SQLDatabase
 	strategy      Strategy
 	log           *slog.Logger
 	appendTxHooks []TransactionHook
@@ -22,7 +26,7 @@ type EventStore struct {
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
-type TransactionHook func(tx *sql.Tx, events []*eventstore.EventStoreEvent) error
+type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
 
 type Strategy interface {
 	GetStreamIterator(
@@ -31,15 +35,15 @@ type Strategy interface {
 		opts eventstore.ReadStreamOptions,
 	) (eventstore.StreamIterator, error)
 	InsertStreamEvents(
-		tx *sql.Tx,
+		tx strategy.SQLTx,
 		streamID typeid.UUID,
-		events []*eventstore.EventStoreEvent,
+		events []*eventstore.Event,
 		opts eventstore.AppendStreamOptions,
 	) (sql.Result, error)
 }
 
 // NewEventStore creates a new event store using the given database connection.
-func NewEventStore(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
+func NewEventStore(db SQLDatabase, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		db: db,
 	}
@@ -85,10 +89,10 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts eventstore.AppendStreamOptions, events []*eventstore.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
-	_, txErr := postgres.DoInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {
+	_, txErr := doInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {
 		s.log.Debug("inserting events", "events", len(events))
 		if _, err := s.strategy.InsertStreamEvents(tx, streamID, events, opts); err != nil {
 			return nil, fmt.Errorf("inserting events: %w", err)
@@ -107,4 +111,27 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opt
 	}
 
 	return nil
+}
+
+// Executes the given function within a transaction.
+func doInTransaction(ctx context.Context, db SQLDatabase, f func(tx *sql.Tx) (sql.Result, error)) (any, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("beginning transaction: %w", err)
+	}
+
+	result, err := f(tx)
+	if err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			return nil, fmt.Errorf("rolling back transaction: %s (original transaction error: %w)", rollbackErr, err)
+		}
+
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return result, nil
 }

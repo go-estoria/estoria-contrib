@@ -15,30 +15,34 @@ import (
 )
 
 type SingleCollectionStrategy struct {
-	client     *mongo.Client
-	database   *mongo.Database
-	collection *mongo.Collection
+	collection MongoCollection
 	log        *slog.Logger
+	marshaler  DocumentMarshaler
 }
 
-func NewSingleCollectionStrategy(client *mongo.Client, database, collection string) (*SingleCollectionStrategy, error) {
-	if client == nil {
-		return nil, fmt.Errorf("client is required")
-	} else if database == "" {
-		return nil, fmt.Errorf("database is required")
-	} else if collection == "" {
+func NewSingleCollectionStrategy(collection MongoCollection, opts ...SingleCollectionStrategyOption) (*SingleCollectionStrategy, error) {
+	if collection == nil {
 		return nil, fmt.Errorf("collection is required")
 	}
 
-	db := client.Database(database)
-	coll := db.Collection(collection)
-
-	return &SingleCollectionStrategy{
-		client:     client,
-		database:   db,
-		collection: coll,
+	strategy := &SingleCollectionStrategy{
+		collection: collection,
 		log:        slog.Default().WithGroup("eventstore"),
-	}, nil
+	}
+
+	for _, opt := range opts {
+		if err := opt(strategy); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
+	}
+
+	if strategy.marshaler == nil {
+		if err := WithSCSDocumentMarshaler(DefaultSingleCollectionDocumentMarshaler{})(strategy); err != nil {
+			return nil, fmt.Errorf("setting default document marshaler: %w", err)
+		}
+	}
+
+	return strategy, nil
 }
 
 func (s *SingleCollectionStrategy) GetStreamIterator(
@@ -69,16 +73,17 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &streamIterator[singleCollectionEventDocument]{
-		streamID: streamID,
-		cursor:   cursor,
+	return &streamIterator{
+		streamID:  streamID,
+		cursor:    cursor,
+		marshaler: s.marshaler,
 	}, nil
 }
 
 func (s *SingleCollectionStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
-	events []*eventstore.EventStoreEvent,
+	events []*eventstore.Event,
 	opts eventstore.AppendStreamOptions,
 ) (*mongo.InsertManyResult, error) {
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
@@ -92,7 +97,13 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 
 	docs := make([]any, len(events))
 	for i, event := range events {
-		docs[i] = singleCollectionEventDocumentFromEvent(event, latestVersion+int64(i+1))
+		event.StreamVersion = latestVersion + int64(i) + 1
+		doc, err := s.marshaler.MarshalDocument(event)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling event: %w", err)
+		}
+
+		docs[i] = doc
 	}
 
 	result, err := s.collection.InsertMany(ctx, docs)
@@ -124,33 +135,62 @@ func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, st
 	return doc.Version, nil
 }
 
+type DefaultSingleCollectionDocumentMarshaler struct{}
+
+var _ DocumentMarshaler = DefaultSingleCollectionDocumentMarshaler{}
+
 type singleCollectionEventDocument struct {
 	StreamType string    `bson:"stream_type"`
-	StreamID   uuid.UUID `bson:"stream_id"`
-	EventID    uuid.UUID `bson:"event_id"`
+	StreamID   string    `bson:"stream_id"`
 	EventType  string    `bson:"event_type"`
-	Timestamp  time.Time `bson:"timestamp"`
+	EventID    string    `bson:"event_id"`
 	Version    int64     `bson:"version"`
-	Data       []byte    `bson:"data"`
+	Timestamp  time.Time `bson:"timestamp"`
+	EventData  []byte    `bson:"event_data"`
 }
 
-func singleCollectionEventDocumentFromEvent(evt *eventstore.EventStoreEvent, version int64) singleCollectionEventDocument {
+func (DefaultSingleCollectionDocumentMarshaler) MarshalDocument(event *eventstore.Event) (any, error) {
 	return singleCollectionEventDocument{
-		StreamType: evt.StreamID.TypeName(),
-		StreamID:   evt.StreamID.UUID(),
-		EventID:    evt.ID.UUID(),
-		EventType:  evt.ID.TypeName(),
-		Timestamp:  evt.Timestamp,
-		Version:    version,
-		Data:       evt.Data,
-	}
+		StreamType: event.StreamID.TypeName(),
+		StreamID:   event.StreamID.UUID().String(),
+		EventType:  event.ID.TypeName(),
+		EventID:    event.ID.UUID().String(),
+		Version:    event.StreamVersion,
+		Timestamp:  event.Timestamp,
+		EventData:  event.Data,
+	}, nil
 }
 
-func (d singleCollectionEventDocument) ToEvent(_ typeid.UUID) (*eventstore.EventStoreEvent, error) {
-	return &eventstore.EventStoreEvent{
-		ID:        typeid.FromUUID(d.EventType, d.EventID),
-		StreamID:  typeid.FromUUID(d.StreamType, d.StreamID),
-		Timestamp: d.Timestamp,
-		Data:      d.Data,
+func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*eventstore.Event, error) {
+	doc := singleCollectionEventDocument{}
+	if err := decode(&doc); err != nil {
+		return nil, fmt.Errorf("decoding event document: %w", err)
+	}
+
+	streamID, err := uuid.FromString(doc.StreamID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing stream ID: %w", err)
+	}
+
+	eventID, err := uuid.FromString(doc.EventID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing event ID: %w", err)
+	}
+
+	return &eventstore.Event{
+		ID:            typeid.FromUUID(doc.EventType, eventID),
+		StreamID:      typeid.FromUUID(doc.StreamType, streamID),
+		StreamVersion: doc.Version,
+		Timestamp:     doc.Timestamp,
+		Data:          doc.EventData,
 	}, nil
+}
+
+type SingleCollectionStrategyOption func(*SingleCollectionStrategy) error
+
+func WithSCSDocumentMarshaler(marshaler DocumentMarshaler) SingleCollectionStrategyOption {
+	return func(s *SingleCollectionStrategy) error {
+		s.marshaler = marshaler
+		return nil
+	}
 }

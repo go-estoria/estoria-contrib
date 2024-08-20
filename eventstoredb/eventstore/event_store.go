@@ -11,13 +11,21 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+type ESDBClient interface {
+	ReadStream(context context.Context, streamID string, opts esdb.ReadStreamOptions, count uint64) (*esdb.ReadStream, error)
+	AppendToStream(context context.Context, streamID string, opts esdb.AppendToStreamOptions, events ...esdb.EventData) (*esdb.WriteResult, error)
+}
+
 type EventStore struct {
-	esdbClient *esdb.Client
+	esdbClient ESDBClient
 	log        *slog.Logger
 }
 
+var _ eventstore.StreamReader = (*EventStore)(nil)
+var _ eventstore.StreamWriter = (*EventStore)(nil)
+
 // NewEventStore creates a new event store using the given ESDB client.
-func NewEventStore(esdbClient *esdb.Client, opts ...EventStoreOption) (*EventStore, error) {
+func NewEventStore(esdbClient ESDBClient, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		esdbClient: esdbClient,
 		log:        slog.Default(),
@@ -59,15 +67,14 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
 
-	return &StreamIterator{
+	return &streamIterator{
 		streamID: streamID,
-		client:   s.esdbClient,
 		stream:   result,
 	}, nil
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts eventstore.AppendStreamOptions, events []*eventstore.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 

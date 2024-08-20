@@ -25,7 +25,7 @@ var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 type TransactionHook interface {
-	HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.EventStoreEvent) error
+	HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.Event) error
 }
 
 type Strategy interface {
@@ -37,7 +37,7 @@ type Strategy interface {
 	InsertStreamEvents(
 		ctx mongo.SessionContext,
 		streamID typeid.UUID,
-		events []*eventstore.EventStoreEvent,
+		events []*eventstore.Event,
 		opts eventstore.AppendStreamOptions,
 	) (*mongo.InsertManyResult, error)
 }
@@ -59,7 +59,9 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 	}
 
 	if eventStore.strategy == nil {
-		strat, err := strategy.NewCollectionPerStreamStrategy(mongoClient, "streams")
+		db := mongoClient.Database("estoria")
+		collection := db.Collection("events")
+		strat, err := strategy.NewSingleCollectionStrategy(collection)
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}
@@ -83,7 +85,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, opts eventstore.AppendStreamOptions, events []*eventstore.EventStoreEvent) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {

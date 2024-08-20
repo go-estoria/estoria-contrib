@@ -35,7 +35,7 @@ func (o *Outbox) Iterator() (outbox.Iterator, error) {
 	}, nil
 }
 
-func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []*eventstore.EventStoreEvent) error {
+func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []*eventstore.Event) error {
 	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))

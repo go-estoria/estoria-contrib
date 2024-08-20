@@ -2,24 +2,28 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"time"
 
+	_ "github.com/lib/pq"
+
 	"github.com/go-estoria/estoria"
 	esdbes "github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
 	mongoes "github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	mongooutbox "github.com/go-estoria/estoria-contrib/mongodb/outbox"
-	postgres "github.com/go-estoria/estoria-contrib/postgres"
-	pges "github.com/go-estoria/estoria-contrib/postgres/eventstore"
-	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
+	sqles "github.com/go-estoria/estoria-contrib/sql/eventstore"
+	sqloutbox "github.com/go-estoria/estoria-contrib/sql/outbox"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/go-estoria/estoria/eventstore"
 	memoryes "github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/snapshotstore"
+	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 )
 
 func main() {
@@ -29,10 +33,10 @@ func main() {
 
 	// 1. Create an Event Store to store events.
 	eventStores := map[string]eventstore.Store{
-		"memory": newInMemoryEventStore(ctx),
+		// "memory": newInMemoryEventStore(ctx),
 		// "esdb": newESDBEventStore(ctx),
 		// "mongo": newMongoEventStore(ctx),
-		// "pg": newPostgresEventStore(ctx),
+		"pg": newPostgresEventStore(ctx),
 	}
 
 	for name, eventStore := range eventStores {
@@ -52,7 +56,7 @@ func main() {
 		// Enable aggregate snapshots (optional)
 		snapshotStores := map[string]aggregatestore.SnapshotStore{
 			"memory":      snapshotstore.NewMemoryStore(),
-			"eventstream": snapshotstore.NewEventStreamSnapshotStore(eventStore),
+			"eventstream": snapshotstore.NewEventStreamStore(eventStore),
 		}
 
 		snapshotStore := snapshotStores["memory"] // choose a snapshot store
@@ -60,26 +64,29 @@ func main() {
 		aggregateStore = aggregatestore.NewSnapshottingStore(aggregateStore, snapshotStore, snapshotPolicy)
 
 		hookableStore := aggregatestore.NewHookableStore(aggregateStore)
-		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
 			slog.Info("before save", "aggregate_id", aggregate.ID())
 			return nil
 		})
-		hookableStore.AddHook(aggregatestore.AfterSave, func(ctx context.Context, aggregate *estoria.Aggregate[*Account]) error {
+		hookableStore.AddHook(aggregatestore.AfterSave, func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
 			slog.Info("after save", "aggregate_id", aggregate.ID())
 			return nil
 		})
 
 		aggregateStore = hookableStore
 
-		// 4. Create an aggregate instance.
-		aggregate, err := aggregateStore.New(nil)
+		uid, err := uuid.NewV4()
 		if err != nil {
 			panic(err)
 		}
 
-		// fmt.Println("created new aggregate with ID", aggregate.ID())
+		// 4. Create an aggregate instance.
+		aggregate, err := aggregateStore.New(uid)
+		if err != nil {
+			panic(err)
+		}
 
-		if err := aggregate.Append(
+		events := []estoria.EntityEvent{
 			&UserCreatedEvent{Username: "jdoe"},
 			&BalanceChangedEvent{Amount: 100},
 			&BalanceChangedEvent{Amount: -72},
@@ -100,8 +107,21 @@ func main() {
 			&BalanceChangedEvent{Amount: 883},
 			&BalanceChangedEvent{Amount: 626},
 			&BalanceChangedEvent{Amount: -620},
-		); err != nil {
-			panic(err)
+		}
+
+		for _, event := range events {
+			eventID, err := typeid.NewUUID(event.EventType())
+			if err != nil {
+				panic(err)
+			}
+
+			if err := aggregate.Append(&aggregatestore.AggregateEvent{
+				ID:          eventID,
+				Timestamp:   time.Now(),
+				EntityEvent: event,
+			}); err != nil {
+				panic(err)
+			}
 		}
 
 		// save the aggregate
@@ -247,9 +267,13 @@ func newMongoEventStore(ctx context.Context) eventstore.Store {
 }
 
 func newPostgresEventStore(ctx context.Context) eventstore.Store {
-	db, err := postgres.NewDefaultDB(ctx, os.Getenv("POSTGRES_URI"))
+	db, err := sql.Open("postgres", os.Getenv("POSTGRES_URI"))
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("opening database connection: %w", err))
+	}
+
+	if err := db.PingContext(ctx); err != nil {
+		panic(fmt.Errorf("pinging database: %w", err))
 	}
 
 	// create the 'events' table if it doesn't exist
@@ -267,7 +291,7 @@ func newPostgresEventStore(ctx context.Context) eventstore.Store {
 		panic(err)
 	}
 
-	outbox, err := pgoutbox.New(db, "outbox", pgoutbox.WithFullEventData(false))
+	outbox, err := sqloutbox.New(db, "outbox", sqloutbox.WithFullEventData(false))
 	if err != nil {
 		panic(err)
 	}
@@ -285,7 +309,7 @@ func newPostgresEventStore(ctx context.Context) eventstore.Store {
 		panic(err)
 	}
 
-	postgresEventStore, err := pges.NewEventStore(db, pges.WithOutbox(outbox))
+	postgresEventStore, err := sqles.NewEventStore(db, sqles.WithOutbox(outbox))
 	if err != nil {
 		panic(err)
 	}
