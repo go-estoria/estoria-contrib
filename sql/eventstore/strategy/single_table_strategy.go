@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 )
@@ -24,7 +24,7 @@ type SQLTx interface {
 type SingleTableStrategy struct {
 	db        SQLDB
 	tableName string
-	log       *slog.Logger
+	log       estoria.Logger
 }
 
 func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, error) {
@@ -37,7 +37,7 @@ func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, e
 	return &SingleTableStrategy{
 		db:        db,
 		tableName: tableName,
-		log:       slog.Default().WithGroup("eventstore"),
+		log:       estoria.DefaultLogger().WithGroup("eventstore"),
 	}, nil
 }
 

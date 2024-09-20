@@ -3,9 +3,9 @@ package outbox
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/gofrs/uuid/v5"
@@ -17,6 +17,7 @@ type Outbox struct {
 	client     *mongo.Client
 	database   string
 	collection *mongo.Collection
+	log        estoria.Logger
 }
 
 func New(client *mongo.Client, database, collection string) *Outbox {
@@ -24,6 +25,7 @@ func New(client *mongo.Client, database, collection string) *Outbox {
 		client:     client,
 		database:   database,
 		collection: client.Database(database).Collection(collection),
+		log:        estoria.DefaultLogger().WithGroup("outbox"),
 	}
 }
 
@@ -36,7 +38,7 @@ func (o *Outbox) Iterator() (outbox.Iterator, error) {
 }
 
 func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []*eventstore.Event) error {
-	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
+	o.log.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
 	for i, event := range events {

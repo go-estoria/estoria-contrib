@@ -3,9 +3,9 @@ package outbox
 import (
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 )
 
@@ -13,6 +13,7 @@ type Outbox struct {
 	db              *sql.DB
 	table           string
 	includeFullData bool
+	log             estoria.Logger
 }
 
 func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
@@ -20,6 +21,7 @@ func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
 		db:              db,
 		table:           table,
 		includeFullData: false,
+		log:             estoria.DefaultLogger().WithGroup("outbox"),
 	}
 
 	for _, opt := range opts {
@@ -32,7 +34,7 @@ func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
 }
 
 func (o *Outbox) HandleEvents(tx *sql.Tx, events []*eventstore.Event) error {
-	slog.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
+	o.log.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
 	for i, event := range events {

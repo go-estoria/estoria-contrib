@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/sql/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
@@ -20,7 +20,7 @@ type SQLDatabase interface {
 type EventStore struct {
 	db            SQLDatabase
 	strategy      Strategy
-	log           *slog.Logger
+	log           estoria.Logger
 	appendTxHooks []TransactionHook
 }
 
@@ -56,7 +56,7 @@ func NewEventStore(db SQLDatabase, opts ...EventStoreOption) (*EventStore, error
 	}
 
 	if eventStore.log == nil {
-		eventStore.log = slog.Default().WithGroup("eventstore")
+		eventStore.log = estoria.DefaultLogger().WithGroup("eventstore")
 	}
 
 	if eventStore.strategy == nil {

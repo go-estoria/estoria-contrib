@@ -35,8 +35,8 @@ func main() {
 	eventStores := map[string]eventstore.Store{
 		// "memory": newInMemoryEventStore(ctx),
 		// "esdb": newESDBEventStore(ctx),
-		// "mongo": newMongoEventStore(ctx),
-		"pg": newPostgresEventStore(ctx),
+		"mongo": newMongoEventStore(ctx),
+		// "pg": newPostgresEventStore(ctx),
 	}
 
 	for name, eventStore := range eventStores {

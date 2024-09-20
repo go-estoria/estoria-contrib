@@ -2,8 +2,8 @@ package eventstore
 
 import (
 	"errors"
-	"log/slog"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/sql/outbox"
 )
 
@@ -11,8 +11,8 @@ type EventStoreOption func(*EventStore) error
 
 // WithLogger sets the logger to use for the event store.
 //
-// The default logger is slog.Default().
-func WithLogger(logger *slog.Logger) EventStoreOption {
+// The default logger is estoria.DefaultLogger().
+func WithLogger(logger estoria.Logger) EventStoreOption {
 	return func(s *EventStore) error {
 		if logger == nil {
 			return errors.New("logger cannot be nil")

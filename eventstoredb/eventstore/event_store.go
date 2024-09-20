@@ -3,9 +3,9 @@ package eventstore
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid"
@@ -18,7 +18,7 @@ type ESDBClient interface {
 
 type EventStore struct {
 	esdbClient ESDBClient
-	log        *slog.Logger
+	log        estoria.Logger
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
@@ -28,7 +28,7 @@ var _ eventstore.StreamWriter = (*EventStore)(nil)
 func NewEventStore(esdbClient ESDBClient, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		esdbClient: esdbClient,
-		log:        slog.Default(),
+		log:        estoria.DefaultLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
@@ -47,7 +47,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 	}
 
 	if opts.Direction == eventstore.Reverse {
-		slog.Debug("reading stream in reverse", "stream_id", streamID.String())
+		s.log.Debug("reading stream in reverse", "stream_id", streamID.String())
 		readOpts.Direction = esdb.Backwards
 		readOpts.From = esdb.End{}
 	}
@@ -75,8 +75,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 
 // AppendStream saves the given events to the event store.
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
-	log := slog.Default().WithGroup("eventstore")
-	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
+	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
 	appendOpts := esdb.AppendToStreamOptions{
 		ExpectedRevision: esdb.Any{},

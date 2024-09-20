@@ -3,9 +3,9 @@ package eventstore
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
@@ -19,7 +19,7 @@ type EventStore struct {
 	mongoClient *mongo.Client
 	strategy    Strategy
 	txHooks     []TransactionHook
-	log         *slog.Logger
+	log         estoria.Logger
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
@@ -56,7 +56,7 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 	}
 
 	if eventStore.log == nil {
-		eventStore.log = slog.Default().WithGroup("eventstore")
+		eventStore.log = estoria.DefaultLogger().WithGroup("eventstore")
 	}
 
 	if eventStore.strategy == nil {
@@ -105,14 +105,14 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		var err error
 		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, fullEvents, opts)
 		if err != nil {
-			slog.Debug("inserting events failed", "err", err)
+			s.log.Debug("inserting events failed", "err", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
 
 		for i, hook := range s.txHooks {
-			slog.Debug("executing transaction hook", "hook", i)
+			s.log.Debug("executing transaction hook", "hook", i)
 			if err := hook.HandleEvents(sessCtx, fullEvents); err != nil {
-				slog.Debug("transaction hook failed", "hook", i, "err", err)
+				s.log.Debug("transaction hook failed", "hook", i, "err", err)
 				return nil, fmt.Errorf("executing transaction hook: %w", err)
 			}
 		}
@@ -120,10 +120,10 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		return insertResult, nil
 	})
 	if txErr != nil {
-		slog.Debug("transaction failed", "err", txErr)
+		s.log.Debug("transaction failed", "err", txErr)
 		return fmt.Errorf("executing transaction: %w", txErr)
 	} else if result == nil {
-		slog.Debug("transaction failed", "err", "no result")
+		s.log.Debug("transaction failed", "err", "no result")
 		return fmt.Errorf("executing transaction: no result")
 	}
 

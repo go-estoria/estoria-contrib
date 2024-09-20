@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	uuidv5 "github.com/gofrs/uuid/v5"
@@ -33,13 +33,13 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 
 		var esdbErr *esdb.Error
 		if errors.As(err, &esdbErr) {
-			slog.Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
+			estoria.DefaultLogger().Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
 			switch esdbErr.Code() {
 			case esdb.ErrorCodeConnectionClosed:
 				return nil, eventstore.ErrStreamIteratorClosed
 			}
 		} else {
-			slog.Error("unknown error receiving event", "error", err)
+			estoria.DefaultLogger().Error("unknown error receiving event", "error", err)
 		}
 
 		return nil, fmt.Errorf("receiving event: %w", err)
