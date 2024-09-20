@@ -3,9 +3,9 @@ package strategy
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
@@ -16,30 +16,19 @@ import (
 
 type SingleCollectionStrategy struct {
 	collection MongoCollection
-	log        *slog.Logger
+	log        estoria.Logger
 	marshaler  DocumentMarshaler
 }
 
-func NewSingleCollectionStrategy(collection MongoCollection, opts ...SingleCollectionStrategyOption) (*SingleCollectionStrategy, error) {
+func NewSingleCollectionStrategy(collection MongoCollection) (*SingleCollectionStrategy, error) {
 	if collection == nil {
 		return nil, fmt.Errorf("collection is required")
 	}
 
 	strategy := &SingleCollectionStrategy{
 		collection: collection,
-		log:        slog.Default().WithGroup("eventstore"),
-	}
-
-	for _, opt := range opts {
-		if err := opt(strategy); err != nil {
-			return nil, fmt.Errorf("applying option: %w", err)
-		}
-	}
-
-	if strategy.marshaler == nil {
-		if err := WithSCSDocumentMarshaler(DefaultSingleCollectionDocumentMarshaler{})(strategy); err != nil {
-			return nil, fmt.Errorf("setting default document marshaler: %w", err)
-		}
+		log:        estoria.DefaultLogger().WithGroup("eventstore"),
+		marshaler:  DefaultSingleCollectionDocumentMarshaler{},
 	}
 
 	return strategy, nil
@@ -119,6 +108,14 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	}, nil
 }
 
+func (s *SingleCollectionStrategy) SetDocumentMarshaler(marshaler DocumentMarshaler) {
+	s.marshaler = marshaler
+}
+
+func (s *SingleCollectionStrategy) SetLogger(l estoria.Logger) {
+	s.log = l
+}
+
 func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, streamID typeid.UUID) (int64, error) {
 	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
@@ -189,13 +186,4 @@ func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeD
 		Timestamp:     doc.Timestamp,
 		Data:          doc.EventData,
 	}, nil
-}
-
-type SingleCollectionStrategyOption func(*SingleCollectionStrategy) error
-
-func WithSCSDocumentMarshaler(marshaler DocumentMarshaler) SingleCollectionStrategyOption {
-	return func(s *SingleCollectionStrategy) error {
-		s.marshaler = marshaler
-		return nil
-	}
 }

@@ -3,9 +3,9 @@ package strategy
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
@@ -17,11 +17,11 @@ import (
 type DatabasePerStreamStrategy struct {
 	client         MongoClient
 	collectionName string
-	log            *slog.Logger
+	log            estoria.Logger
 	marshaler      DocumentMarshaler
 }
 
-func NewDatabasePerStreamStrategy(client MongoClient, collectionName string, opts ...DatabasePerStreamStrategyOption) (*DatabasePerStreamStrategy, error) {
+func NewDatabasePerStreamStrategy(client MongoClient, collectionName string) (*DatabasePerStreamStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	} else if collectionName == "" {
@@ -31,19 +31,8 @@ func NewDatabasePerStreamStrategy(client MongoClient, collectionName string, opt
 	strategy := &DatabasePerStreamStrategy{
 		client:         client,
 		collectionName: collectionName,
-		log:            slog.Default().WithGroup("eventstore"),
-	}
-
-	for _, opt := range opts {
-		if err := opt(strategy); err != nil {
-			return nil, fmt.Errorf("applying option: %w", err)
-		}
-	}
-
-	if strategy.marshaler == nil {
-		if err := WithDPSSDocumentMarshaler(DefaultDatabasePerStreamDocumentMarshaler{})(strategy); err != nil {
-			return nil, fmt.Errorf("setting default document marshaler: %w", err)
-		}
+		log:            estoria.DefaultLogger().WithGroup("eventstore"),
+		marshaler:      DefaultDatabasePerStreamDocumentMarshaler{},
 	}
 
 	return strategy, nil
@@ -124,6 +113,14 @@ func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 		MongoResult:    result,
 		InsertedEvents: appended,
 	}, nil
+}
+
+func (s *DatabasePerStreamStrategy) SetDocumentMarshaler(marshaler DocumentMarshaler) {
+	s.marshaler = marshaler
+}
+
+func (s *DatabasePerStreamStrategy) SetLogger(l estoria.Logger) {
+	s.log = l
 }
 
 func (s *DatabasePerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {

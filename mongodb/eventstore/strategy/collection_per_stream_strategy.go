@@ -3,9 +3,9 @@ package strategy
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
@@ -16,30 +16,19 @@ import (
 
 type CollectionPerStreamStrategy struct {
 	database  MongoDatabase
-	log       *slog.Logger
+	log       estoria.Logger
 	marshaler DocumentMarshaler
 }
 
-func NewCollectionPerStreamStrategy(db MongoDatabase, opts ...CollectionPerStreamStrategyOption) (*CollectionPerStreamStrategy, error) {
+func NewCollectionPerStreamStrategy(db MongoDatabase) (*CollectionPerStreamStrategy, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
 	}
 
 	strategy := &CollectionPerStreamStrategy{
-		database: db,
-		log:      slog.Default().WithGroup("eventstore"),
-	}
-
-	for _, opt := range opts {
-		if err := opt(strategy); err != nil {
-			return nil, fmt.Errorf("applying option: %w", err)
-		}
-	}
-
-	if strategy.marshaler == nil {
-		if err := WithCPSSDocumentMarshaler(DefaultCollectionPerStreamDocumentMarshaler{})(strategy); err != nil {
-			return nil, fmt.Errorf("setting default document marshaler: %w", err)
-		}
+		database:  db,
+		log:       estoria.DefaultLogger().WithGroup("eventstore"),
+		marshaler: DefaultCollectionPerStreamDocumentMarshaler{},
 	}
 
 	return strategy, nil
@@ -86,7 +75,7 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	events []*eventstore.Event,
 	opts eventstore.AppendStreamOptions,
 ) (*InsertResult, error) {
-	slog.Debug("inserting events into Mongo collection", "stream_id", streamID, "events", len(events))
+	s.log.Debug("inserting events into Mongo collection", "stream_id", streamID, "events", len(events))
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("getting latest version: %w", err)
@@ -112,7 +101,7 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	collection := s.database.Collection(streamID.String())
 	result, err := collection.InsertMany(ctx, docs)
 	if err != nil {
-		slog.Error("error while inserting events", "error", err)
+		s.log.Error("error while inserting events", "error", err)
 		return nil, fmt.Errorf("inserting events: %w", err)
 	}
 
@@ -120,6 +109,14 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 		MongoResult:    result,
 		InsertedEvents: appended,
 	}, nil
+}
+
+func (s *CollectionPerStreamStrategy) SetDocumentMarshaler(marshaler DocumentMarshaler) {
+	s.marshaler = marshaler
+}
+
+func (s *CollectionPerStreamStrategy) SetLogger(l estoria.Logger) {
+	s.log = l
 }
 
 func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {
