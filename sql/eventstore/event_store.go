@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/go-estoria/estoria-contrib/sql/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
@@ -89,17 +90,28 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
+
+	fullEvents := make([]*eventstore.Event, len(events))
+	for i, event := range events {
+		fullEvents[i] = &eventstore.Event{
+			ID:        event.ID,
+			StreamID:  streamID,
+			Timestamp: time.Now(),
+			Data:      event.Data,
+			// StreamVersion: 0, // assigned by the strategy
+		}
+	}
 
 	_, txErr := doInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {
 		s.log.Debug("inserting events", "events", len(events))
-		if _, err := s.strategy.InsertStreamEvents(tx, streamID, events, opts); err != nil {
+		if _, err := s.strategy.InsertStreamEvents(tx, streamID, fullEvents, opts); err != nil {
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
 
 		for _, hook := range s.appendTxHooks {
-			if err := hook(tx, events); err != nil {
+			if err := hook(tx, fullEvents); err != nil {
 				return nil, fmt.Errorf("executing transaction hook: %w", err)
 			}
 		}

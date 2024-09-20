@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
@@ -19,11 +18,11 @@ type streamIterator struct {
 
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	if !i.rows.Next() {
-		return nil, io.EOF
+		return nil, eventstore.ErrEndOfEventStream
 	}
 
 	if err := i.rows.Err(); errors.Is(err, sql.ErrNoRows) {
-		return nil, io.EOF
+		return nil, eventstore.ErrEndOfEventStream
 	} else if err != nil {
 		return nil, fmt.Errorf("iterating rows: %w", err)
 	}

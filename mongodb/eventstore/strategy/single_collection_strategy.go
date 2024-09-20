@@ -85,7 +85,7 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	streamID typeid.UUID,
 	events []*eventstore.Event,
 	opts eventstore.AppendStreamOptions,
-) (*mongo.InsertManyResult, error) {
+) (*InsertResult, error) {
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("getting latest version: %w", err)
@@ -96,6 +96,7 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	}
 
 	docs := make([]any, len(events))
+	appended := make([]*eventstore.Event, len(events))
 	for i, event := range events {
 		event.StreamVersion = latestVersion + int64(i) + 1
 		doc, err := s.marshaler.MarshalDocument(event)
@@ -104,6 +105,7 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 		}
 
 		docs[i] = doc
+		appended[i] = event
 	}
 
 	result, err := s.collection.InsertMany(ctx, docs)
@@ -111,7 +113,10 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 		return nil, fmt.Errorf("inserting events: %w", err)
 	}
 
-	return result, nil
+	return &InsertResult{
+		MongoResult:    result,
+		InsertedEvents: appended,
+	}, nil
 }
 
 func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, streamID typeid.UUID) (int64, error) {

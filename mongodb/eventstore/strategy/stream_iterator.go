@@ -3,7 +3,6 @@ package strategy
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
@@ -29,7 +28,7 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 		return nil, fmt.Errorf("fetching document: %w", err)
 	}
 
-	return nil, io.EOF
+	return nil, eventstore.ErrEndOfEventStream
 }
 
 func (i *streamIterator) Close(ctx context.Context) error {

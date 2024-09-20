@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
@@ -103,15 +104,17 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 	}
 	defer stmt.Close()
 
+	now := time.Now()
+
 	version := latestVersion
 	for _, event := range events {
 		version++
 		_, err := stmt.Exec(
 			event.ID.Value(),
-			event.StreamID.TypeName(),
-			event.StreamID.Value(),
+			streamID.TypeName(),
+			streamID.Value(),
 			event.ID.TypeName(),
-			event.Timestamp,
+			now,
 			version,
 			event.Data,
 		)
@@ -121,7 +124,6 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 	}
 
 	return nil, nil
-
 }
 
 func (s *SingleTableStrategy) getLatestVersion(tx SQLTx, streamID typeid.UUID) (int64, error) {

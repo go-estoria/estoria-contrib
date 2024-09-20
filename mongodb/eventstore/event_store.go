@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
@@ -39,7 +40,7 @@ type Strategy interface {
 		streamID typeid.UUID,
 		events []*eventstore.Event,
 		opts eventstore.AppendStreamOptions,
-	) (*mongo.InsertManyResult, error)
+	) (*strategy.InsertResult, error)
 }
 
 // NewEventStore creates a new event store using the given MongoDB client.
@@ -85,13 +86,24 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
+
+	fullEvents := make([]*eventstore.Event, len(events))
+	for i, event := range events {
+		fullEvents[i] = &eventstore.Event{
+			ID:        event.ID,
+			StreamID:  streamID,
+			Timestamp: time.Now(),
+			Data:      event.Data,
+			// StreamVersion: 0, // assigned by the strategy
+		}
+	}
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		s.log.Debug("inserting events", "events", len(events))
 		var err error
-		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
+		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, fullEvents, opts)
 		if err != nil {
 			slog.Debug("inserting events failed", "err", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
@@ -99,7 +111,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 		for i, hook := range s.txHooks {
 			slog.Debug("executing transaction hook", "hook", i)
-			if err := hook.HandleEvents(sessCtx, events); err != nil {
+			if err := hook.HandleEvents(sessCtx, fullEvents); err != nil {
 				slog.Debug("transaction hook failed", "hook", i, "err", err)
 				return nil, fmt.Errorf("executing transaction hook: %w", err)
 			}

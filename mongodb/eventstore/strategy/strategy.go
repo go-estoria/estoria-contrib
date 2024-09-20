@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 
+	"github.com/go-estoria/estoria/eventstore"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -26,4 +27,9 @@ type MongoCursor interface {
 	Decode(v any) error
 	Err() error
 	Close(ctx context.Context) error
+}
+
+type InsertResult struct {
+	MongoResult    *mongo.InsertManyResult
+	InsertedEvents []*eventstore.Event
 }

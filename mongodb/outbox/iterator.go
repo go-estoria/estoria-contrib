@@ -20,7 +20,7 @@ type Iterator struct {
 	changeStream *mongo.ChangeStream
 }
 
-func (i *Iterator) Next(ctx context.Context) (outbox.OutboxItem, error) {
+func (i *Iterator) Next(ctx context.Context) (outbox.Item, error) {
 	if i.changeStream == nil {
 		changeStream, err := i.getChangeStream(ctx)
 		if err != nil {

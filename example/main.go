@@ -46,8 +46,8 @@ func main() {
 		// 2. Create an AggregateStore to load and store aggregates.
 		var aggregateStore aggregatestore.Store[*Account]
 		aggregateStore, err = aggregatestore.NewEventSourcedStore(eventStore, NewAccount,
-			aggregatestore.WithStreamReader[*Account](eventStore), // optional: override the stream reader
-			aggregatestore.WithStreamWriter[*Account](eventStore), // optional: override the stream writer
+			aggregatestore.WithEventStreamReader[*Account](eventStore), // optional: override the stream reader
+			aggregatestore.WithEventStreamWriter[*Account](eventStore), // optional: override the stream writer
 		)
 		if err != nil {
 			panic(err)
@@ -61,14 +61,21 @@ func main() {
 
 		snapshotStore := snapshotStores["memory"] // choose a snapshot store
 		snapshotPolicy := snapshotstore.EventCountSnapshotPolicy{N: 8}
-		aggregateStore = aggregatestore.NewSnapshottingStore(aggregateStore, snapshotStore, snapshotPolicy)
+		aggregateStore, err = aggregatestore.NewSnapshottingStore(aggregateStore, snapshotStore, snapshotPolicy)
+		if err != nil {
+			panic(err)
+		}
 
-		hookableStore := aggregatestore.NewHookableStore(aggregateStore)
-		hookableStore.AddHook(aggregatestore.BeforeSave, func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
+		hookableStore, err := aggregatestore.NewHookableStore(aggregateStore)
+		if err != nil {
+			panic(err)
+		}
+
+		hookableStore.BeforeSave(func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
 			slog.Info("before save", "aggregate_id", aggregate.ID())
 			return nil
 		})
-		hookableStore.AddHook(aggregatestore.AfterSave, func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
+		hookableStore.AfterSave(func(ctx context.Context, aggregate *aggregatestore.Aggregate[*Account]) error {
 			slog.Info("after save", "aggregate_id", aggregate.ID())
 			return nil
 		})
@@ -209,9 +216,14 @@ func newInMemoryEventStore(ctx context.Context) eventstore.Store {
 		panic(err)
 	}
 
-	return memoryes.NewEventStore(
+	eventStore, err := memoryes.NewEventStore(
 		memoryes.WithOutbox(inMemoryOutbox),
 	)
+	if err != nil {
+		panic(err)
+	}
+
+	return eventStore
 }
 
 func newESDBEventStore(ctx context.Context) eventstore.Store {
@@ -323,7 +335,7 @@ func (l OutboxLogger) Name() string {
 	return "logger"
 }
 
-func (l OutboxLogger) Handle(_ context.Context, item outbox.OutboxItem) error {
+func (l OutboxLogger) Handle(_ context.Context, item outbox.Item) error {
 	// slog.Info("OUTBOX LOGGER HANDLER", "event_id", item.EventID(), "handlers", len(item.Handlers()))
 	return nil
 }

@@ -28,12 +28,16 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	resolvedEvent, err := i.stream.Recv()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			return nil, io.EOF
+			return nil, eventstore.ErrEndOfEventStream
 		}
 
 		var esdbErr *esdb.Error
 		if errors.As(err, &esdbErr) {
 			slog.Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
+			switch esdbErr.Code() {
+			case esdb.ErrorCodeConnectionClosed:
+				return nil, eventstore.ErrStreamIteratorClosed
+			}
 		} else {
 			slog.Error("unknown error receiving event", "error", err)
 		}

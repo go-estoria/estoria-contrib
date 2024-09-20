@@ -74,7 +74,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.Event, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	log := slog.Default().WithGroup("eventstore")
 	log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
