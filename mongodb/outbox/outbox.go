@@ -25,7 +25,7 @@ func New(client *mongo.Client, database, collection string) *Outbox {
 		client:     client,
 		database:   database,
 		collection: client.Database(database).Collection(collection),
-		log:        estoria.DefaultLogger().WithGroup("outbox"),
+		log:        estoria.GetLogger().WithGroup("outbox"),
 	}
 }
 

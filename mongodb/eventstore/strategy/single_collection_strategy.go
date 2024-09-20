@@ -27,7 +27,7 @@ func NewSingleCollectionStrategy(collection MongoCollection) (*SingleCollectionS
 
 	strategy := &SingleCollectionStrategy{
 		collection: collection,
-		log:        estoria.DefaultLogger().WithGroup("eventstore"),
+		log:        estoria.GetLogger().WithGroup("eventstore"),
 		marshaler:  DefaultSingleCollectionDocumentMarshaler{},
 	}
 

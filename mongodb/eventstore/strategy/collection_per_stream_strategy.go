@@ -27,7 +27,7 @@ func NewCollectionPerStreamStrategy(db MongoDatabase) (*CollectionPerStreamStrat
 
 	strategy := &CollectionPerStreamStrategy{
 		database:  db,
-		log:       estoria.DefaultLogger().WithGroup("eventstore"),
+		log:       estoria.GetLogger().WithGroup("eventstore"),
 		marshaler: DefaultCollectionPerStreamDocumentMarshaler{},
 	}
 

@@ -56,7 +56,7 @@ func NewEventStore(db SQLDatabase, opts ...EventStoreOption) (*EventStore, error
 	}
 
 	if eventStore.log == nil {
-		eventStore.log = estoria.DefaultLogger().WithGroup("eventstore")
+		eventStore.log = estoria.GetLogger().WithGroup("eventstore")
 	}
 
 	if eventStore.strategy == nil {

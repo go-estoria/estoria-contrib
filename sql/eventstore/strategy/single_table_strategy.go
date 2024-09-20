@@ -37,7 +37,7 @@ func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, e
 	return &SingleTableStrategy{
 		db:        db,
 		tableName: tableName,
-		log:       estoria.DefaultLogger().WithGroup("eventstore"),
+		log:       estoria.GetLogger().WithGroup("eventstore"),
 	}, nil
 }
 

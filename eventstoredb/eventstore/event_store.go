@@ -28,7 +28,7 @@ var _ eventstore.StreamWriter = (*EventStore)(nil)
 func NewEventStore(esdbClient ESDBClient, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		esdbClient: esdbClient,
-		log:        estoria.DefaultLogger().WithGroup("eventstore"),
+		log:        estoria.GetLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {

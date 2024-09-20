@@ -31,7 +31,7 @@ func NewDatabasePerStreamStrategy(client MongoClient, collectionName string) (*D
 	strategy := &DatabasePerStreamStrategy{
 		client:         client,
 		collectionName: collectionName,
-		log:            estoria.DefaultLogger().WithGroup("eventstore"),
+		log:            estoria.GetLogger().WithGroup("eventstore"),
 		marshaler:      DefaultDatabasePerStreamDocumentMarshaler{},
 	}
 

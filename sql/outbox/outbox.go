@@ -21,7 +21,7 @@ func New(db *sql.DB, table string, opts ...OutboxOption) (*Outbox, error) {
 		db:              db,
 		table:           table,
 		includeFullData: false,
-		log:             estoria.DefaultLogger().WithGroup("outbox"),
+		log:             estoria.GetLogger().WithGroup("outbox"),
 	}
 
 	for _, opt := range opts {
