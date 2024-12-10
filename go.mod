@@ -10,6 +10,7 @@ require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
 	github.com/go-estoria/estoria v0.1.6
 	github.com/allegro/bigcache/v3 v3.1.0
+	github.com/coocood/freecache v1.2.4
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/lib/pq v1.10.9
@@ -18,6 +19,7 @@ require (
 )
 
 require (
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
