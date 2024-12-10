@@ -9,6 +9,7 @@ replace github.com/go-estoria/estoria => ../estoria
 require (
 	github.com/EventStore/EventStore-Client-Go/v3 v3.3.0
 	github.com/go-estoria/estoria v0.1.6
+	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/lib/pq v1.10.9
