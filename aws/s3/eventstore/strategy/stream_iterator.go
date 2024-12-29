@@ -32,8 +32,10 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 		i.objectMetadata = make(map[int64]types.Object)
 	}
 
+	i.currentVersion++
+
 	if i.toVersion > 0 && i.currentVersion == i.toVersion {
-		i.log.Debug("reached end of stream", "streamID", i.streamID, "currentVersion", i.currentVersion)
+		i.log.Debug("reached end of stream", "streamID", i.streamID, "current_version", i.currentVersion, "to_version", i.toVersion)
 		return nil, eventstore.ErrEndOfEventStream
 	}
 
@@ -85,8 +87,6 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing event document: %w", err)
 	}
-
-	i.currentVersion++
 
 	return evt, nil
 }

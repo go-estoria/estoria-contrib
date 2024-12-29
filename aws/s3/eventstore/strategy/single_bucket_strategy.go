@@ -78,9 +78,9 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 		Delimiter: aws.String("/"),
 	})
 
-	currentVersion := opts.Offset
-	if currentVersion == 0 {
-		currentVersion = 1
+	toVersion := int64(0)
+	if opts.Count > 0 {
+		toVersion = opts.Offset + opts.Count
 	}
 
 	return &streamIterator{
@@ -89,8 +89,8 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 		paginator:      paginator,
 		s3:             s.s3,
 		fromVersion:    opts.Offset,
-		currentVersion: currentVersion,
-		toVersion:      opts.Offset + opts.Count,
+		currentVersion: opts.Offset,
+		toVersion:      toVersion,
 		marshaler:      s.marshaler,
 		log:            s.log,
 	}, nil
