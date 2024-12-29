@@ -63,6 +63,19 @@ services:
     networks:
       - example-net
 
+  s3:
+    image: minio/minio
+    container_name: s3
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio
+    ports:
+      - "9000:9000"
+    networks:
+      - example-net
+    volumes:
+      - s3_data:/data
+
 networks:
   example-net:
     driver: bridge
@@ -71,4 +84,6 @@ volumes:
   esdb_data:
     driver: local
   mongo_data:
+    driver: local
+  s3_data:
     driver: local

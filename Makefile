@@ -1,5 +1,8 @@
 .PHONY: start-example start-esdb-deps start-mongo-deps start-redis-deps down
 
+start-all-deps:
+	docker-compose up -d eventstoredb mongo mongo-express redis redis-commander s3
+
 start-example:
 	docker-compose up --build example-app
 
@@ -11,6 +14,9 @@ start-mongo-deps:
 
 start-redis-deps:
 	docker-compose up -d redis redis-commander
+
+start-s3-deps:
+	docker-compose up -d s3
 
 down:
 	docker-compose down -v
