@@ -92,6 +92,7 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 		currentVersion: currentVersion,
 		toVersion:      opts.Offset + opts.Count,
 		marshaler:      s.marshaler,
+		log:            s.log,
 	}, nil
 }
 
