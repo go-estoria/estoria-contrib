@@ -1,25 +1,45 @@
 package strategy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
+	"path"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 )
 
-type BucketPathResolver func(aggregateID typeid.UUID, events []*eventstore.WritableEvent) string
+type BucketKeyResolver func(aggregateID typeid.UUID, version int64) string
+
+type BucketKeyResolverFunc func(aggregateID typeid.UUID, version int64) string
+
+func (f BucketKeyResolverFunc) ResolveKey(aggregateID typeid.UUID, version int64) string {
+	return f(aggregateID, version)
+}
+
+func DefaultBuckeyKeyResolver(aggregateID typeid.UUID, version int64) string {
+	return fmt.Sprintf("%s/%s/%d.json", aggregateID.TypeName(), aggregateID.Value(), version)
+}
+
+type S3 interface {
+	ObjectGetter
+	ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+	PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+}
 
 type SingleBucketStrategy struct {
-	s3        *s3.Client
-	bucket    string
-	marshaler ObjectMarshaler
-	log       *slog.Logger
+	s3         S3
+	bucket     string
+	resolveKey BucketKeyResolver
+	marshaler  ObjectMarshaler
+	log        estoria.Logger
 }
 
 func NewSingleBucketStrategy(client *s3.Client, bucket string, opts ...SingleBucketStrategyOption) (*SingleBucketStrategy, error) {
@@ -30,20 +50,16 @@ func NewSingleBucketStrategy(client *s3.Client, bucket string, opts ...SingleBuc
 	}
 
 	strategy := &SingleBucketStrategy{
-		s3:     client,
-		bucket: bucket,
-		log:    slog.Default().WithGroup("eventstore"),
+		s3:         client,
+		bucket:     bucket,
+		resolveKey: DefaultBuckeyKeyResolver,
+		marshaler:  JSONObjectMarshaler{},
+		log:        estoria.GetLogger().WithGroup("s3eventstore"),
 	}
 
 	for _, opt := range opts {
 		if err := opt(strategy); err != nil {
 			return nil, fmt.Errorf("applying option: %w", err)
-		}
-	}
-
-	if strategy.marshaler == nil {
-		if err := WithObjectMarshaler(JSONObjectMarshaler{})(strategy); err != nil {
-			return nil, fmt.Errorf("setting default document marshaler: %w", err)
 		}
 	}
 
@@ -55,23 +71,27 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-	offset := opts.Offset
-	count := opts.Count
-	direction := 1
-	if opts.Direction == eventstore.Reverse {
-		direction = -1
-	}
+	dir, _ := path.Split(s.resolveKey(streamID, 0))
+	paginator := s3.NewListObjectsV2Paginator(s.s3, &s3.ListObjectsV2Input{
+		Bucket:    &s.bucket,
+		Prefix:    &dir,
+		Delimiter: aws.String("/"),
+	})
 
-	cursor := BucketCursor{
-		direction:      direction,
-		currentVersion: offset,
-		maxVersion:     offset + count,
+	currentVersion := opts.Offset
+	if currentVersion == 0 {
+		currentVersion = 1
 	}
 
 	return &streamIterator{
-		streamID:  streamID,
-		cursor:    cursor,
-		marshaler: s.marshaler,
+		streamID:       streamID,
+		bucket:         s.bucket,
+		paginator:      paginator,
+		s3:             s.s3,
+		fromVersion:    opts.Offset,
+		currentVersion: currentVersion,
+		toVersion:      opts.Offset + opts.Count,
+		marshaler:      s.marshaler,
 	}, nil
 }
 
@@ -106,17 +126,16 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 			Data:          we.Data,
 		}
 
-		reader, err := s.marshaler.MarshalObject(fullEvents[i])
+		data, err := s.marshaler.MarshalObject(fullEvents[i])
 		if err != nil {
 			return nil, fmt.Errorf("marshaling event: %w", err)
 		}
 
-		defer reader.Close()
-
+		key := s.resolveKey(streamID, fullEvents[i].StreamVersion)
 		if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: &s.bucket,
-			Key:    aws.String(fmt.Sprintf("%s/%s", streamID.TypeName(), streamID.Value())),
-			Body:   reader,
+			Key:    &key,
+			Body:   bytes.NewReader(data),
 		}); err != nil {
 			return nil, fmt.Errorf("putting object: %w", err)
 		}
@@ -128,15 +147,27 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 }
 
 func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {
-	// enumerate all objects in the bucket directory for the stream
-	// and return the highest version number
+	dir, _ := path.Split(s.resolveKey(streamID, 0))
 	results, err := s.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: &s.bucket,
-		Prefix: aws.String(fmt.Sprintf("%s/%s", streamID.TypeName(), streamID.Value())),
+		Bucket:    &s.bucket,
+		Prefix:    &dir,
+		Delimiter: aws.String("/"),
 	})
 	if err != nil {
+		if _, ok := err.(*types.NotFound); ok {
+			s.log.Debug("not found", "bucket", s.bucket)
+			return 0, nil
+		} else if _, ok := err.(*types.NoSuchKey); ok {
+			s.log.Debug("key not found", "bucket", s.bucket)
+			return 0, nil
+		} else if _, ok := err.(*types.NoSuchBucket); ok {
+			s.log.Error("bucket not found", "bucket", s.bucket)
+			return 0, nil
+		}
+
 		return 0, fmt.Errorf("listing objects: %w", err)
 	} else if len(results.Contents) == 0 {
+		s.log.Debug("no objects found", "bucket", s.bucket, "dir", dir)
 		return 0, nil
 	}
 
@@ -152,16 +183,22 @@ func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID ty
 		}
 	}
 
+	s.log.Debug("fonud latest version for stream", "stream_id", streamID, "version", latestVersion)
 	return latestVersion, nil
 }
-
-type DefaultObjectMarshaler struct{}
 
 type SingleBucketStrategyOption func(*SingleBucketStrategy) error
 
 func WithObjectMarshaler(marshaler ObjectMarshaler) SingleBucketStrategyOption {
 	return func(s *SingleBucketStrategy) error {
 		s.marshaler = marshaler
+		return nil
+	}
+}
+
+func WithBucketKeyResolver(resolver BucketKeyResolver) SingleBucketStrategyOption {
+	return func(s *SingleBucketStrategy) error {
+		s.resolveKey = resolver
 		return nil
 	}
 }

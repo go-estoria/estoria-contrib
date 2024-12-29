@@ -66,15 +66,19 @@ services:
   s3:
     image: minio/minio
     container_name: s3
+    command: server /data --console-address ":9001"
     environment:
+      MINIO_DEFAULT_BUCKETS: events
       MINIO_ACCESS_KEY: minio
-      MINIO_SECRET_KEY: minio
+      MINIO_SECRET_KEY: minio123
     ports:
       - "9000:9000"
+      - "9001:9001"
     networks:
       - example-net
     volumes:
       - s3_data:/data
+      - s3_config:/root/.minio
 
 networks:
   example-net:
@@ -86,4 +90,6 @@ volumes:
   mongo_data:
     driver: local
   s3_data:
+    driver: local
+  s3_config:
     driver: local

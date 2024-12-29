@@ -16,7 +16,7 @@ start-redis-deps:
 	docker-compose up -d redis redis-commander
 
 start-s3-deps:
-	docker-compose up -d s3
+	docker-compose up s3
 
 down:
 	docker-compose down -v

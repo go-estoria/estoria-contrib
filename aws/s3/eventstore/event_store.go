@@ -15,7 +15,6 @@ import (
 type EventStore struct {
 	s3Client *s3.Client
 	strategy Strategy
-	txHooks  []TransactionHook
 	log      *slog.Logger
 }
 
@@ -40,8 +39,8 @@ type Strategy interface {
 	) (*strategy.InsertStreamEventsResult, error)
 }
 
-// NewEventStore creates a new event store using the given S3 client.
-func NewEventStore(s3Client *s3.Client, opts ...EventStoreOption) (*EventStore, error) {
+// New creates a new event store using the given S3 client.
+func New(s3Client *s3.Client, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		s3Client: s3Client,
 		log:      slog.Default().WithGroup("s3eventstore"),
