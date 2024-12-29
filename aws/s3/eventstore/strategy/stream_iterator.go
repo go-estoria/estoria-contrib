@@ -35,7 +35,7 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	i.currentVersion++
 
 	if i.toVersion > 0 && i.currentVersion == i.toVersion {
-		i.log.Debug("reached end of stream", "streamID", i.streamID, "current_version", i.currentVersion, "to_version", i.toVersion)
+		i.log.Debug("reached end of stream", "stream_id", i.streamID, "current_version", i.currentVersion, "to_version", i.toVersion)
 		return nil, eventstore.ErrEndOfEventStream
 	}
 
@@ -43,7 +43,7 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	var ok bool
 
 	for versionObject, ok = i.objectMetadata[i.currentVersion]; !ok && i.paginator.HasMorePages(); {
-		i.log.Debug("object not found for version, getting next page of objects", "streamID", i.streamID, "currentVersion", i.currentVersion)
+		i.log.Debug("object not found for version, getting next page of objects", "stream_id", i.streamID, "current_version", i.currentVersion)
 		page, err := i.paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("getting next page: %w", err)
@@ -60,7 +60,7 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 			i.objectMetadata[int64(version)] = o
 
 			if int64(version) == i.currentVersion {
-				i.log.Debug("found object for version in fetched page", "streamID", i.streamID, "version", i.currentVersion)
+				i.log.Debug("found object for version in fetched page", "stream_id", i.streamID, "version", i.currentVersion)
 				versionObject = o
 				ok = true
 			}
@@ -68,11 +68,11 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	}
 
 	if !ok {
-		i.log.Debug("no object found for version", "streamID", i.streamID, "currentVersion", i.currentVersion)
+		i.log.Debug("no object found for version", "stream_id", i.streamID, "current_version", i.currentVersion)
 		return nil, eventstore.ErrEndOfEventStream
 	}
 
-	i.log.Debug("found object for version", "streamID", i.streamID, "version", i.currentVersion)
+	i.log.Debug("found object for version", "stream_id", i.streamID, "version", i.currentVersion)
 	result, err := i.s3.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &i.bucket,
 		Key:    versionObject.Key,
