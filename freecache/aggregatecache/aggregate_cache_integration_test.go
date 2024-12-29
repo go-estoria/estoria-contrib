@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/coocood/freecache"
-	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/freecache/aggregatecache"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/go-estoria/estoria/typeid"
@@ -13,19 +12,12 @@ import (
 )
 
 type mockEntity struct {
+	ID   uuid.UUID
 	Name string
 }
 
-func (e *mockEntity) ApplyEvent(context.Context, estoria.EntityEvent) error {
-	return nil
-}
-
-func (e *mockEntity) EntityID() typeid.UUID {
-	return typeid.FromUUID("type", uuid.Must(uuid.NewV4()))
-}
-
-func (e *mockEntity) EventTypes() []estoria.EntityEvent {
-	return nil
+func (e mockEntity) EntityID() typeid.UUID {
+	return typeid.FromUUID("mockentity", e.ID)
 }
 
 func TestCache_GetAggregate(t *testing.T) {
@@ -34,9 +26,9 @@ func TestCache_GetAggregate(t *testing.T) {
 	for _, tt := range []struct {
 		name            string
 		haveCache       func(*testing.T) *freecache.Cache
-		haveMarshaler   estoria.Marshaler[aggregatecache.Snapshot[*mockEntity], *aggregatecache.Snapshot[*mockEntity]]
+		haveMarshaler   aggregatecache.SnapshotMarshaler[mockEntity]
 		haveAggregateID typeid.UUID
-		wantAggregate   *aggregatestore.Aggregate[*mockEntity]
+		wantAggregate   *aggregatestore.Aggregate[mockEntity]
 		wantErr         error
 	}{
 		{
@@ -45,7 +37,7 @@ func TestCache_GetAggregate(t *testing.T) {
 				t.Helper()
 				return freecache.NewCache(1000)
 			},
-			haveMarshaler:   estoria.JSONMarshaler[aggregatecache.Snapshot[*mockEntity]]{},
+			haveMarshaler:   aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
 			haveAggregateID: typeid.FromUUID("type", uuid.Must(uuid.NewV4())),
 			wantAggregate:   nil,
 			wantErr:         nil,
@@ -56,12 +48,12 @@ func TestCache_GetAggregate(t *testing.T) {
 				t.Helper()
 				cache := freecache.NewCache(1000)
 
-				snapshot := aggregatecache.Snapshot[*mockEntity]{
-					Entity:  &mockEntity{Name: "test"},
+				snapshot := aggregatecache.Snapshot[mockEntity]{
+					Entity:  mockEntity{Name: "test"},
 					Version: 1,
 				}
 
-				data, err := estoria.JSONMarshaler[aggregatecache.Snapshot[*mockEntity]]{}.Marshal(&snapshot)
+				data, err := aggregatecache.JSONSnapshotMarshaler[mockEntity]{}.Marshal(snapshot)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -72,11 +64,11 @@ func TestCache_GetAggregate(t *testing.T) {
 
 				return cache
 			},
-			haveMarshaler:   estoria.JSONMarshaler[aggregatecache.Snapshot[*mockEntity]]{},
+			haveMarshaler:   aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
 			haveAggregateID: typeid.FromUUID("type", uuid.Must(uuid.FromString("9fbcfd12-fffa-4e43-8168-9e107db5c800"))),
-			wantAggregate: func() *aggregatestore.Aggregate[*mockEntity] {
-				aggregate := &aggregatestore.Aggregate[*mockEntity]{}
-				aggregate.State().SetEntityAtVersion(&mockEntity{Name: "test"}, 1)
+			wantAggregate: func() *aggregatestore.Aggregate[mockEntity] {
+				aggregate := &aggregatestore.Aggregate[mockEntity]{}
+				aggregate.State().SetEntityAtVersion(mockEntity{Name: "test"}, 1)
 				return aggregate
 			}(),
 			wantErr: nil,
@@ -115,8 +107,8 @@ func TestCache_PutAggregate(t *testing.T) {
 	for _, tt := range []struct {
 		name          string
 		haveCache     func(*testing.T) *freecache.Cache
-		haveMarshaler estoria.Marshaler[aggregatecache.Snapshot[*mockEntity], *aggregatecache.Snapshot[*mockEntity]]
-		haveAggregate *aggregatestore.Aggregate[*mockEntity]
+		haveMarshaler aggregatecache.SnapshotMarshaler[mockEntity]
+		haveAggregate *aggregatestore.Aggregate[mockEntity]
 		wantErr       error
 	}{
 		{
@@ -125,10 +117,10 @@ func TestCache_PutAggregate(t *testing.T) {
 				t.Helper()
 				return freecache.NewCache(1000)
 			},
-			haveMarshaler: estoria.JSONMarshaler[aggregatecache.Snapshot[*mockEntity]]{},
-			haveAggregate: func() *aggregatestore.Aggregate[*mockEntity] {
-				aggregate := &aggregatestore.Aggregate[*mockEntity]{}
-				aggregate.State().SetEntityAtVersion(&mockEntity{Name: "test"}, 1)
+			haveMarshaler: aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
+			haveAggregate: func() *aggregatestore.Aggregate[mockEntity] {
+				aggregate := &aggregatestore.Aggregate[mockEntity]{}
+				aggregate.State().SetEntityAtVersion(mockEntity{Name: "test"}, 1)
 				return aggregate
 			}(),
 			wantErr: nil,

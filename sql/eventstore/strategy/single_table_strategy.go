@@ -27,6 +27,10 @@ type SingleTableStrategy struct {
 	log       estoria.Logger
 }
 
+type InsertStreamEventsResult struct {
+	InsertedEvents []*eventstore.Event
+}
+
 func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
@@ -79,9 +83,9 @@ func (s *SingleTableStrategy) GetStreamIterator(
 func (s *SingleTableStrategy) InsertStreamEvents(
 	tx SQLTx,
 	streamID typeid.UUID,
-	events []*eventstore.Event,
+	events []*eventstore.WritableEvent,
 	opts eventstore.AppendStreamOptions,
-) (sql.Result, error) {
+) (*InsertStreamEventsResult, error) {
 	latestVersion, err := s.getLatestVersion(tx, streamID)
 	if err != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
@@ -107,23 +111,35 @@ func (s *SingleTableStrategy) InsertStreamEvents(
 	now := time.Now()
 
 	version := latestVersion
-	for _, event := range events {
+
+	fullEvents := make([]*eventstore.Event, len(events))
+	for i, we := range events {
 		version++
+		fullEvents[i] = &eventstore.Event{
+			ID:            we.ID,
+			StreamID:      streamID,
+			StreamVersion: version,
+			Timestamp:     now,
+			Data:          we.Data,
+		}
+
 		_, err := stmt.Exec(
-			event.ID.Value(),
+			we.ID.Value(),
 			streamID.TypeName(),
 			streamID.Value(),
-			event.ID.TypeName(),
+			we.ID.TypeName(),
 			now,
 			version,
-			event.Data,
+			we.Data,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("executing statement: %w", err)
 		}
 	}
 
-	return nil, nil
+	return &InsertStreamEventsResult{
+		InsertedEvents: fullEvents,
+	}, nil
 }
 
 func (s *SingleTableStrategy) getLatestVersion(tx SQLTx, streamID typeid.UUID) (int64, error) {

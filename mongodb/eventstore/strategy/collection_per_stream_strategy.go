@@ -72,9 +72,9 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
-	events []*eventstore.Event,
+	events []*eventstore.WritableEvent,
 	opts eventstore.AppendStreamOptions,
-) (*InsertResult, error) {
+) (*InsertStreamEventsResult, error) {
 	s.log.Debug("inserting events into Mongo collection", "stream_id", streamID, "events", len(events))
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
 	if err != nil {
@@ -85,17 +85,29 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 		return nil, fmt.Errorf("expected version %d, but stream has version %d", opts.ExpectVersion, latestVersion)
 	}
 
+	now := time.Now()
+
+	fullEvents := make([]*eventstore.Event, len(events))
 	docs := make([]any, len(events))
-	appended := make([]*eventstore.Event, len(events))
-	for i, event := range events {
-		event.StreamVersion = latestVersion + int64(i) + 1
-		doc, err := s.marshaler.MarshalDocument(event)
+	for i, we := range events {
+		if we.Timestamp.IsZero() {
+			we.Timestamp = now
+		}
+
+		fullEvents[i] = &eventstore.Event{
+			ID:            we.ID,
+			StreamID:      streamID,
+			StreamVersion: latestVersion + int64(i) + 1,
+			Timestamp:     now,
+			Data:          we.Data,
+		}
+
+		doc, err := s.marshaler.MarshalDocument(fullEvents[i])
 		if err != nil {
 			return nil, fmt.Errorf("marshaling event: %w", err)
 		}
 
 		docs[i] = doc
-		appended[i] = event
 	}
 
 	collection := s.database.Collection(streamID.String())
@@ -103,11 +115,13 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	if err != nil {
 		s.log.Error("error while inserting events", "error", err)
 		return nil, fmt.Errorf("inserting events: %w", err)
+	} else if len(result.InsertedIDs) != len(fullEvents) {
+		return nil, fmt.Errorf("inserted %d events, but expected %d", len(result.InsertedIDs), len(docs))
 	}
 
-	return &InsertResult{
+	return &InsertStreamEventsResult{
 		MongoResult:    result,
-		InsertedEvents: appended,
+		InsertedEvents: fullEvents,
 	}, nil
 }
 

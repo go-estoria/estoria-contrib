@@ -38,9 +38,9 @@ type Strategy interface {
 	InsertStreamEvents(
 		tx strategy.SQLTx,
 		streamID typeid.UUID,
-		events []*eventstore.Event,
+		events []*eventstore.WritableEvent,
 		opts eventstore.AppendStreamOptions,
-	) (sql.Result, error)
+	) (*strategy.InsertStreamEventsResult, error)
 }
 
 // NewEventStore creates a new event store using the given database connection.
@@ -106,12 +106,13 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	_, txErr := doInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {
 		s.log.Debug("inserting events", "events", len(events))
-		if _, err := s.strategy.InsertStreamEvents(tx, streamID, fullEvents, opts); err != nil {
+		insertResult, err := s.strategy.InsertStreamEvents(tx, streamID, events, opts)
+		if err != nil {
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
 
 		for _, hook := range s.appendTxHooks {
-			if err := hook(tx, fullEvents); err != nil {
+			if err := hook(tx, insertResult.InsertedEvents); err != nil {
 				return nil, fmt.Errorf("executing transaction hook: %w", err)
 			}
 		}

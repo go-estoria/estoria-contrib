@@ -29,7 +29,7 @@ type MongoCursor interface {
 	Close(ctx context.Context) error
 }
 
-type InsertResult struct {
+type InsertStreamEventsResult struct {
 	MongoResult    *mongo.InsertManyResult
 	InsertedEvents []*eventstore.Event
 }

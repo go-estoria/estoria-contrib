@@ -2,6 +2,7 @@ package aggregatecache
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -11,20 +12,40 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
+type FreeCache interface {
+	Get(key []byte) (value []byte, err error)
+	Set(key, value []byte, expire int) (err error)
+}
+
 type Snapshot[E estoria.Entity] struct {
 	Entity  E     `json:"e"`
 	Version int64 `json:"v"`
 }
 
-type Cache[E estoria.Entity] struct {
-	cache     *freecache.Cache
-	marshaler estoria.Marshaler[Snapshot[E], *Snapshot[E]]
+type SnapshotMarshaler[E estoria.Entity] interface {
+	Marshal(snapshot Snapshot[E]) ([]byte, error)
+	Unmarshal(data []byte, snapshot *Snapshot[E]) error
 }
 
-func New[E estoria.Entity](cache *freecache.Cache, opts ...CacheOption[E]) *Cache[E] {
+type JSONSnapshotMarshaler[E estoria.Entity] struct{}
+
+func (m JSONSnapshotMarshaler[E]) Marshal(snapshot Snapshot[E]) ([]byte, error) {
+	return json.Marshal(snapshot)
+}
+
+func (m JSONSnapshotMarshaler[E]) Unmarshal(data []byte, snapshot *Snapshot[E]) error {
+	return json.Unmarshal(data, snapshot)
+}
+
+type Cache[E estoria.Entity] struct {
+	cache     FreeCache
+	marshaler SnapshotMarshaler[E]
+}
+
+func New[E estoria.Entity](cache FreeCache, opts ...CacheOption[E]) *Cache[E] {
 	aggregateCache := &Cache[E]{
 		cache:     cache,
-		marshaler: estoria.JSONMarshaler[Snapshot[E]]{},
+		marshaler: JSONSnapshotMarshaler[E]{},
 	}
 
 	for _, opt := range opts {
@@ -54,12 +75,10 @@ func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.UUID) (*
 }
 
 func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.Aggregate[E]) error {
-	snapshot := &Snapshot[E]{
+	data, err := c.marshaler.Marshal(Snapshot[E]{
 		Entity:  aggregate.Entity(),
 		Version: aggregate.Version(),
-	}
-
-	data, err := c.marshaler.Marshal(snapshot)
+	})
 	if err != nil {
 		return fmt.Errorf("marshaling snapshot: %w", err)
 	}
@@ -73,7 +92,7 @@ func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.A
 
 type CacheOption[E estoria.Entity] func(*Cache[E])
 
-func WithMarshaler[E estoria.Entity](marshaler estoria.Marshaler[Snapshot[E], *Snapshot[E]]) CacheOption[E] {
+func WithMarshaler[E estoria.Entity](marshaler SnapshotMarshaler[E]) CacheOption[E] {
 	return func(c *Cache[E]) {
 		c.marshaler = marshaler
 	}

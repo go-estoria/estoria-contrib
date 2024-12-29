@@ -8,7 +8,8 @@ import (
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/gofrs/uuid"
+	gofrsv1 "github.com/gofrs/uuid"
+	"github.com/gofrs/uuid/v5"
 )
 
 type ESDBClient interface {
@@ -93,7 +94,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		}
 
 		streamEvents[i] = esdb.EventData{
-			EventID:     eventID,
+			EventID:     gofrsv1.UUID(eventID),
 			ContentType: esdb.ContentTypeJson,
 			EventType:   e.ID.TypeName(),
 			Data:        e.Data,

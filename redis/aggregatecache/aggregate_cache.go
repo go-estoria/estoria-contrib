@@ -5,17 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
-	"github.com/allegro/bigcache/v3"
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/redis/go-redis/v9"
 )
-
-type BigCache interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte) error
-}
 
 type Snapshot[E estoria.Entity] struct {
 	Entity  E     `json:"e"`
@@ -38,13 +34,13 @@ func (m JSONSnapshotMarshaler[E]) Unmarshal(data []byte, snapshot *Snapshot[E]) 
 }
 
 type Cache[E estoria.Entity] struct {
-	cache     BigCache
+	redis     *redis.Client
 	marshaler SnapshotMarshaler[E]
 }
 
-func New[E estoria.Entity](cache BigCache, opts ...CacheOption[E]) *Cache[E] {
+func New[E estoria.Entity](client *redis.Client, opts ...CacheOption[E]) *Cache[E] {
 	aggregateCache := &Cache[E]{
-		cache:     cache,
+		redis:     client,
 		marshaler: JSONSnapshotMarshaler[E]{},
 	}
 
@@ -56,11 +52,16 @@ func New[E estoria.Entity](cache BigCache, opts ...CacheOption[E]) *Cache[E] {
 }
 
 func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.UUID) (*aggregatestore.Aggregate[E], error) {
-	data, err := c.cache.Get(aggregateID.String())
-	if errors.Is(err, bigcache.ErrEntryNotFound) {
+	res := c.redis.Get(ctx, aggregateID.String())
+	if err := res.Err(); errors.Is(err, redis.Nil) {
 		return nil, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("getting data from cache: %w", err)
+		return nil, fmt.Errorf("getting data from Redis: %w", err)
+	}
+
+	data, err := res.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("getting data from Redis: %w", err)
 	}
 
 	snapshot := Snapshot[E]{}
@@ -75,16 +76,18 @@ func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.UUID) (*
 }
 
 func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.Aggregate[E]) error {
-	data, err := c.marshaler.Marshal(Snapshot[E]{
+	snapshot := Snapshot[E]{
 		Entity:  aggregate.Entity(),
 		Version: aggregate.Version(),
-	})
+	}
+
+	data, err := c.marshaler.Marshal(snapshot)
 	if err != nil {
 		return fmt.Errorf("marshaling snapshot: %w", err)
 	}
 
-	if err := c.cache.Set(aggregate.ID().String(), data); err != nil {
-		return fmt.Errorf("setting data in cache: %w", err)
+	if err := c.redis.Set(ctx, aggregate.ID().String(), data, time.Second).Err(); err != nil {
+		return fmt.Errorf("setting data in Redis: %w", err)
 	}
 
 	return nil

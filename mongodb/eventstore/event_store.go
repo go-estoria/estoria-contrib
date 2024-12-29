@@ -38,9 +38,9 @@ type Strategy interface {
 	InsertStreamEvents(
 		ctx mongo.SessionContext,
 		streamID typeid.UUID,
-		events []*eventstore.Event,
+		events []*eventstore.WritableEvent,
 		opts eventstore.AppendStreamOptions,
-	) (*strategy.InsertResult, error)
+	) (*strategy.InsertStreamEventsResult, error)
 }
 
 // NewEventStore creates a new event store using the given MongoDB client.
@@ -102,8 +102,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		s.log.Debug("inserting events", "events", len(events))
-		var err error
-		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, fullEvents, opts)
+		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
 		if err != nil {
 			s.log.Debug("inserting events failed", "err", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
@@ -111,7 +110,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 		for i, hook := range s.txHooks {
 			s.log.Debug("executing transaction hook", "hook", i)
-			if err := hook.HandleEvents(sessCtx, fullEvents); err != nil {
+			if err := hook.HandleEvents(sessCtx, insertResult.InsertedEvents); err != nil {
 				s.log.Debug("transaction hook failed", "hook", i, "err", err)
 				return nil, fmt.Errorf("executing transaction hook: %w", err)
 			}
