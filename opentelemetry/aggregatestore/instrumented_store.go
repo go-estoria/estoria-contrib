@@ -54,6 +54,7 @@ func NewInstrumentedStore[E estoria.Entity](inner aggregatestore.Store[E], opts 
 		tracingEnabled:  true,
 		metricsEnabled:  true,
 		metricNamespace: "aggregatestore",
+		traceNamespace:  "aggregatestore",
 	}
 
 	for _, opt := range opts {
