@@ -8,6 +8,7 @@ import (
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/gofrs/uuid/v5"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
@@ -19,11 +20,11 @@ const (
 	scope = "github.com/go-estoria/estoria-contrib/opentelemetry/aggregatestore"
 )
 
-// AnNewInstrumentedStore wraps an aggregate store with OpenTelemetry instrumentation.
+// AnNewInstrumentedStore wraps an aggregate store for OpenTelemetry instrumentation.
 //
-// The store emits metrics and traces for the Load, Hydrate, and Save methods.
-// The metrics are emitted using the OpenTelemetry metric API, and the traces
-// are emitted using the OpenTelemetry trace API.
+// The store wraps and emits metrics and traces for the Load, Hydrate, and Save methods.
+// The metrics are emitted using the OpenTelemetry metric API, and the traces are
+// emitted using the OpenTelemetry trace API.
 //
 // The store can be configured to enable or disable tracing and metrics, and
 // to use a custom tracer or meter provider. By default, the store uses the
@@ -93,7 +94,11 @@ func (s *InstrumentedStore[E]) New(id uuid.UUID) *aggregatestore.Aggregate[E] {
 
 // Load loads an aggregate by ID while capturing telemetry.
 func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[E], e error) {
-	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Load")
+	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Load", trace.WithAttributes(
+		attribute.String("aggregate.uuid", id.String()),
+		attribute.Int64("load_options.to_version", opts.ToVersion)),
+	)
+
 	defer func() {
 		span.RecordError(e)
 		if e != nil {
@@ -108,7 +113,11 @@ func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts aggr
 
 // Hydrate hydrates an aggregate while capturing telemetry.
 func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts aggregatestore.HydrateOptions) (e error) {
-	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Hydrate")
+	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Hydrate", trace.WithAttributes(
+		attribute.String("aggregate.id", aggregate.ID().String()),
+		attribute.Int64("aggregate.version", aggregate.Version()),
+		attribute.Int64("hydrate_options.to_version", opts.ToVersion),
+	))
 	defer func() {
 		span.RecordError(e)
 		if e != nil {
@@ -123,13 +132,16 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 
 // Save saves an aggregate while capturing telemetry.
 func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts aggregatestore.SaveOptions) (e error) {
-	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Save")
+	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Save", trace.WithAttributes(
+		attribute.String("aggregate.id", aggregate.ID().String()),
+		attribute.Int64("aggregate.version", aggregate.Version()),
+		attribute.Int64("aggregate.unsaved_events", int64(len(aggregate.State().UnsavedEvents()))),
+	))
 	defer func() {
 		span.RecordError(e)
 		if e != nil {
 			span.SetStatus(codes.Error, "error saving aggregate")
 		}
-		s.saveCounter.Add(ctx, 1)
 		span.End()
 	}()
 
@@ -165,8 +177,12 @@ func (s *InstrumentedStore[E]) initializeMetrics() error {
 	return nil
 }
 
+// An InstrumentedStoreOption configures an instrumented store.
 type InstrumentedStoreOption[E estoria.Entity] func(*InstrumentedStore[E]) error
 
+// WithTracingEnabled enables or disables tracing for the store.
+//
+// By default, tracing is enabled.
 func WithTracingEnabled[E estoria.Entity](enabled bool) InstrumentedStoreOption[E] {
 	return func(s *InstrumentedStore[E]) error {
 		s.tracingEnabled = enabled
@@ -174,6 +190,7 @@ func WithTracingEnabled[E estoria.Entity](enabled bool) InstrumentedStoreOption[
 	}
 }
 
+// WithTracerProvider sets the OTEL tracer provider for the store.
 func WithTracerProvider[E estoria.Entity](provider trace.TracerProvider) InstrumentedStoreOption[E] {
 	return func(s *InstrumentedStore[E]) error {
 		s.tracer = provider.Tracer(scope)
@@ -181,6 +198,9 @@ func WithTracerProvider[E estoria.Entity](provider trace.TracerProvider) Instrum
 	}
 }
 
+// WithMetricsEnabled enables or disables metrics for the store.
+//
+// By default, metrics are enabled.
 func WithMetricsEnabled[E estoria.Entity](enabled bool) InstrumentedStoreOption[E] {
 	return func(s *InstrumentedStore[E]) error {
 		s.metricsEnabled = enabled
@@ -188,6 +208,7 @@ func WithMetricsEnabled[E estoria.Entity](enabled bool) InstrumentedStoreOption[
 	}
 }
 
+// WithMeterProvider sets the OTEL meter provider for the store.
 func WithMeterProvider[E estoria.Entity](provider metric.MeterProvider) InstrumentedStoreOption[E] {
 	return func(s *InstrumentedStore[E]) error {
 		s.meter = provider.Meter(scope)
