@@ -187,3 +187,12 @@ func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeD
 		Data:          doc.EventData,
 	}, nil
 }
+
+type SingleCollectionStrategyOption func(*SingleCollectionStrategy) error
+
+func WithSCSDocumentMarshaler(marshaler DocumentMarshaler) SingleCollectionStrategyOption {
+	return func(s *SingleCollectionStrategy) error {
+		s.marshaler = marshaler
+		return nil
+	}
+}
