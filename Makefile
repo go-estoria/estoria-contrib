@@ -16,7 +16,11 @@ start-redis-deps:
 	docker-compose up -d redis redis-commander
 
 start-s3-deps:
-	docker-compose up s3
+	docker-compose up -d s3
+
+start-telemetry:
+	docker-compose up -d grafana
+	docker-compose up otel-collector jaeger prometheus
 
 down:
 	docker-compose down -v
