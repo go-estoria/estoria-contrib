@@ -134,9 +134,10 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 
 		key := s.resolveKey(streamID, fullEvents[i].StreamVersion)
 		if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{
-			Bucket: &s.bucket,
-			Key:    &key,
-			Body:   bytes.NewReader(data),
+			Bucket:      &s.bucket,
+			Key:         &key,
+			ContentType: aws.String("application/json"),
+			Body:        bytes.NewReader(data),
 		}); err != nil {
 			return nil, fmt.Errorf("putting object: %w", err)
 		}

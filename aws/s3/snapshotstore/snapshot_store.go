@@ -143,9 +143,10 @@ func (s *SnapshotStore) WriteSnapshot(_ context.Context, snap *snapshotstore.Agg
 	bucket := s.resolveBucket(snap.AggregateID)
 	key := s.resolveKey(snap.AggregateID, snap.AggregateVersion)
 	if _, err := s.s3.PutObject(context.Background(), &s3.PutObjectInput{
-		Bucket: &bucket,
-		Key:    &key,
-		Body:   bytes.NewReader(data),
+		Bucket:      &bucket,
+		Key:         &key,
+		ContentType: aws.String("application/json"),
+		Body:        bytes.NewReader(data),
 	}); err != nil {
 		return fmt.Errorf("putting object: %w", err)
 	}
