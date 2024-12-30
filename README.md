@@ -5,6 +5,8 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 >**Note**: This project is in early beta. While functional, the API is not yet stable and is not suitable for production use.
 
 - [Event Stores](#event-stores)
+- [Aggregate Caches](#aggregate-caches)
+- [Snapshot Stores](#snapshot-stores)
 
 ## Event Stores
 
