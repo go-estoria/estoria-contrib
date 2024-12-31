@@ -5,19 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/DataDog/datadog-go/v5/statsd"
 	"github.com/go-estoria/estoria/snapshotstore"
 	"github.com/go-estoria/estoria/typeid"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
-	noopmetric "go.opentelemetry.io/otel/metric/noop"
-	"go.opentelemetry.io/otel/trace"
-	nooptrace "go.opentelemetry.io/otel/trace/noop"
-)
-
-const (
-	scope = "github.com/go-estoria/estoria-contrib/opentelemetry/snapshotstore"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 // An InstrumentedStore wraps an event store for OpenTelemetry instrumentation.
@@ -34,23 +25,17 @@ const (
 // namespace can be customized using the WithMetricNamespace option.
 type InstrumentedStore struct {
 	inner          snapshotstore.SnapshotStore
-	tracingEnabled bool
-	tracer         trace.Tracer
 	metricsEnabled bool
-	meter          metric.Meter
+	meter          statsd.ClientInterface
 
 	metricNamespace string
 	traceNamespace  string
-
-	readStreamCounter   metric.Int64Counter
-	appendStreamCounter metric.Int64Counter
 }
 
 // NewInstrumentedStore creates a new instrumented event store.
 func NewInstrumentedStore(inner snapshotstore.SnapshotStore, opts ...InstrumentedStoreOption) (*InstrumentedStore, error) {
 	store := &InstrumentedStore{
 		inner:           inner,
-		tracingEnabled:  true,
 		metricsEnabled:  true,
 		metricNamespace: "snapshotstore",
 		traceNamespace:  "snapshotstore",
@@ -62,24 +47,17 @@ func NewInstrumentedStore(inner snapshotstore.SnapshotStore, opts ...Instrumente
 		}
 	}
 
-	if store.tracer == nil {
-		if store.tracingEnabled {
-			store.tracer = otel.GetTracerProvider().Tracer(scope)
-		} else {
-			store.tracer = nooptrace.NewTracerProvider().Tracer(scope)
-		}
-	}
-
 	if store.meter == nil {
 		if store.metricsEnabled {
-			store.meter = otel.GetMeterProvider().Meter(scope)
-		} else {
-			store.meter = noopmetric.NewMeterProvider().Meter(scope)
-		}
-	}
+			client, err := statsd.New("localhost:8125")
+			if err != nil {
+				return nil, fmt.Errorf("creating statsd client: %w", err)
+			}
 
-	if err := store.initializeMetrics(); err != nil {
-		return nil, fmt.Errorf("initializing metrics: %w", err)
+			store.meter = client
+		} else {
+			store.meter = &statsd.NoOpClient{}
+		}
 	}
 
 	return store, nil
@@ -89,19 +67,18 @@ var _ snapshotstore.SnapshotStore = (*InstrumentedStore)(nil)
 
 // Load loads an aggregate by ID while capturing telemetry.
 func (s *InstrumentedStore) ReadSnapshot(ctx context.Context, aggregateID typeid.UUID, opts snapshotstore.ReadSnapshotOptions) (_ *snapshotstore.AggregateSnapshot, e error) {
-	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".ReadSnapshot", trace.WithAttributes(
-		attribute.String("aggregate.id", aggregateID.String()),
-		attribute.Int64("options.max_version", opts.MaxVersion),
-	))
+	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".ReadSnapshot")
+	span.SetTag("aggregate.id", aggregateID.String())
+	span.SetTag("options.max_version", opts.MaxVersion)
 
 	defer func() {
-		span.RecordError(e)
-		if e != nil && !errors.Is(e, snapshotstore.ErrSnapshotNotFound) {
-			span.SetStatus(codes.Error, "error reading snapshot")
+		if errors.Is(e, snapshotstore.ErrSnapshotNotFound) {
+			span.Finish()
+		} else {
+			span.Finish(tracer.WithError(e))
 		}
 
-		s.readStreamCounter.Add(ctx, 1)
-		span.End()
+		s.meter.Incr(s.metricNamespace+".ReadSnapshot", nil, 1)
 	}()
 
 	return s.inner.ReadSnapshot(ctx, aggregateID, opts)
@@ -109,66 +86,22 @@ func (s *InstrumentedStore) ReadSnapshot(ctx context.Context, aggregateID typeid
 
 // Hydrate hydrates an aggregate while capturing telemetry.
 func (s *InstrumentedStore) WriteSnapshot(ctx context.Context, snap *snapshotstore.AggregateSnapshot) (e error) {
-	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".WriteSnapshot", trace.WithAttributes(
-		attribute.String("snapshot.aggregate.id", snap.AggregateID.String()),
-		attribute.Int64("snapshot.aggregate.version", snap.AggregateVersion),
-		attribute.Int64("snapshot.data.length", int64(len(snap.Data))),
-		attribute.Int64("snapshot.timestamp.nano", snap.Timestamp.UnixNano()),
-	))
-	defer func() {
-		span.RecordError(e)
-		if e != nil {
-			span.SetStatus(codes.Error, "error writing snapshot")
-		}
+	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".WriteSnapshot")
+	span.SetTag("snapshot.aggregate.id", snap.AggregateID.String())
+	span.SetTag("snapshot.aggregate.version", snap.AggregateVersion)
+	span.SetTag("snapshot.data.length", int64(len(snap.Data)))
+	span.SetTag("snapshot.timestamp.nano", snap.Timestamp.UnixNano())
 
-		s.appendStreamCounter.Add(ctx, 1)
-		span.End()
+	defer func() {
+		s.meter.Incr(s.metricNamespace+".WriteSnapshot", nil, 1)
+		span.Finish(tracer.WithError(e))
 	}()
 
 	return s.inner.WriteSnapshot(ctx, snap)
 }
 
-// Create all of the necessary metric instruments.
-func (s *InstrumentedStore) initializeMetrics() error {
-	if counter, err := s.meter.Int64Counter(s.metricNamespace+".stream.read",
-		metric.WithDescription("The number of times the ReadStream method was called"),
-	); err != nil {
-		return fmt.Errorf("creating ReadStream counter: %w", err)
-	} else {
-		s.readStreamCounter = counter
-	}
-
-	if counter, err := s.meter.Int64Counter(s.metricNamespace+".stream.append",
-		metric.WithDescription("The number of times the AppendStream method was called"),
-	); err != nil {
-		return fmt.Errorf("creating AppendStream counter: %w", err)
-	} else {
-		s.appendStreamCounter = counter
-	}
-
-	return nil
-}
-
 // An InstrumentedStoreOption configures an instrumented store.
 type InstrumentedStoreOption func(*InstrumentedStore) error
-
-// WithTracingEnabled enables or disables tracing for the store.
-//
-// By default, tracing is enabled.
-func WithTracingEnabled(enabled bool) InstrumentedStoreOption {
-	return func(s *InstrumentedStore) error {
-		s.tracingEnabled = enabled
-		return nil
-	}
-}
-
-// WithTracerProvider sets the OTEL tracer provider for the store.
-func WithTracerProvider(provider trace.TracerProvider) InstrumentedStoreOption {
-	return func(s *InstrumentedStore) error {
-		s.tracer = provider.Tracer(scope)
-		return nil
-	}
-}
 
 // WithMetricsEnabled enables or disables metrics for the store.
 //
@@ -180,10 +113,10 @@ func WithMetricsEnabled(enabled bool) InstrumentedStoreOption {
 	}
 }
 
-// WithMeterProvider sets the OTEL meter provider for the store.
-func WithMeterProvider(provider metric.MeterProvider) InstrumentedStoreOption {
+// WithMetricsClient sets the statsd client for the store.
+func WithMetricsClient(client statsd.ClientInterface) InstrumentedStoreOption {
 	return func(s *InstrumentedStore) error {
-		s.meter = provider.Meter(scope)
+		s.meter = client
 		return nil
 	}
 }
