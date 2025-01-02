@@ -32,7 +32,8 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 |------|-------------| ---- |
 | [bigcache](./bigcache/aggregatecache) | Memory-based cache using [bigcache](https://github.com/allegro/bigcache). | In-memory |
 | [freecache](./freecache/aggregatecache) | Memory-based cache using [freecache](https://github.com/coocood/freecache). | In-memory |
-| [Redis](./redis/aggregatecache) | Memory and/or distributed cache using [Redis](https://github.com/redis/redis) key/value storage. | Distributed |
+| [Redis](./redis/aggregatecache) | Distributed cache using [Redis](https://github.com/redis/redis) key/value storage. | Distributed |
+| [Valkey](./valkey/aggregatecache) | Distributed cache using [Valkey](https://valkey.io) key/value storage. | Distributed |
 
 ## Snapshot Stores
 
