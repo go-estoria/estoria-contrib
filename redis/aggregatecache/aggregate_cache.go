@@ -69,10 +69,7 @@ func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.UUID) (*
 		return nil, fmt.Errorf("unmarshaling data: %w", err)
 	}
 
-	aggregate := &aggregatestore.Aggregate[E]{}
-	aggregate.State().SetEntityAtVersion(snapshot.Entity, snapshot.Version)
-
-	return aggregate, nil
+	return aggregatestore.NewAggregate(snapshot.Entity, snapshot.Version), nil
 }
 
 func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.Aggregate[E]) error {

@@ -75,9 +75,7 @@ func TestCache_GetAggregate(t *testing.T) {
 			haveMarshaler:   aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
 			haveAggregateID: typeid.FromUUID("type", uuid.Must(uuid.FromString("9fbcfd12-fffa-4e43-8168-9e107db5c800"))),
 			wantAggregate: func() *aggregatestore.Aggregate[mockEntity] {
-				aggregate := &aggregatestore.Aggregate[mockEntity]{}
-				aggregate.State().SetEntityAtVersion(mockEntity{Name: "test"}, 1)
-				return aggregate
+				return aggregatestore.NewAggregate(mockEntity{Name: "test"}, 1)
 			}(),
 			wantErr: nil,
 		},
@@ -131,9 +129,7 @@ func TestCache_PutAggregate(t *testing.T) {
 			},
 			haveMarshaler: aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
 			haveAggregate: func() *aggregatestore.Aggregate[mockEntity] {
-				aggregate := &aggregatestore.Aggregate[mockEntity]{}
-				aggregate.State().SetEntityAtVersion(mockEntity{Name: "test"}, 1)
-				return aggregate
+				return aggregatestore.NewAggregate(mockEntity{Name: "test"}, 1)
 			}(),
 			wantErr: nil,
 		},
