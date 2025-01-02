@@ -79,6 +79,24 @@ services:
     volumes:
       - s3_data:/data
       - s3_config:/root/.minio
+  
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - example-net
+  
+  valkey:
+    image: valkey/valkey:latest
+    command: valkey-server --port 6380 --requirepass valkey
+    ports:
+      - "6380:6380"
+    volumes:
+      - valkey_data:/data
+    networks:
+      - example-net
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -138,4 +156,6 @@ volumes:
   s3_data:
     driver: local
   s3_config:
+    driver: local
+  valkey_data:
     driver: local
