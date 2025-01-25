@@ -14,68 +14,61 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type CollectionPerStreamStrategy struct {
-	database  MongoDatabase
-	log       estoria.Logger
-	marshaler DocumentMarshaler
+type DatabasePerStreamStrategy struct {
+	client         MongoClient
+	collectionName string
+	log            estoria.Logger
+	marshaler      DocumentMarshaler
 }
 
-func NewCollectionPerStreamStrategy(db MongoDatabase) (*CollectionPerStreamStrategy, error) {
-	if db == nil {
-		return nil, fmt.Errorf("database is required")
+func NewDatabasePerStreamStrategy(client MongoClient, collectionName string) (*DatabasePerStreamStrategy, error) {
+	if client == nil {
+		return nil, fmt.Errorf("client is required")
+	} else if collectionName == "" {
+		return nil, fmt.Errorf("collectionName is required")
 	}
 
-	strategy := &CollectionPerStreamStrategy{
-		database:  db,
-		log:       estoria.GetLogger().WithGroup("eventstore"),
-		marshaler: DefaultCollectionPerStreamDocumentMarshaler{},
+	strategy := &DatabasePerStreamStrategy{
+		client:         client,
+		collectionName: collectionName,
+		log:            estoria.GetLogger().WithGroup("eventstore"),
+		marshaler:      DefaultDatabasePerStreamDocumentMarshaler{},
 	}
 
 	return strategy, nil
 }
 
-func (s *CollectionPerStreamStrategy) GetStreamIterator(
+func (s *DatabasePerStreamStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-	collection := s.database.Collection(streamID.String())
+	collection := s.client.Database(streamID.String()).Collection(s.collectionName)
 
-	offset := opts.Offset
-	count := opts.Count
-	sortDirection := 1
-	versionFilterKey := "$gt"
-	if opts.Direction == eventstore.Reverse {
-		sortDirection = -1
-		// versionFilterKey = "$lt"
-	}
-
-	findOpts := options.Find().SetSort(bson.D{{Key: "event_id", Value: sortDirection}})
-	if count > 0 {
-		findOpts = findOpts.SetLimit(count)
+	findOpts := options.Find()
+	if opts.Count > 0 {
+		findOpts = findOpts.SetLimit(opts.Count)
 	}
 
 	cursor, err := collection.Find(ctx, bson.D{
-		{Key: "version", Value: bson.D{{Key: versionFilterKey, Value: offset}}},
+		{Key: "version", Value: bson.D{{Key: "$gt", Value: opts.Offset}}},
 	}, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
 	return &streamIterator{
-		streamID:  streamID,
 		cursor:    cursor,
 		marshaler: s.marshaler,
 	}, nil
 }
 
-func (s *CollectionPerStreamStrategy) InsertStreamEvents(
+func (s *DatabasePerStreamStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
 	events []*eventstore.WritableEvent,
 	opts eventstore.AppendStreamOptions,
 ) (*InsertStreamEventsResult, error) {
-	s.log.Debug("inserting events into Mongo collection", "stream_id", streamID, "events", len(events))
 	latestVersion, err := s.getLatestVersion(ctx, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("getting latest version: %w", err)
@@ -87,13 +80,9 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 
 	now := time.Now()
 
-	fullEvents := make([]*eventstore.Event, len(events))
+	fullEvents := make([]*eventstore.Event, 0, len(events))
 	docs := make([]any, len(events))
 	for i, we := range events {
-		if we.Timestamp.IsZero() {
-			we.Timestamp = now
-		}
-
 		fullEvents[i] = &eventstore.Event{
 			ID:            we.ID,
 			StreamID:      streamID,
@@ -110,13 +99,13 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 		docs[i] = doc
 	}
 
-	collection := s.database.Collection(streamID.String())
+	database := s.client.Database(streamID.String())
+	collection := database.Collection(s.collectionName)
 	result, err := collection.InsertMany(ctx, docs)
 	if err != nil {
-		s.log.Error("error while inserting events", "error", err)
 		return nil, fmt.Errorf("inserting events: %w", err)
 	} else if len(result.InsertedIDs) != len(fullEvents) {
-		return nil, fmt.Errorf("inserted %d events, but expected %d", len(result.InsertedIDs), len(docs))
+		return nil, fmt.Errorf("inserted %d documents, but expected %d", len(result.InsertedIDs), len(docs))
 	}
 
 	return &InsertStreamEventsResult{
@@ -125,19 +114,20 @@ func (s *CollectionPerStreamStrategy) InsertStreamEvents(
 	}, nil
 }
 
-func (s *CollectionPerStreamStrategy) SetDocumentMarshaler(marshaler DocumentMarshaler) {
+func (s *DatabasePerStreamStrategy) SetDocumentMarshaler(marshaler DocumentMarshaler) {
 	s.marshaler = marshaler
 }
 
-func (s *CollectionPerStreamStrategy) SetLogger(l estoria.Logger) {
+func (s *DatabasePerStreamStrategy) SetLogger(l estoria.Logger) {
 	s.log = l
 }
 
-func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {
-	collection := s.database.Collection(streamID.String())
+func (s *DatabasePerStreamStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {
+	database := s.client.Database(streamID.String())
+	collection := database.Collection(s.collectionName)
 
 	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
-	var doc collectionPerStreamEventDocument
+	var doc databasePerStreamEventDocument
 	if err := collection.FindOne(ctx, bson.D{}, opts).Decode(&doc); err != nil {
 		if err == mongo.ErrNoDocuments {
 			return 0, nil
@@ -149,11 +139,7 @@ func (s *CollectionPerStreamStrategy) getLatestVersion(ctx context.Context, stre
 	return doc.Version, nil
 }
 
-type DefaultCollectionPerStreamDocumentMarshaler struct{}
-
-var _ DocumentMarshaler = DefaultCollectionPerStreamDocumentMarshaler{}
-
-type collectionPerStreamEventDocument struct {
+type databasePerStreamEventDocument struct {
 	StreamType string    `bson:"stream_type"`
 	StreamID   string    `bson:"stream_id"`
 	EventType  string    `bson:"event_type"`
@@ -163,8 +149,12 @@ type collectionPerStreamEventDocument struct {
 	EventData  []byte    `bson:"event_data"`
 }
 
-func (DefaultCollectionPerStreamDocumentMarshaler) MarshalDocument(event *eventstore.Event) (any, error) {
-	return collectionPerStreamEventDocument{
+type DefaultDatabasePerStreamDocumentMarshaler struct{}
+
+var _ DocumentMarshaler = DefaultDatabasePerStreamDocumentMarshaler{}
+
+func (DefaultDatabasePerStreamDocumentMarshaler) MarshalDocument(event *eventstore.Event) (any, error) {
+	return databasePerStreamEventDocument{
 		StreamType: event.StreamID.TypeName(),
 		StreamID:   event.StreamID.UUID().String(),
 		EventType:  event.ID.TypeName(),
@@ -175,8 +165,8 @@ func (DefaultCollectionPerStreamDocumentMarshaler) MarshalDocument(event *events
 	}, nil
 }
 
-func (DefaultCollectionPerStreamDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*eventstore.Event, error) {
-	doc := collectionPerStreamEventDocument{}
+func (DefaultDatabasePerStreamDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*eventstore.Event, error) {
+	doc := databasePerStreamEventDocument{}
 	if err := decode(&doc); err != nil {
 		return nil, fmt.Errorf("decoding event document: %w", err)
 	}
@@ -200,10 +190,10 @@ func (DefaultCollectionPerStreamDocumentMarshaler) UnmarshalDocument(decode Deco
 	}, nil
 }
 
-type CollectionPerStreamStrategyOption func(*CollectionPerStreamStrategy) error
+type DatabasePerStreamStrategyOption func(*DatabasePerStreamStrategy) error
 
-func WithCPSSDocumentMarshaler(marshaler DocumentMarshaler) CollectionPerStreamStrategyOption {
-	return func(s *CollectionPerStreamStrategy) error {
+func WithDPSSDocumentMarshaler(marshaler DocumentMarshaler) DatabasePerStreamStrategyOption {
+	return func(s *DatabasePerStreamStrategy) error {
 		s.marshaler = marshaler
 		return nil
 	}
