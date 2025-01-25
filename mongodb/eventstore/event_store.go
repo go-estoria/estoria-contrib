@@ -3,7 +3,6 @@ package eventstore
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
@@ -15,38 +14,66 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
+const (
+	DefaultDatabaseName   string = "estoria"
+	DefaultCollectionName string = "events"
+)
+
+type (
+	// MongoClient provides APIs for obtaining database handles and starting sessions.
+	MongoClient interface {
+		Database(name string) *mongo.Database
+		StartSession(opts ...*options.SessionOptions) (mongo.Session, error)
+	}
+
+	// Strategy provides APIs for reading and writing events to an event store.
+	Strategy interface {
+		GetStreamIterator(
+			ctx context.Context,
+			streamID typeid.UUID,
+			opts eventstore.ReadStreamOptions,
+		) (eventstore.StreamIterator, error)
+		InsertStreamEvents(
+			ctx mongo.SessionContext,
+			streamID typeid.UUID,
+			events []*eventstore.WritableEvent,
+			opts eventstore.AppendStreamOptions,
+		) (*strategy.InsertStreamEventsResult, error)
+	}
+
+	// A TransactionHook is a function that is executed within the transaction used for appending events.
+	// If a hook returns an error, the transaction is aborted and the error is returned to the caller.
+	TransactionHook interface {
+		HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.Event) error
+	}
+)
+
+// An EventStore stores and retrieves events using MongoDB as the underlying storage.
 type EventStore struct {
-	mongoClient *mongo.Client
-	strategy    Strategy
-	txHooks     []TransactionHook
-	log         estoria.Logger
+	mongoClient    MongoClient
+	strategy       Strategy
+	sessionOptions *options.SessionOptions
+	txOptions      *options.TransactionOptions
+	txHooks        []TransactionHook
+	log            estoria.Logger
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
-type TransactionHook interface {
-	HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.Event) error
-}
+// New creates a new EventStore using the given MongoDB client.
+func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
+	if client == nil {
+		return nil, fmt.Errorf("mongodb client is required")
+	}
 
-type Strategy interface {
-	GetStreamIterator(
-		ctx context.Context,
-		streamID typeid.UUID,
-		opts eventstore.ReadStreamOptions,
-	) (eventstore.StreamIterator, error)
-	InsertStreamEvents(
-		ctx mongo.SessionContext,
-		streamID typeid.UUID,
-		events []*eventstore.WritableEvent,
-		opts eventstore.AppendStreamOptions,
-	) (*strategy.InsertStreamEventsResult, error)
-}
-
-// NewEventStore creates a new event store using the given MongoDB client.
-func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
-		mongoClient: mongoClient,
+		mongoClient: client,
+		sessionOptions: options.Session().
+			SetDefaultReadConcern(readconcern.Majority()).
+			SetDefaultReadPreference(readpref.Primary()),
+		txOptions: options.Transaction().SetReadPreference(readpref.Primary()),
+		log:       estoria.GetLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
@@ -55,14 +82,11 @@ func NewEventStore(mongoClient *mongo.Client, opts ...EventStoreOption) (*EventS
 		}
 	}
 
-	if eventStore.log == nil {
-		eventStore.log = estoria.GetLogger().WithGroup("eventstore")
-	}
-
+	// use a single collection strategy by default
 	if eventStore.strategy == nil {
-		db := mongoClient.Database("estoria")
-		collection := db.Collection("events")
-		strat, err := strategy.NewSingleCollectionStrategy(collection)
+		strat, err := strategy.NewSingleCollectionStrategy(
+			client.Database(DefaultDatabaseName).Collection(DefaultCollectionName),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}
@@ -88,17 +112,6 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 // AppendStream appends events to the specified stream.
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
-
-	fullEvents := make([]*eventstore.Event, len(events))
-	for i, event := range events {
-		fullEvents[i] = &eventstore.Event{
-			ID:        event.ID,
-			StreamID:  streamID,
-			Timestamp: time.Now(),
-			Data:      event.Data,
-			// StreamVersion: 0, // assigned by the strategy
-		}
-	}
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		s.log.Debug("inserting events", "events", len(events))
@@ -130,22 +143,19 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 }
 
 // Executes the given function within a session transaction.
-// The function passed to this method must be idempotent, as the MongoDB transaction may be retried
-// in the event of a transient error.
+// The function passed to this method must be idempotent, as the MongoDB transaction
+// may be retried in the event of a transient error.
 func (s *EventStore) doInTransaction(ctx context.Context, f func(sessCtx mongo.SessionContext) (any, error)) (any, error) {
-	sessionOpts := options.Session().
-		SetDefaultReadConcern(readconcern.Majority()).
-		SetDefaultReadPreference(readpref.Primary())
-	session, err := s.mongoClient.StartSession(sessionOpts)
+	session, err := s.mongoClient.StartSession(s.sessionOptions)
 	if err != nil {
 		return nil, fmt.Errorf("starting MongoDB session: %w", err)
 	}
+
 	defer session.EndSession(ctx)
 
-	txOpts := options.Transaction().SetReadPreference(readpref.Primary())
 	result, err := session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		return f(sessCtx)
-	}, txOpts)
+	}, s.txOptions)
 	if err != nil {
 		return nil, fmt.Errorf("executing transaction: %w", err)
 	}
