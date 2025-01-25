@@ -16,6 +16,22 @@ type streamIterator struct {
 	rows     *sql.Rows
 }
 
+func (i *streamIterator) All(ctx context.Context) ([]*eventstore.Event, error) {
+	var events []*eventstore.Event
+	for {
+		e, err := i.Next(ctx)
+		if errors.Is(err, eventstore.ErrEndOfEventStream) {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("iterating events: %w", err)
+		}
+
+		events = append(events, e)
+	}
+
+	return events, nil
+}
+
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	if !i.rows.Next() {
 		return nil, eventstore.ErrEndOfEventStream

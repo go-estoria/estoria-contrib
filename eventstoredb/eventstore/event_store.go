@@ -47,12 +47,6 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 		From:      esdb.Start{},
 	}
 
-	if opts.Direction == eventstore.Reverse {
-		s.log.Debug("reading stream in reverse", "stream_id", streamID.String())
-		readOpts.Direction = esdb.Backwards
-		readOpts.From = esdb.End{}
-	}
-
 	if opts.Offset > 0 {
 		readOpts.From = esdb.StreamRevision{Value: uint64(opts.Offset)}
 	}

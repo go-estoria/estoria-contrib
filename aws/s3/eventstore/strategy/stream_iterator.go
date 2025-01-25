@@ -27,6 +27,23 @@ type streamIterator struct {
 	log            estoria.Logger
 }
 
+func (i *streamIterator) All(ctx context.Context) ([]*eventstore.Event, error) {
+	var events []*eventstore.Event
+	for {
+		e, err := i.Next(ctx)
+		if err != nil {
+			if err == eventstore.ErrEndOfEventStream {
+				break
+			}
+			return nil, fmt.Errorf("iterating events: %w", err)
+		}
+
+		events = append(events, e)
+	}
+
+	return events, nil
+}
+
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	if len(i.objectMetadata) == 0 {
 		i.objectMetadata = make(map[int64]types.Object)

@@ -50,11 +50,6 @@ func (s *SingleTableStrategy) GetStreamIterator(
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-	sortDirection := "ASC"
-	if opts.Direction == eventstore.Reverse {
-		sortDirection = "DESC"
-	}
-
 	s.log.Debug("querying events", "stream_id", streamID)
 
 	limitClause := ""
@@ -66,10 +61,10 @@ func (s *SingleTableStrategy) GetStreamIterator(
 		SELECT event_id, event_type, timestamp, data
 		FROM %s
 		WHERE stream_type = $1 AND stream_id = $2
-		ORDER BY version %s
+		ORDER BY version ASC
 		%s
 		OFFSET $3
-	`, s.tableName, sortDirection, limitClause), streamID.TypeName(), streamID.Value(), opts.Offset)
+	`, s.tableName, limitClause), streamID.TypeName(), streamID.Value(), opts.Offset)
 	if err != nil {
 		return nil, fmt.Errorf("querying events: %w", err)
 	}

@@ -245,6 +245,19 @@ type InstrumentedStreamIterator struct {
 	nextCounter metric.Int64Counter
 }
 
+func (i *InstrumentedStreamIterator) All(ctx context.Context) (_ []*eventstore.Event, e error) {
+	ctx, span := i.tracer.Start(ctx, "eventstore.StreamIterator.All")
+	defer func() {
+		span.RecordError(e)
+		if e != nil {
+			span.SetStatus(codes.Error, "error reading stream")
+		}
+		span.End()
+	}()
+
+	return i.inner.All(ctx)
+}
+
 func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Event, e error) {
 	ctx, span := i.tracer.Start(ctx, "eventstore.StreamIterator.Next")
 	defer func() {

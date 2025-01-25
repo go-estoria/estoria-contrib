@@ -168,6 +168,15 @@ type InstrumentedStreamIterator struct {
 	nextMetric string
 }
 
+func (i *InstrumentedStreamIterator) All(ctx context.Context) (_ []*eventstore.Event, e error) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "eventstore.StreamIterator.All")
+	defer func() {
+		span.Finish(tracer.WithError(e))
+	}()
+
+	return i.inner.All(ctx)
+}
+
 func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Event, e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, "eventstore.StreamIterator.Next")
 	defer func() {
