@@ -39,31 +39,16 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-	offset := opts.Offset
-	count := opts.Count
-	sortDirection := 1
-	versionFilterKey := "$gt"
-	if opts.Direction == eventstore.Reverse {
-		sortDirection = -1
-		// versionFilterKey = "$lt"
-	}
-
-	findOpts := options.Find().SetSort(bson.D{{Key: "event_id", Value: sortDirection}})
-	if count > 0 {
-		findOpts = findOpts.SetLimit(count)
-	}
 
 	cursor, err := s.collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
 		{Key: "stream_id", Value: streamID.Value()},
-		{Key: "version", Value: bson.D{{Key: versionFilterKey, Value: offset}}},
-	}, findOpts)
+	}, findOptsFromReadStreamOptions(opts))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
 	return &streamIterator{
-		streamID:  streamID,
 		cursor:    cursor,
 		marshaler: s.marshaler,
 	}, nil
@@ -75,13 +60,13 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	events []*eventstore.WritableEvent,
 	opts eventstore.AppendStreamOptions,
 ) (*InsertStreamEventsResult, error) {
-	latestVersion, err := s.getLatestVersion(ctx, streamID)
+	latestVersion, err := s.getHighestOffset(ctx, streamID)
 	if err != nil {
-		return nil, fmt.Errorf("getting latest version: %w", err)
+		return nil, fmt.Errorf("getting highest offset: %w", err)
 	}
 
 	if opts.ExpectVersion > 0 && latestVersion != opts.ExpectVersion {
-		return nil, fmt.Errorf("expected version %d, but stream has version %d", opts.ExpectVersion, latestVersion)
+		return nil, fmt.Errorf("expected offset %d, but stream's highest offset is %d", opts.ExpectVersion, latestVersion)
 	}
 
 	now := time.Now()
@@ -126,8 +111,9 @@ func (s *SingleCollectionStrategy) SetLogger(l estoria.Logger) {
 	s.log = l
 }
 
-func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, streamID typeid.UUID) (int64, error) {
-	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
+func (s *SingleCollectionStrategy) getHighestOffset(ctx mongo.SessionContext, streamID typeid.UUID) (int64, error) {
+	s.log.Info("finding highest offset for stream", "stream_id", streamID)
+	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
 		{Key: "stream_id", Value: streamID.Value()},
@@ -136,15 +122,18 @@ func (s *SingleCollectionStrategy) getLatestVersion(ctx mongo.SessionContext, st
 		if result.Err() == mongo.ErrNoDocuments {
 			return 0, nil
 		}
-		return 0, fmt.Errorf("finding latest version: %w", result.Err())
+		return 0, fmt.Errorf("finding highest offset: %w", result.Err())
 	}
+
+	s.log.Info("found highest offset for stream", "stream_id", streamID)
 
 	var doc singleCollectionEventDocument
 	if err := result.Decode(&doc); err != nil {
-		return 0, fmt.Errorf("decoding latest version: %w", err)
+		return 0, fmt.Errorf("decoding highest offset: %w", err)
 	}
 
-	return doc.Version, nil
+	s.log.Info("got highest offset for stream", "stream_id", streamID, "offset", doc.Offset)
+	return doc.Offset, nil
 }
 
 type DefaultSingleCollectionDocumentMarshaler struct{}
@@ -156,7 +145,7 @@ type singleCollectionEventDocument struct {
 	StreamID   string    `bson:"stream_id"`
 	EventType  string    `bson:"event_type"`
 	EventID    string    `bson:"event_id"`
-	Version    int64     `bson:"version"`
+	Offset     int64     `bson:"offset"`
 	Timestamp  time.Time `bson:"timestamp"`
 	EventData  []byte    `bson:"event_data"`
 }
@@ -167,7 +156,7 @@ func (DefaultSingleCollectionDocumentMarshaler) MarshalDocument(event *eventstor
 		StreamID:   event.StreamID.UUID().String(),
 		EventType:  event.ID.TypeName(),
 		EventID:    event.ID.UUID().String(),
-		Version:    event.StreamVersion,
+		Offset:     event.StreamVersion,
 		Timestamp:  event.Timestamp,
 		EventData:  event.Data,
 	}, nil
@@ -192,7 +181,7 @@ func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeD
 	return &eventstore.Event{
 		ID:            typeid.FromUUID(doc.EventType, eventID),
 		StreamID:      typeid.FromUUID(doc.StreamType, streamID),
-		StreamVersion: doc.Version,
+		StreamVersion: doc.Offset,
 		Timestamp:     doc.Timestamp,
 		Data:          doc.EventData,
 	}, nil
