@@ -105,7 +105,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
 	if err != nil {
-		return nil, fmt.Errorf("getting stream cursor: %w", err)
+		return nil, fmt.Errorf("getting stream iterator: %w", err)
 	}
 
 	return iter, nil
