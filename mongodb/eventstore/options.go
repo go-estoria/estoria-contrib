@@ -25,6 +25,8 @@ func WithLogger(logger estoria.Logger) EventStoreOption {
 
 // WithSessionOptions overrides the default session options used when starting
 // a new MongoDB session.
+//
+// By default, DefaultSessionOptions() is used.
 func WithSessionOptions(opts *options.SessionOptions) EventStoreOption {
 	return func(s *EventStore) error {
 		if opts == nil {
@@ -38,7 +40,8 @@ func WithSessionOptions(opts *options.SessionOptions) EventStoreOption {
 
 // WithStrategy sets the strategy to use for the event store.
 //
-// The default strategy is one collection per stream.
+// The default strategy is to use a database named "estoria"
+// with a single collection named "events" for all events.
 func WithStrategy(strategy Strategy) EventStoreOption {
 	return func(s *EventStore) error {
 		if strategy == nil {
@@ -66,6 +69,8 @@ func WithTransactionHook(hook TransactionHook) EventStoreOption {
 
 // WithTransactionOptions overrides the default transaction options used when
 // starting a new MongoDB transaction on a session.
+//
+// By default, DefaultTransactionOptions() is used.
 func WithTransactionOptions(opts *options.TransactionOptions) EventStoreOption {
 	return func(s *EventStore) error {
 		if opts == nil {

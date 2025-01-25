@@ -96,7 +96,12 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
-	s.log.Debug("reading events from stream", "stream_id", streamID.String())
+	s.log.Debug("reading events from MongoDB stream",
+		"stream_id", streamID.String(),
+		"offset", opts.Offset,
+		"count", opts.Count,
+		"direction", opts.Direction,
+	)
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
 	if err != nil {
@@ -108,31 +113,30 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 
 // AppendStream appends events to the specified stream.
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
-	s.log.Debug("appending events to Mongo stream", "stream_id", streamID.String(), "events", len(events))
+	s.log.Debug("appending events to MongoDB stream",
+		"stream_id", streamID.String(),
+		"events", len(events),
+		"expected_version", opts.ExpectVersion,
+	)
 
 	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
-		s.log.Debug("inserting events", "events", len(events))
 		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
 		if err != nil {
-			s.log.Debug("inserting events failed", "err", err)
 			return nil, fmt.Errorf("inserting events: %w", err)
 		}
 
 		for i, hook := range s.txHooks {
-			s.log.Debug("executing transaction hook", "hook", i)
+			s.log.Debug("executing transaction hook %d of %d", "hook", i+1, len(s.txHooks))
 			if err := hook.HandleEvents(sessCtx, insertResult.InsertedEvents); err != nil {
-				s.log.Debug("transaction hook failed", "hook", i, "err", err)
-				return nil, fmt.Errorf("executing transaction hook: %w", err)
+				return nil, fmt.Errorf("executing transaction hook %d of %d: %w", i+1, len(s.txHooks), err)
 			}
 		}
 
 		return insertResult, nil
 	})
 	if txErr != nil {
-		s.log.Debug("transaction failed", "err", txErr)
 		return fmt.Errorf("executing transaction: %w", txErr)
 	} else if result == nil {
-		s.log.Debug("transaction failed", "err", "no result")
 		return fmt.Errorf("executing transaction: no result")
 	}
 
