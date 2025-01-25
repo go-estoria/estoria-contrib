@@ -73,7 +73,6 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 		txOptions:      DefaultTransactionOptions(),
 		log:            estoria.GetLogger().WithGroup("eventstore"),
 	}
-
 	for _, opt := range opts {
 		if err := opt(eventStore); err != nil {
 			return nil, fmt.Errorf("applying option: %w", err)
