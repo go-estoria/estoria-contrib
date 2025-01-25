@@ -68,12 +68,10 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 	}
 
 	eventStore := &EventStore{
-		mongoClient: client,
-		sessionOptions: options.Session().
-			SetDefaultReadConcern(readconcern.Majority()).
-			SetDefaultReadPreference(readpref.Primary()),
-		txOptions: options.Transaction().SetReadPreference(readpref.Primary()),
-		log:       estoria.GetLogger().WithGroup("eventstore"),
+		mongoClient:    client,
+		sessionOptions: DefaultSessionOptions(),
+		txOptions:      DefaultTransactionOptions(),
+		log:            estoria.GetLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
@@ -140,6 +138,20 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	}
 
 	return nil
+}
+
+// DefaultSessionOptions returns the default session options used by the event store
+// when starting a new MongoDB session.
+func DefaultSessionOptions() *options.SessionOptions {
+	return options.Session().
+		SetDefaultReadConcern(readconcern.Majority()).
+		SetDefaultReadPreference(readpref.Primary())
+}
+
+// DefaultTransactionOptions returns the default transaction options used by the event store
+// when starting a new MongoDB transaction on a session.
+func DefaultTransactionOptions() *options.TransactionOptions {
+	return options.Transaction().SetReadPreference(readpref.Primary())
 }
 
 // Executes the given function within a session transaction.
