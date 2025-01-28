@@ -3,6 +3,7 @@ package strategy_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -392,63 +393,52 @@ func createMongoDBContainer(t *testing.T, ctx context.Context) (*mongo.Client, e
 		return nil, fmt.Errorf("starting MongoDB container: %w", err)
 	}
 
+	// get replica set status
+	_, out, err := mongodbContainer.Exec(context.Background(), []string{"mongosh", "--eval", "rs.status()"})
+	if err != nil {
+		return nil, fmt.Errorf("initializing MongoDB replica set: %w", err)
+	}
+
+	output, err := io.ReadAll(out)
+	if err != nil {
+		return nil, fmt.Errorf("reading MongoDB replica set status: %w", err)
+	}
+
+	t.Log("MongoDB replica set status:", string(output))
+
 	t.Cleanup(func() {
 		if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
 			t.Fatalf("failed to terminate MongoDB container: %v", err)
 		}
 	})
 
-	endpoint, err := mongodbContainer.ConnectionString(ctx)
+	connStr, err := mongodbContainer.ConnectionString(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MongoDB connection string: %w", err)
 	}
 
-	t.Log("MongoDB container endpoint:", endpoint)
+	t.Log("MongoDB container connection string:", connStr)
 
-	// adminClient, err := mongo.Connect(ctx, options.Client().ApplyURI(endpoint))
-	// if err != nil {
-	// 	t.Fatalf("failed to connect to MongoDB: %v", err)
-	// }
-
-	// hostAndPort, err := mongodbContainer.Endpoint(ctx, "")
-	// if err != nil {
-	// 	t.Fatalf("failed to get MongoDB container endpoint: %v", err)
-	// }
-
-	// t.Log("MongoDB container endpoint:", hostAndPort)
-
-	// t.Log("Initializing replica set")
-
-	// res := admin.RunCommand(ctx, bson.D{{"replSetInitiate", bson.D{
-	// 	{"_id", "rs0"},
-	// 	{"members", bson.A{
-	// 		bson.D{
-	// 			{"_id", 0}, {"host", "localhost:27017"},
-	// 		}},
-	// 	},
-	// }}})
-	// if res.Err() != nil {
-	// 	return nil, fmt.Errorf("failed to initialize replica set: %v", res.Err())
-	// }
-
-	// t.Log("Replica set initialized")
-
-	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI(endpoint).SetReplicaSet("rs0"))
+	mongoClient, err := mongo.Connect(ctx, options.Client().
+		ApplyURI(connStr).
+		SetReplicaSet("rs0"),
+	// SetAppName("estoria").
+	// SetReadConcern(readconcern.Majority()).
+	// SetReadPreference(readpref.Primary()).
+	// SetWriteConcern(writeconcern.Majority()).
+	// SetRetryWrites(true),
+	)
 	if err != nil {
-		t.Fatalf("failed to connect to MongoDB: %v", err)
+		t.Fatalf("failed to create MongoDB client: %v", err)
 	}
 
-	t.Log("Connected to MongoDB")
+	t.Log("Created MongoDB client")
 
-	t.Log("Getting replica set status")
-
-	admin := mongoClient.Database("admin")
-	res := admin.RunCommand(ctx, bson.D{{"replSetGetStatus", 1}})
-	if res.Err() != nil {
-		return nil, fmt.Errorf("failed to get replica set status: %v", res.Err())
+	if err := mongoClient.Ping(ctx, nil); err != nil {
+		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
 
-	t.Log("Replica set status:", res)
+	t.Log("Successfully pinged MongoDB")
 
 	return mongoClient, nil
 }
