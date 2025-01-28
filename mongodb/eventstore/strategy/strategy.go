@@ -45,9 +45,9 @@ type InsertStreamEventsResult struct {
 func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions) *options.FindOptions {
 	findOpts := options.Find()
 	if opts.Direction == eventstore.Reverse {
-		findOpts.SetSort(bson.D{{Key: "version", Value: -1}})
+		findOpts.SetSort(bson.D{{Key: "offset", Value: -1}})
 	} else {
-		findOpts.SetSort(bson.D{{Key: "version", Value: 1}})
+		findOpts.SetSort(bson.D{{Key: "offset", Value: 1}})
 	}
 
 	if opts.Offset > 0 {
