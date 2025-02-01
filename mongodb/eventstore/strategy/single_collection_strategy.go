@@ -97,6 +97,10 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	fullEvents := make([]*Event, len(events))
 	docs := make([]any, len(events))
 	for i, we := range events {
+		if we.Timestamp.IsZero() {
+			we.Timestamp = time.Now()
+		}
+
 		fullEvents[i] = &Event{
 			Event: eventstore.Event{
 				ID:            we.ID,

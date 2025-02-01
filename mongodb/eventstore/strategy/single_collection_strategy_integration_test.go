@@ -254,27 +254,27 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 		{
 			ID:        typeid.FromUUID("mockeventtypeA", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79001"))),
 			Timestamp: time.Date(2025, 11, 5, 12, 34, 01, 0, time.UTC),
-			Data:      []byte{},
+			Data:      []byte{0x01, 0x02, 0x03},
 		},
 		{
 			ID:        typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
 			Timestamp: time.Date(2025, 11, 5, 12, 34, 02, 0, time.UTC),
-			Data:      []byte{},
+			Data:      []byte{0x04, 0x05, 0x06},
 		},
 		{
 			ID:        typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
 			Timestamp: time.Date(2025, 11, 5, 12, 34, 03, 0, time.UTC),
-			Data:      []byte{},
+			Data:      []byte{0x07, 0x08, 0x09},
 		},
 		{
 			ID:        typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
 			Timestamp: time.Date(2025, 11, 5, 12, 34, 04, 0, time.UTC),
-			Data:      []byte{},
+			Data:      []byte{0x0a, 0x0b, 0x0c},
 		},
 		{
 			ID:        typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
 			Timestamp: time.Date(2025, 11, 5, 12, 34, 05, 0, time.UTC),
-			Data:      []byte{},
+			Data:      []byte{0x0d, 0x0e, 0x0f},
 		},
 	}
 
@@ -284,35 +284,35 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			StreamVersion: 1,
 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 01, 0, time.UTC),
-			Data:          []byte{},
+			Data:          []byte{0x01, 0x02, 0x03},
 		},
 		{
 			ID:            typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			StreamVersion: 2,
 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 02, 0, time.UTC),
-			Data:          []byte{},
+			Data:          []byte{0x04, 0x05, 0x06},
 		},
 		{
 			ID:            typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			StreamVersion: 3,
 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 03, 0, time.UTC),
-			Data:          []byte{},
+			Data:          []byte{0x07, 0x08, 0x09},
 		},
 		{
 			ID:            typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			StreamVersion: 4,
 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 04, 0, time.UTC),
-			Data:          []byte{},
+			Data:          []byte{0x0a, 0x0b, 0x0c},
 		},
 		{
 			ID:            typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			StreamVersion: 5,
 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 05, 0, time.UTC),
-			Data:          []byte{},
+			Data:          []byte{0x0d, 0x0e, 0x0f},
 		},
 	}
 
