@@ -12,8 +12,8 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
 
-	// "github.com/testcontainers/testcontainers-go"
-	// "github.com/testcontainers/testcontainers-go/modules/mongodb"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -25,6 +25,8 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 
+	t.Parallel()
+
 	ctx := context.Background()
 
 	mongoClient, err := createMongoDBContainer(t, ctx)
@@ -33,9 +35,6 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 	}
 
 	collection := mongoClient.Database("estoria").Collection("events")
-	if _, err := collection.DeleteMany(ctx, bson.M{}); err != nil {
-		t.Fatalf("failed to delete all events from collection prior to itest: %v", err)
-	}
 
 	res, err := collection.InsertMany(ctx, []any{
 		bson.M{
@@ -240,6 +239,8 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 
+	t.Parallel()
+
 	ctx := context.Background()
 
 	mongoClient, err := createMongoDBContainer(t, ctx)
@@ -248,9 +249,6 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 	}
 
 	collection := mongoClient.Database("estoria").Collection("events")
-	if _, err := collection.DeleteMany(ctx, bson.M{}); err != nil {
-		t.Fatalf("failed to delete all events from collection prior to itest: %v", err)
-	}
 
 	t.Log("MongoDB collection:", collection.Name())
 
@@ -421,34 +419,30 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 func createMongoDBContainer(t *testing.T, ctx context.Context) (*mongo.Client, error) {
 	t.Helper()
 
-	// mongodbContainer, err := mongodb.Run(ctx, "mongo:6", mongodb.WithReplicaSet("rs0"))
-	// if err != nil {
-	// 	return nil, fmt.Errorf("starting MongoDB container: %w", err)
-	// }
+	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))
+	if err != nil {
+		return nil, fmt.Errorf("starting MongoDB container: %w", err)
+	}
 
-	// t.Cleanup(func() {
-	// 	if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
-	// 		t.Fatalf("failed to terminate MongoDB container: %v", err)
-	// 	}
-	// })
+	t.Cleanup(func() {
+		if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
+			t.Fatalf("failed to terminate MongoDB container: %v", err)
+		}
+	})
 
-	// connStr, err := mongodbContainer.ConnectionString(ctx)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to get MongoDB connection string: %w", err)
-	// }
+	connStr, err := mongodbContainer.ConnectionString(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get MongoDB connection string: %w", err)
+	}
 
-	connStr := "mongodb://localhost:27017"
+	// connStr := "mongodb://localhost:27017"
 
 	t.Log("MongoDB container connection string:", connStr)
 
 	mongoClient, err := mongo.Connect(options.Client().
 		ApplyURI(connStr).
-		SetReplicaSet("rs0"),
-	// SetAppName("estoria").
-	// SetReadConcern(readconcern.Majority()).
-	// SetReadPreference(readpref.Primary()).
-	// SetWriteConcern(writeconcern.Majority()).
-	// SetRetryWrites(true),
+		SetReplicaSet("rs0").
+		SetDirect(true),
 	)
 	if err != nil {
 		t.Fatalf("failed to create MongoDB client: %v", err)
