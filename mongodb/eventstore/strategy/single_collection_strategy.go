@@ -10,9 +10,9 @@ import (
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type SingleCollectionStrategy struct {
@@ -75,7 +75,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 
 // InsertStreamEvents inserts the given events into the stream with the given ID.
 func (s *SingleCollectionStrategy) InsertStreamEvents(
-	ctx mongo.SessionContext,
+	ctx context.Context,
 	streamID typeid.UUID,
 	events []*eventstore.WritableEvent,
 	opts eventstore.AppendStreamOptions,
@@ -90,13 +90,9 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 		return nil, fmt.Errorf("getting highest global offset: %w", err)
 	}
 
-	s.log.Debug("HIGHEST GLOBAL OFFSET", "global_offset", highestGlobalOffset)
-
 	if opts.ExpectVersion > 0 && highestStreamOffset != opts.ExpectVersion {
 		return nil, fmt.Errorf("expected offset %d, but stream's highest offset is %d", opts.ExpectVersion, highestStreamOffset)
 	}
-
-	now := time.Now()
 
 	fullEvents := make([]*Event, len(events))
 	docs := make([]any, len(events))
@@ -106,13 +102,11 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 				ID:            we.ID,
 				StreamID:      streamID,
 				StreamVersion: highestStreamOffset + int64(i) + 1,
-				Timestamp:     now,
+				Timestamp:     we.Timestamp,
 				Data:          we.Data,
 			},
 			GlobalOffset: highestGlobalOffset + int64(i) + 1,
 		}
-
-		s.log.Debug("APPENDING event", "global_offset", fullEvents[i].GlobalOffset)
 
 		doc, err := s.marshaler.MarshalDocument(fullEvents[i])
 		if err != nil {
@@ -169,8 +163,8 @@ func (s *SingleCollectionStrategy) SetLogger(l estoria.Logger) {
 }
 
 // Finds the highest offset for the given stream.
-func (s *SingleCollectionStrategy) getHighestOffset(ctx mongo.SessionContext, streamID typeid.UUID) (int64, error) {
-	s.log.Info("finding highest offset for stream", "stream_id", streamID)
+func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
+	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
@@ -194,8 +188,8 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx mongo.SessionContext, st
 }
 
 // Finds the highest global offset among all events in the event store.
-func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx mongo.SessionContext) (int64, error) {
-	s.log.Info("finding highest global offset in event store")
+func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (int64, error) {
+	s.log.Debug("finding highest global offset in event store")
 	opts := options.FindOne().SetSort(bson.D{{Key: "global_offset", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{}, opts)
 	if result.Err() != nil {

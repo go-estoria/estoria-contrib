@@ -9,8 +9,7 @@ import (
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/gofrs/uuid/v5"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type Outbox struct {
@@ -37,16 +36,16 @@ func (o *Outbox) Iterator() (outbox.Iterator, error) {
 	}, nil
 }
 
-func (o *Outbox) HandleEvents(sess mongo.SessionContext, events []*eventstore.Event) error {
+func (o *Outbox) HandleEvents(sess context.Context, events []*eventstore.Event) error {
 	o.log.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	documents := make([]any, len(events))
 	for i, event := range events {
 		documents[i] = &outboxDocument{
-			Timestamp: primitive.NewDateTimeFromTime(time.Now()),
+			Timestamp: time.Now(),
 			StreamID:  event.StreamID.String(),
 			EventID:   event.ID.String(),
-			EventData: primitive.Binary{Data: event.Data},
+			EventData: event.Data,
 		}
 	}
 
@@ -63,8 +62,8 @@ func (o *Outbox) MarkHandled(ctx context.Context, itemID uuid.UUID, result outbo
 }
 
 type outboxDocument struct {
-	Timestamp primitive.DateTime `bson:"timestamp"`
-	StreamID  string             `bson:"stream_id"`
-	EventID   string             `bson:"event_id"`
-	EventData primitive.Binary   `bson:"event_data"`
+	Timestamp time.Time `bson:"timestamp"`
+	StreamID  string    `bson:"stream_id"`
+	EventID   string    `bson:"event_id"`
+	EventData []byte    `bson:"event_data"`
 }

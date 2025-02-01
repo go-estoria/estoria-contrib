@@ -9,11 +9,10 @@ import (
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 const (
@@ -24,8 +23,8 @@ const (
 type (
 	// MongoClient provides APIs for obtaining database handles and starting sessions.
 	MongoClient interface {
-		Database(name string, opts ...*options.DatabaseOptions) *mongo.Database
-		StartSession(opts ...*options.SessionOptions) (mongo.Session, error)
+		Database(name string, opts ...options.Lister[options.DatabaseOptions]) *mongo.Database
+		StartSession(opts ...options.Lister[options.SessionOptions]) (*mongo.Session, error)
 	}
 
 	// Strategy provides APIs for reading and writing events to an event store.
@@ -40,7 +39,7 @@ type (
 			opts eventstore.ReadStreamOptions,
 		) (eventstore.StreamIterator, error)
 		InsertStreamEvents(
-			ctx mongo.SessionContext,
+			ctx context.Context,
 			streamID typeid.UUID,
 			events []*eventstore.WritableEvent,
 			opts eventstore.AppendStreamOptions,
@@ -51,7 +50,7 @@ type (
 	// A TransactionHook is a function that is executed within the transaction used for appending events.
 	// If a hook returns an error, the transaction is aborted and the error is returned to the caller.
 	TransactionHook interface {
-		HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.Event) error
+		HandleEvents(sessCtx context.Context, events []*eventstore.Event) error
 	}
 )
 
@@ -59,8 +58,8 @@ type (
 type EventStore struct {
 	mongoClient    MongoClient
 	strategy       Strategy
-	sessionOptions *options.SessionOptions
-	txOptions      *options.TransactionOptions
+	sessionOptions *options.SessionOptionsBuilder
+	txOptions      *options.TransactionOptionsBuilder
 	txHooks        []TransactionHook
 	log            estoria.Logger
 }
@@ -204,7 +203,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		"expected_version", opts.ExpectVersion,
 	)
 
-	result, txErr := s.doInTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+	result, txErr := s.doInTransaction(ctx, func(sessCtx context.Context) (any, error) {
 		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
 		if err != nil {
 			return nil, fmt.Errorf("inserting events: %w", err)
@@ -235,22 +234,20 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 // DefaultSessionOptions returns the default session options used by the event store
 // when starting a new MongoDB session.
-func DefaultSessionOptions() *options.SessionOptions {
-	return options.Session().
-		SetDefaultReadConcern(readconcern.Majority()).
-		SetDefaultReadPreference(readpref.Primary())
+func DefaultSessionOptions() *options.SessionOptionsBuilder {
+	return options.Session()
 }
 
 // DefaultTransactionOptions returns the default transaction options used by the event store
 // when starting a new MongoDB transaction on a session.
-func DefaultTransactionOptions() *options.TransactionOptions {
+func DefaultTransactionOptions() *options.TransactionOptionsBuilder {
 	return options.Transaction().SetReadPreference(readpref.Primary())
 }
 
 // Executes the given function within a session transaction.
 // The function passed to this method must be idempotent, as the MongoDB transaction
 // may be retried in the event of a transient error.
-func (s *EventStore) doInTransaction(ctx context.Context, f func(sessCtx mongo.SessionContext) (any, error)) (any, error) {
+func (s *EventStore) doInTransaction(ctx context.Context, f func(sessCtx context.Context) (any, error)) (any, error) {
 	session, err := s.mongoClient.StartSession(s.sessionOptions)
 	if err != nil {
 		return nil, fmt.Errorf("starting MongoDB session: %w", err)
@@ -258,7 +255,7 @@ func (s *EventStore) doInTransaction(ctx context.Context, f func(sessCtx mongo.S
 
 	defer session.EndSession(ctx)
 
-	result, err := session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+	result, err := session.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
 		return f(sessCtx)
 	}, s.txOptions)
 	if err != nil {

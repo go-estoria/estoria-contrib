@@ -9,7 +9,6 @@ import (
 	"github.com/go-estoria/estoria-contrib/aws/s3/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type EventStore struct {
@@ -22,7 +21,7 @@ var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 type TransactionHook interface {
-	HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.Event) error
+	HandleEvents(sessCtx context.Context, events []*eventstore.Event) error
 }
 
 type Strategy interface {

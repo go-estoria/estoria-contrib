@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/go-estoria/estoria"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type EventStoreOption func(*EventStore) error
@@ -27,7 +27,7 @@ func WithLogger(logger estoria.Logger) EventStoreOption {
 // a new MongoDB session.
 //
 // By default, DefaultSessionOptions() is used.
-func WithSessionOptions(opts *options.SessionOptions) EventStoreOption {
+func WithSessionOptions(opts *options.SessionOptionsBuilder) EventStoreOption {
 	return func(s *EventStore) error {
 		if opts == nil {
 			return errors.New("session options cannot be nil")
@@ -71,7 +71,7 @@ func WithTransactionHook(hook TransactionHook) EventStoreOption {
 // starting a new MongoDB transaction on a session.
 //
 // By default, DefaultTransactionOptions() is used.
-func WithTransactionOptions(opts *options.TransactionOptions) EventStoreOption {
+func WithTransactionOptions(opts *options.TransactionOptionsBuilder) EventStoreOption {
 	return func(s *EventStore) error {
 		if opts == nil {
 			return errors.New("transaction options cannot be nil")

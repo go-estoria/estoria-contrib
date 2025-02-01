@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/go-estoria/estoria/eventstore"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type (
@@ -22,10 +22,10 @@ type (
 
 	// MongoCollection provides an API for querying and inserting documents into a MongoDB collection.
 	MongoCollection interface {
-		Aggregate(ctx context.Context, pipeline any, opts ...*options.AggregateOptions) (*mongo.Cursor, error)
-		Find(ctx context.Context, filter any, opts ...*options.FindOptions) (cur *mongo.Cursor, err error)
-		FindOne(ctx context.Context, filter any, opts ...*options.FindOneOptions) *mongo.SingleResult
-		InsertMany(ctx context.Context, documents []any, opts ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
+		Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error)
+		Find(context.Context, any, ...options.Lister[options.FindOptions]) (*mongo.Cursor, error)
+		FindOne(context.Context, any, ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
+		InsertMany(context.Context, any, ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error)
 	}
 
 	// MongoCursor provides an API for iterating over a set of documents returned by a query.
@@ -43,7 +43,7 @@ type InsertStreamEventsResult struct {
 	InsertedEvents []*Event
 }
 
-func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) *options.FindOptions {
+func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) options.Lister[options.FindOptions] {
 	findOpts := options.Find()
 	if opts.Direction == eventstore.Reverse {
 		findOpts.SetSort(bson.D{{Key: offsetKey, Value: -1}})
