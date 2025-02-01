@@ -21,6 +21,7 @@ type SingleCollectionStrategy struct {
 	marshaler  DocumentMarshaler
 }
 
+// NewSingleCollectionStrategy creates a new SingleCollectionStrategy using the given collection.
 func NewSingleCollectionStrategy(collection MongoCollection) (*SingleCollectionStrategy, error) {
 	if collection == nil {
 		return nil, fmt.Errorf("collection is required")
@@ -35,6 +36,7 @@ func NewSingleCollectionStrategy(collection MongoCollection) (*SingleCollectionS
 	return strategy, nil
 }
 
+// GetAllEventsIterator returns an iterator over all events in the event store.
 func (s *SingleCollectionStrategy) GetAllEventsIterator(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
@@ -50,6 +52,7 @@ func (s *SingleCollectionStrategy) GetAllEventsIterator(
 	}, nil
 }
 
+// GetStreamIterator returns an iterator over events in the stream with the given ID.
 func (s *SingleCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -70,6 +73,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 	}, nil
 }
 
+// InsertStreamEvents inserts the given events into the stream with the given ID.
 func (s *SingleCollectionStrategy) InsertStreamEvents(
 	ctx mongo.SessionContext,
 	streamID typeid.UUID,
@@ -131,6 +135,7 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	}, nil
 }
 
+// ListStreams returns a cursor over the streams in the event store.
 func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) (*mongo.Cursor, error) {
 	pipeline := mongo.Pipeline{
 		{{Key: "$sort", Value: bson.D{
@@ -153,14 +158,17 @@ func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) (*mongo.Curs
 	return cursor, nil
 }
 
+// SetDocumentMarshaler sets the marshaler used to encode and decode event documents.
 func (s *SingleCollectionStrategy) SetDocumentMarshaler(marshaler DocumentMarshaler) {
 	s.marshaler = marshaler
 }
 
+// SetLogger sets the logger used by the strategy.
 func (s *SingleCollectionStrategy) SetLogger(l estoria.Logger) {
 	s.log = l
 }
 
+// Finds the highest offset for the given stream.
 func (s *SingleCollectionStrategy) getHighestOffset(ctx mongo.SessionContext, streamID typeid.UUID) (int64, error) {
 	s.log.Info("finding highest offset for stream", "stream_id", streamID)
 	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
@@ -185,6 +193,7 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx mongo.SessionContext, st
 	return doc.Offset, nil
 }
 
+// Finds the highest global offset among all events in the event store.
 func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx mongo.SessionContext) (int64, error) {
 	s.log.Info("finding highest global offset in event store")
 	opts := options.FindOne().SetSort(bson.D{{Key: "global_offset", Value: -1}})
@@ -206,10 +215,12 @@ func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx mongo.SessionConte
 	return doc.GlobalOffset, nil
 }
 
+// DefaultSingleCollectionDocumentMarshaler is the default marshaler used by SingleCollectionStrategy.
 type DefaultSingleCollectionDocumentMarshaler struct{}
 
 var _ DocumentMarshaler = DefaultSingleCollectionDocumentMarshaler{}
 
+// singleCollectionEventDocument is the document format used by the default marshaler.
 type singleCollectionEventDocument struct {
 	StreamType   string    `bson:"stream_type"`
 	StreamID     string    `bson:"stream_id"`
@@ -221,6 +232,7 @@ type singleCollectionEventDocument struct {
 	EventData    []byte    `bson:"event_data"`
 }
 
+// MarshalDocument encodes an event into a document.
 func (DefaultSingleCollectionDocumentMarshaler) MarshalDocument(event *Event) (any, error) {
 	return singleCollectionEventDocument{
 		StreamType:   event.StreamID.TypeName(),
@@ -234,6 +246,7 @@ func (DefaultSingleCollectionDocumentMarshaler) MarshalDocument(event *Event) (a
 	}, nil
 }
 
+// UnmarshalDocument decodes a document into an event.
 func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*Event, error) {
 	doc := singleCollectionEventDocument{}
 	if err := decode(&doc); err != nil {
@@ -262,6 +275,7 @@ func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeD
 	}, nil
 }
 
+// SingleCollectionStrategyOption is an option for configuring a SingleCollectionStrategy.
 type SingleCollectionStrategyOption func(*SingleCollectionStrategy) error
 
 func WithSCSDocumentMarshaler(marshaler DocumentMarshaler) SingleCollectionStrategyOption {

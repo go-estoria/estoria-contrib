@@ -68,12 +68,21 @@ type EventStore struct {
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
+// StreamInfo represents information about a single stream in the event store.
 type StreamInfo struct {
-	StreamID     typeid.UUID
-	Offset       int64
+	// StreamID is the typed ID of the stream.
+	StreamID typeid.UUID
+
+	// Offset is the stream-specific offset of the most recent event in the stream.
+	// Thus, it also represents the number of events in the stream.
+	Offset int64
+
+	// GlobalOffset is the global offset of the most recent event in the stream
+	// among all events in the event store.
 	GlobalOffset int64
 }
 
+// UnmarshalBSON unmarshals a BSON document into a StreamInfo.
 func (i *StreamInfo) UnmarshalBSON(b []byte) error {
 	data := bson.D{}
 	if err := bson.Unmarshal(b, &data); err != nil {
@@ -99,6 +108,7 @@ func (i *StreamInfo) UnmarshalBSON(b []byte) error {
 	return nil
 }
 
+// String returns a string representation of a StreamInfo.
 func (i StreamInfo) String() string {
 	return fmt.Sprintf("stream {ID: %s, Offset: %d, GlobalOffset: %d}", i.StreamID, i.Offset, i.GlobalOffset)
 }
