@@ -323,16 +323,14 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 		haveStreamID typeid.UUID
 		haveEvents   []*eventstore.WritableEvent
 		haveOpts     eventstore.AppendStreamOptions
-		// wantDocuments []bson.M
-		wantEvents []*eventstore.Event
-		wantErr    error
+		wantEvents   []*eventstore.Event
+		wantErr      error
 	}{
 		{
 			name:         "inserts events into a new stream with default options",
 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveEvents:   []*eventstore.WritableEvent{writableEvents[0], writableEvents[1], writableEvents[2], writableEvents[3], writableEvents[4]},
-			// wantDocuments: []bson.M{documents[0], documents[1], documents[2], documents[3], documents[4]},
-			wantEvents: []*eventstore.Event{events[0], events[1], events[2], events[3], events[4]},
+			wantEvents:   []*eventstore.Event{events[0], events[1], events[2], events[3], events[4]},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -434,8 +432,6 @@ func createMongoDBContainer(t *testing.T, ctx context.Context) (*mongo.Client, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MongoDB connection string: %w", err)
 	}
-
-	// connStr := "mongodb://localhost:27017"
 
 	t.Log("MongoDB container connection string:", connStr)
 
