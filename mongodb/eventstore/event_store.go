@@ -145,7 +145,7 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 	return eventStore, nil
 }
 
-// ListStreams returns a list of all stream IDs in the event store.
+// ListStreams returns a list containing metadata for all streams in the event store.
 func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
 	cursor, err := s.strategy.ListStreams(ctx)
 	if err != nil {
