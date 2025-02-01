@@ -23,25 +23,6 @@ type streamIterator struct {
 	marshaler DocumentMarshaler
 }
 
-func (i *streamIterator) All(ctx context.Context) ([]*eventstore.Event, error) {
-	var events []*eventstore.Event
-
-	for i.cursor.Next(ctx) {
-		evt, err := i.marshaler.UnmarshalDocument(i.cursor.Decode)
-		if err != nil {
-			return nil, fmt.Errorf("parsing event document: %w", err)
-		}
-
-		events = append(events, evt)
-	}
-
-	if err := i.cursor.Err(); err != nil {
-		return nil, fmt.Errorf("fetching documents: %w", err)
-	}
-
-	return events, nil
-}
-
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	if i.cursor.Next(ctx) {
 		evt, err := i.marshaler.UnmarshalDocument(i.cursor.Decode)

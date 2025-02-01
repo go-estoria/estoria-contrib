@@ -115,9 +115,10 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.UUID, opts
 	}
 
 	return &InstrumentedStreamIterator{
-		inner:       iterator,
-		tracer:      s.tracer,
-		nextCounter: nextCounter,
+		inner:          iterator,
+		tracer:         s.tracer,
+		nextCounter:    nextCounter,
+		traceNamespace: s.traceNamespace,
 	}, err
 }
 
@@ -243,23 +244,12 @@ type InstrumentedStreamIterator struct {
 	inner       eventstore.StreamIterator
 	tracer      trace.Tracer
 	nextCounter metric.Int64Counter
-}
 
-func (i *InstrumentedStreamIterator) All(ctx context.Context) (_ []*eventstore.Event, e error) {
-	ctx, span := i.tracer.Start(ctx, "eventstore.StreamIterator.All")
-	defer func() {
-		span.RecordError(e)
-		if e != nil {
-			span.SetStatus(codes.Error, "error reading stream")
-		}
-		span.End()
-	}()
-
-	return i.inner.All(ctx)
+	traceNamespace string
 }
 
 func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Event, e error) {
-	ctx, span := i.tracer.Start(ctx, "eventstore.StreamIterator.Next")
+	ctx, span := i.tracer.Start(ctx, i.traceNamespace+".StreamIterator.Next")
 	defer func() {
 		span.RecordError(e)
 		if e != nil && !errors.Is(e, eventstore.ErrEndOfEventStream) {
@@ -273,7 +263,7 @@ func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Ev
 }
 
 func (i *InstrumentedStreamIterator) Close(ctx context.Context) (e error) {
-	ctx, span := i.tracer.Start(ctx, "eventstore.StreamIterator.Close")
+	ctx, span := i.tracer.Start(ctx, i.traceNamespace+".StreamIterator.Close")
 	defer func() {
 		span.RecordError(e)
 		if e != nil {
