@@ -33,7 +33,9 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 	}
 
 	collection := mongoClient.Database("estoria").Collection("events")
-	collection.DeleteMany(ctx, bson.M{})
+	if _, err := collection.DeleteMany(ctx, bson.M{}); err != nil {
+		t.Fatalf("failed to delete all events from collection prior to itest: %v", err)
+	}
 
 	res, err := collection.InsertMany(ctx, []any{
 		bson.M{
@@ -246,7 +248,9 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 	}
 
 	collection := mongoClient.Database("estoria").Collection("events")
-	collection.DeleteMany(ctx, bson.M{})
+	if _, err := collection.DeleteMany(ctx, bson.M{}); err != nil {
+		t.Fatalf("failed to delete all events from collection prior to itest: %v", err)
+	}
 
 	t.Log("MongoDB collection:", collection.Name())
 
