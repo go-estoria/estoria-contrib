@@ -37,17 +37,28 @@ services:
       - esdb_data:/var/lib/eventstore
 
   mongo:
-    image: bitnami/mongodb:4.4
+    image: mongo:7.0
     container_name: mongo
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
     environment:
       MONGODB_REPLICA_SET_MODE: primary
       ALLOW_EMPTY_PASSWORD: "yes"
     ports:
       - "27017:27017"
+    extra_hosts:
+      - "localhost:host-gateway"
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}) }" | mongosh --port 27017 --quiet
+      interval: 5s
+      timeout: 30s
+      start_period: 0s
+      start_interval: 1s
+      retries: 30
     networks:
       - example-net
     volumes:
-      - mongo_data:/bitnami/mongodb
+      - "mongo1_data:/data/db"
+      - "mongo1_config:/data/configdb"
 
   mongo-express:
     image: mongo-express:latest
@@ -151,11 +162,11 @@ networks:
 volumes:
   esdb_data:
     driver: local
-  mongo_data:
-    driver: local
   s3_data:
     driver: local
   s3_config:
     driver: local
   valkey_data:
     driver: local
+  mongo1_data:
+  mongo1_config:

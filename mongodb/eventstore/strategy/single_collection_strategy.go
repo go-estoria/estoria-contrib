@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/go-estoria/estoria"
@@ -34,6 +35,21 @@ func NewSingleCollectionStrategy(collection MongoCollection) (*SingleCollectionS
 	return strategy, nil
 }
 
+func (s *SingleCollectionStrategy) GetAllEventsIterator(
+	ctx context.Context,
+	opts eventstore.ReadStreamOptions,
+) (eventstore.StreamIterator, error) {
+	cursor, err := s.collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "global_offset"))
+	if err != nil {
+		return nil, fmt.Errorf("finding events: %w", err)
+	}
+
+	return &streamIterator{
+		cursor:    cursor,
+		marshaler: s.marshaler,
+	}, nil
+}
+
 func (s *SingleCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -43,7 +59,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 	cursor, err := s.collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
 		{Key: "stream_id", Value: streamID.Value()},
-	}, findOptsFromReadStreamOptions(opts))
+	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -60,27 +76,39 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	events []*eventstore.WritableEvent,
 	opts eventstore.AppendStreamOptions,
 ) (*InsertStreamEventsResult, error) {
-	latestVersion, err := s.getHighestOffset(ctx, streamID)
+	highestStreamOffset, err := s.getHighestOffset(ctx, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("getting highest offset: %w", err)
 	}
 
-	if opts.ExpectVersion > 0 && latestVersion != opts.ExpectVersion {
-		return nil, fmt.Errorf("expected offset %d, but stream's highest offset is %d", opts.ExpectVersion, latestVersion)
+	highestGlobalOffset, err := s.getHighestGlobalOffset(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting highest global offset: %w", err)
+	}
+
+	s.log.Debug("HIGHEST GLOBAL OFFSET", "global_offset", highestGlobalOffset)
+
+	if opts.ExpectVersion > 0 && highestStreamOffset != opts.ExpectVersion {
+		return nil, fmt.Errorf("expected offset %d, but stream's highest offset is %d", opts.ExpectVersion, highestStreamOffset)
 	}
 
 	now := time.Now()
 
-	fullEvents := make([]*eventstore.Event, len(events))
+	fullEvents := make([]*Event, len(events))
 	docs := make([]any, len(events))
 	for i, we := range events {
-		fullEvents[i] = &eventstore.Event{
-			ID:            we.ID,
-			StreamID:      streamID,
-			StreamVersion: latestVersion + int64(i) + 1,
-			Timestamp:     now,
-			Data:          we.Data,
+		fullEvents[i] = &Event{
+			Event: eventstore.Event{
+				ID:            we.ID,
+				StreamID:      streamID,
+				StreamVersion: highestStreamOffset + int64(i) + 1,
+				Timestamp:     now,
+				Data:          we.Data,
+			},
+			GlobalOffset: highestGlobalOffset + int64(i) + 1,
 		}
+
+		s.log.Debug("APPENDING event", "global_offset", fullEvents[i].GlobalOffset)
 
 		doc, err := s.marshaler.MarshalDocument(fullEvents[i])
 		if err != nil {
@@ -103,6 +131,28 @@ func (s *SingleCollectionStrategy) InsertStreamEvents(
 	}, nil
 }
 
+func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) (*mongo.Cursor, error) {
+	pipeline := mongo.Pipeline{
+		{{Key: "$sort", Value: bson.D{
+			{Key: "stream_id", Value: 1}, // Group documents together by stream_id.
+			{Key: "offset", Value: -1},   // Highest offset comes first within each stream.
+		}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$stream_id"}, // Group key is stream_id.
+			{Key: "stream_type", Value: bson.D{{Key: "$first", Value: "$stream_type"}}},
+			{Key: "offset", Value: bson.D{{Key: "$first", Value: "$offset"}}},
+			{Key: "global_offset", Value: bson.D{{Key: "$first", Value: "$global_offset"}}},
+		}}},
+	}
+
+	cursor, err := s.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return cursor, nil
+}
+
 func (s *SingleCollectionStrategy) SetDocumentMarshaler(marshaler DocumentMarshaler) {
 	s.marshaler = marshaler
 }
@@ -120,12 +170,11 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx mongo.SessionContext, st
 	}, opts)
 	if result.Err() != nil {
 		if result.Err() == mongo.ErrNoDocuments {
+			s.log.Debug("stream not found", "stream_id", streamID)
 			return 0, nil
 		}
 		return 0, fmt.Errorf("finding highest offset: %w", result.Err())
 	}
-
-	s.log.Info("found highest offset for stream", "stream_id", streamID)
 
 	var doc singleCollectionEventDocument
 	if err := result.Decode(&doc); err != nil {
@@ -136,33 +185,56 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx mongo.SessionContext, st
 	return doc.Offset, nil
 }
 
+func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx mongo.SessionContext) (int64, error) {
+	s.log.Info("finding highest global offset in event store")
+	opts := options.FindOne().SetSort(bson.D{{Key: "global_offset", Value: -1}})
+	result := s.collection.FindOne(ctx, bson.D{}, opts)
+	if result.Err() != nil {
+		if result.Err() == mongo.ErrNoDocuments {
+			s.log.Debug("event store is empty")
+			return 0, nil
+		}
+		return 0, fmt.Errorf("finding highest global offset: %w", result.Err())
+	}
+
+	var doc singleCollectionEventDocument
+	if err := result.Decode(&doc); err != nil {
+		return 0, fmt.Errorf("decoding highest global offset: %w", err)
+	}
+
+	s.log.Info("got highest global offset for event store", "global_offset", doc.GlobalOffset)
+	return doc.GlobalOffset, nil
+}
+
 type DefaultSingleCollectionDocumentMarshaler struct{}
 
 var _ DocumentMarshaler = DefaultSingleCollectionDocumentMarshaler{}
 
 type singleCollectionEventDocument struct {
-	StreamType string    `bson:"stream_type"`
-	StreamID   string    `bson:"stream_id"`
-	EventType  string    `bson:"event_type"`
-	EventID    string    `bson:"event_id"`
-	Offset     int64     `bson:"offset"`
-	Timestamp  time.Time `bson:"timestamp"`
-	EventData  []byte    `bson:"event_data"`
+	StreamType   string    `bson:"stream_type"`
+	StreamID     string    `bson:"stream_id"`
+	EventType    string    `bson:"event_type"`
+	EventID      string    `bson:"event_id"`
+	Offset       int64     `bson:"offset"`
+	GlobalOffset int64     `bson:"global_offset"`
+	Timestamp    time.Time `bson:"timestamp"`
+	EventData    []byte    `bson:"event_data"`
 }
 
-func (DefaultSingleCollectionDocumentMarshaler) MarshalDocument(event *eventstore.Event) (any, error) {
+func (DefaultSingleCollectionDocumentMarshaler) MarshalDocument(event *Event) (any, error) {
 	return singleCollectionEventDocument{
-		StreamType: event.StreamID.TypeName(),
-		StreamID:   event.StreamID.UUID().String(),
-		EventType:  event.ID.TypeName(),
-		EventID:    event.ID.UUID().String(),
-		Offset:     event.StreamVersion,
-		Timestamp:  event.Timestamp,
-		EventData:  event.Data,
+		StreamType:   event.StreamID.TypeName(),
+		StreamID:     event.StreamID.UUID().String(),
+		EventType:    event.ID.TypeName(),
+		EventID:      event.ID.UUID().String(),
+		Offset:       event.StreamVersion,
+		GlobalOffset: event.GlobalOffset,
+		Timestamp:    event.Timestamp,
+		EventData:    event.Data,
 	}, nil
 }
 
-func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*eventstore.Event, error) {
+func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*Event, error) {
 	doc := singleCollectionEventDocument{}
 	if err := decode(&doc); err != nil {
 		return nil, fmt.Errorf("decoding event document: %w", err)
@@ -178,12 +250,15 @@ func (DefaultSingleCollectionDocumentMarshaler) UnmarshalDocument(decode DecodeD
 		return nil, fmt.Errorf("parsing event ID: %w", err)
 	}
 
-	return &eventstore.Event{
-		ID:            typeid.FromUUID(doc.EventType, eventID),
-		StreamID:      typeid.FromUUID(doc.StreamType, streamID),
-		StreamVersion: doc.Offset,
-		Timestamp:     doc.Timestamp,
-		Data:          doc.EventData,
+	return &Event{
+		Event: eventstore.Event{
+			ID:            typeid.FromUUID(doc.EventType, eventID),
+			StreamID:      typeid.FromUUID(doc.StreamType, streamID),
+			StreamVersion: doc.Offset,
+			Timestamp:     doc.Timestamp,
+			Data:          doc.EventData,
+		},
+		GlobalOffset: doc.GlobalOffset,
 	}, nil
 }
 

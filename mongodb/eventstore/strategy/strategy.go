@@ -22,6 +22,7 @@ type (
 
 	// MongoCollection provides an API for querying and inserting documents into a MongoDB collection.
 	MongoCollection interface {
+		Aggregate(ctx context.Context, pipeline any, opts ...*options.AggregateOptions) (*mongo.Cursor, error)
 		Find(ctx context.Context, filter any, opts ...*options.FindOptions) (cur *mongo.Cursor, err error)
 		FindOne(ctx context.Context, filter any, opts ...*options.FindOneOptions) *mongo.SingleResult
 		InsertMany(ctx context.Context, documents []any, opts ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
@@ -39,15 +40,15 @@ type (
 // An InsertStreamEventsResult contains the result of inserting events into a stream.
 type InsertStreamEventsResult struct {
 	MongoResult    *mongo.InsertManyResult
-	InsertedEvents []*eventstore.Event
+	InsertedEvents []*Event
 }
 
-func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions) *options.FindOptions {
+func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) *options.FindOptions {
 	findOpts := options.Find()
 	if opts.Direction == eventstore.Reverse {
-		findOpts.SetSort(bson.D{{Key: "offset", Value: -1}})
+		findOpts.SetSort(bson.D{{Key: offsetKey, Value: -1}})
 	} else {
-		findOpts.SetSort(bson.D{{Key: "offset", Value: 1}})
+		findOpts.SetSort(bson.D{{Key: offsetKey, Value: 1}})
 	}
 
 	if opts.Offset > 0 {

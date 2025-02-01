@@ -7,14 +7,19 @@ import (
 	"github.com/go-estoria/estoria/eventstore"
 )
 
+type Event struct {
+	eventstore.Event
+	GlobalOffset int64
+}
+
 type (
 	// DecodeDocumentFunc is a function that decodes a MongoDB document into a destination type.
 	DecodeDocumentFunc func(dest any) error
 
 	// A DocumentMarshaler is responsible for marshaling and unmarshaling MongoDB documents to and from event store events.
 	DocumentMarshaler interface {
-		MarshalDocument(event *eventstore.Event) (any, error)
-		UnmarshalDocument(decode DecodeDocumentFunc) (*eventstore.Event, error)
+		MarshalDocument(event *Event) (any, error)
+		UnmarshalDocument(decode DecodeDocumentFunc) (*Event, error)
 	}
 )
 
@@ -30,7 +35,7 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 			return nil, fmt.Errorf("parsing event document: %w", err)
 		}
 
-		return evt, nil
+		return &evt.Event, nil
 	}
 
 	if err := i.cursor.Err(); err != nil {
