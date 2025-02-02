@@ -7,12 +7,14 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type (
 	// MongoClient provides an API for obtaining a database handle.
 	MongoClient interface {
-		Database(name string, opts ...*options.DatabaseOptions) *mongo.Database
+		Database(name string, opts ...options.Lister[options.DatabaseOptions]) *mongo.Database
+		StartSession(opts ...options.Lister[options.SessionOptions]) (*mongo.Session, error)
 	}
 
 	// MongoDatabase provides an API for obtaining a collection handle.
@@ -28,20 +30,28 @@ type (
 		FindOne(context.Context, any, ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
 		InsertMany(context.Context, any, ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error)
 	}
-
-	// MongoCursor provides an API for iterating over a set of documents returned by a query.
-	MongoCursor interface {
-		Next(ctx context.Context) bool
-		Decode(v any) error
-		Err() error
-		Close(ctx context.Context) error
-	}
 )
+
+type Offsets struct {
+	Offset       int64 `bson:"offset"`
+	GlobalOffset int64 `bson:"global_offset"`
+}
 
 // An InsertStreamEventsResult contains the result of inserting events into a stream.
 type InsertStreamEventsResult struct {
-	MongoResult    *mongo.InsertManyResult
-	InsertedEvents []*Event
+	MongoResult *mongo.InsertManyResult
+}
+
+// DefaultSessionOptions returns the default session options used by the event store
+// when starting a new MongoDB session.
+func DefaultSessionOptions() *options.SessionOptionsBuilder {
+	return options.Session()
+}
+
+// DefaultTransactionOptions returns the default transaction options used by the event store
+// when starting a new MongoDB transaction on a session.
+func DefaultTransactionOptions() *options.TransactionOptionsBuilder {
+	return options.Transaction().SetReadPreference(readpref.Primary())
 }
 
 func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) options.Lister[options.FindOptions] {

@@ -3,6 +3,7 @@ package eventstore
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
@@ -12,7 +13,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 const (
@@ -21,6 +21,7 @@ const (
 )
 
 type (
+
 	// MongoClient provides APIs for obtaining database handles and starting sessions.
 	MongoClient interface {
 		Database(name string, opts ...options.Lister[options.DatabaseOptions]) *mongo.Database
@@ -38,13 +39,17 @@ type (
 			streamID typeid.UUID,
 			opts eventstore.ReadStreamOptions,
 		) (eventstore.StreamIterator, error)
-		InsertStreamEvents(
+		InsertStreamDocs(
 			ctx context.Context,
 			streamID typeid.UUID,
-			events []*eventstore.WritableEvent,
-			opts eventstore.AppendStreamOptions,
+			docs []any,
 		) (*strategy.InsertStreamEventsResult, error)
-		ListStreams(ctx context.Context) (*mongo.Cursor, error)
+		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
+		DoInInsertSession(
+			ctx context.Context,
+			streamID typeid.UUID,
+			inTxnFn func(sessCtx context.Context, offset int64, globalOffset int64) (any, error),
+		) (any, error)
 	}
 
 	// A TransactionHook is a function that is executed within the transaction used for appending events.
@@ -58,6 +63,7 @@ type (
 type EventStore struct {
 	mongoClient    MongoClient
 	strategy       Strategy
+	marshaler      strategy.DocumentMarshaler
 	sessionOptions *options.SessionOptionsBuilder
 	txOptions      *options.TransactionOptionsBuilder
 	txHooks        []TransactionHook
@@ -120,9 +126,10 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 	eventStore := &EventStore{
 		mongoClient:    client,
-		sessionOptions: DefaultSessionOptions(),
-		txOptions:      DefaultTransactionOptions(),
+		sessionOptions: strategy.DefaultSessionOptions(),
+		txOptions:      strategy.DefaultTransactionOptions(),
 		log:            estoria.GetLogger().WithGroup("eventstore"),
+		marshaler:      strategy.DefaultMarshaler{},
 	}
 	for _, opt := range opts {
 		if err := opt(eventStore); err != nil {
@@ -133,6 +140,7 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 	// use a single collection strategy by default
 	if eventStore.strategy == nil {
 		strat, err := strategy.NewSingleCollectionStrategy(
+			client,
 			client.Database(DefaultDatabaseName).Collection(DefaultCollectionName),
 		)
 		if err != nil {
@@ -147,16 +155,21 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 // ListStreams returns a list containing metadata for all streams in the event store.
 func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
-	cursor, err := s.strategy.ListStreams(ctx)
+	cursors, err := s.strategy.ListStreams(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing streams: %w", err)
 	}
 
-	defer cursor.Close(ctx)
-
 	streams := []StreamInfo{}
-	if err := cursor.All(ctx, &streams); err != nil {
-		return nil, fmt.Errorf("decoding streams: %w", err)
+	for _, cursor := range cursors {
+		defer cursor.Close(ctx)
+
+		streamInfos := []StreamInfo{}
+		if err := cursor.All(ctx, &streamInfos); err != nil {
+			return nil, fmt.Errorf("decoding streams: %w", err)
+		}
+
+		streams = append(streams, streamInfos...)
 	}
 
 	return streams, nil
@@ -203,64 +216,46 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		"expected_version", opts.ExpectVersion,
 	)
 
-	result, txErr := s.doInTransaction(ctx, func(sessCtx context.Context) (any, error) {
-		insertResult, err := s.strategy.InsertStreamEvents(sessCtx, streamID, events, opts)
-		if err != nil {
-			return nil, fmt.Errorf("inserting events: %w", err)
-		}
+	_, err := s.strategy.DoInInsertSession(ctx, streamID,
+		func(sessCtx context.Context, offset int64, globalOffset int64) (any, error) {
+			fullEvents := make([]*strategy.Event, len(events))
+			docs := make([]any, len(events))
+			for i, we := range events {
+				if we.Timestamp.IsZero() {
+					we.Timestamp = time.Now()
+				}
 
-		insertedEvents := make([]*eventstore.Event, len(insertResult.InsertedEvents))
-		for i, evt := range insertResult.InsertedEvents {
-			insertedEvents[i] = &evt.Event
-		}
+				fullEvents[i] = &strategy.Event{
+					Event: eventstore.Event{
+						ID:            we.ID,
+						StreamID:      streamID,
+						StreamVersion: offset + int64(i) + 1,
+						Timestamp:     we.Timestamp,
+						Data:          we.Data,
+					},
+					GlobalOffset: globalOffset + int64(i) + 1,
+				}
 
-		for i, hook := range s.txHooks {
-			s.log.Debug("executing transaction hook %d of %d", "hook", i+1, len(s.txHooks))
-			if err := hook.HandleEvents(sessCtx, insertedEvents); err != nil {
-				return nil, fmt.Errorf("executing transaction hook %d of %d: %w", i+1, len(s.txHooks), err)
+				doc, err := s.marshaler.MarshalDocument(fullEvents[i])
+				if err != nil {
+					return nil, fmt.Errorf("marshaling event: %w", err)
+				}
+
+				docs[i] = doc
 			}
-		}
 
-		return insertResult, nil
-	})
-	if txErr != nil {
-		return fmt.Errorf("executing transaction: %w", txErr)
-	} else if result == nil {
-		return fmt.Errorf("executing transaction: no result")
-	}
+			insertResult, err := s.strategy.InsertStreamDocs(sessCtx, streamID, docs)
+			if err != nil {
+				return nil, fmt.Errorf("inserting events: %w", err)
+			}
 
-	return nil
-}
+			if len(insertResult.MongoResult.InsertedIDs) != len(docs) {
+				return nil, fmt.Errorf("inserted %d documents, expected %d", len(insertResult.MongoResult.InsertedIDs), len(docs))
+			}
 
-// DefaultSessionOptions returns the default session options used by the event store
-// when starting a new MongoDB session.
-func DefaultSessionOptions() *options.SessionOptionsBuilder {
-	return options.Session()
-}
+			return insertResult, nil
+		},
+	)
 
-// DefaultTransactionOptions returns the default transaction options used by the event store
-// when starting a new MongoDB transaction on a session.
-func DefaultTransactionOptions() *options.TransactionOptionsBuilder {
-	return options.Transaction().SetReadPreference(readpref.Primary())
-}
-
-// Executes the given function within a session transaction.
-// The function passed to this method must be idempotent, as the MongoDB transaction
-// may be retried in the event of a transient error.
-func (s *EventStore) doInTransaction(ctx context.Context, f func(sessCtx context.Context) (any, error)) (any, error) {
-	session, err := s.mongoClient.StartSession(s.sessionOptions)
-	if err != nil {
-		return nil, fmt.Errorf("starting MongoDB session: %w", err)
-	}
-
-	defer session.EndSession(ctx)
-
-	result, err := session.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
-		return f(sessCtx)
-	}, s.txOptions)
-	if err != nil {
-		return nil, fmt.Errorf("executing transaction: %w", err)
-	}
-
-	return result, nil
+	return err
 }

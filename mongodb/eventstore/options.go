@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -49,6 +50,17 @@ func WithStrategy(strategy Strategy) EventStoreOption {
 		}
 
 		s.strategy = strategy
+		return nil
+	}
+}
+
+func WithDocumentMarshaler(marshaler strategy.DocumentMarshaler) EventStoreOption {
+	return func(s *EventStore) error {
+		if marshaler == nil {
+			return errors.New("marshaler cannot be nil")
+		}
+
+		s.marshaler = marshaler
 		return nil
 	}
 }

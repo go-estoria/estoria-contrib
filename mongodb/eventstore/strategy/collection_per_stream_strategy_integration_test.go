@@ -350,21 +350,9 @@ func TestCollectionPerStreamStrategy_Integration_InsertStreamEvents(t *testing.T
 
 			txOpts := options.Transaction().SetReadPreference(readpref.Primary())
 
-			gotResult, gotErr := session.WithTransaction(context.Background(), func(sessionCtx context.Context) (any, error) {
-				t.Log("MongoDB session context:", sessionCtx)
-				t.Log("Inserting events into stream:", tt.haveStreamID)
-				return haveStrategy.InsertStreamEvents(sessionCtx, tt.haveStreamID, tt.haveEvents, tt.haveOpts)
-			}, txOpts)
-			if gotErr != nil {
-				if tt.wantErr == nil {
-					t.Errorf("unexpected no error inserting events, but got: %v", gotErr)
-				} else if err.Error() != tt.wantErr.Error() {
-					t.Errorf("unexpected error inserting events, want: %v, got: %v", tt.wantErr, gotErr)
-				}
-				return
-			} else if gotResult == nil {
-				t.Fatalf("unexpected nil result")
-			}
+			gotResult, gotErr := haveStrategy.DoInInsertSession(ctx, tt.haveStreamID, func(sessCtx context.Context, offset int64, globalOffset int64) (any, error) {
+				return haveStrategy.InsertStreamEvents(sessCtx, tt.haveStreamID, offset, globalOffset, tt.haveEvents, tt.haveOpts)
+			})
 
 			if numInserted := len(gotResult.(*strategy.InsertStreamEventsResult).InsertedEvents); numInserted != len(tt.haveEvents) {
 				t.Errorf("unexpected number of inserted events, want: %d, got: %d", len(tt.haveEvents), numInserted)
