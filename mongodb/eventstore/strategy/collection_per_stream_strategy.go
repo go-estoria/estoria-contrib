@@ -100,6 +100,8 @@ func (s *CollectionPerStreamStrategy) DoInInsertSession(
 		return nil, fmt.Errorf("starting insert session: %w", err)
 	}
 
+	defer session.EndSession(ctx)
+
 	// cannot be done in the transaction; requires listing all collections
 	globalOffset, err := s.getHighestGlobalOffset(ctx)
 	if err != nil {

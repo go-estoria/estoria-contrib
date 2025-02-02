@@ -87,6 +87,8 @@ func (s *SingleCollectionStrategy) DoInInsertSession(
 		return nil, fmt.Errorf("starting insert session: %w", err)
 	}
 
+	defer session.EndSession(ctx)
+
 	result, err := session.WithTransaction(ctx, func(ctx context.Context) (interface{}, error) {
 		offset, err := s.getHighestOffset(ctx, streamID)
 		if err != nil {
