@@ -209,18 +209,21 @@ func (s *MultiCollectionStrategy) MarshalDocument(event *Event) (any, error) {
 }
 
 func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
+	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	collection := s.database.Collection(streamID.String())
 
-	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
+	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	offsets := Offsets{}
 	if err := collection.FindOne(ctx, bson.D{}, opts).Decode(&offsets); err != nil {
 		if err == mongo.ErrNoDocuments {
+			s.log.Debug("stream not found", "stream_id", streamID)
 			return 0, nil
 		}
 
-		return 0, fmt.Errorf("finding latest version: %w", err)
+		return 0, fmt.Errorf("finding highest stream offset: %w", err)
 	}
 
+	s.log.Debug("got highest offset for stream", "stream_id", streamID.String(), "offset", offsets.Offset)
 	return offsets.Offset, nil
 }
 
@@ -228,7 +231,7 @@ func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID
 func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (int64, error) {
 	s.log.Debug("finding highest global offset in event store")
 
-	streamIDs, err := s.database.ListCollectionNames(ctx, bson.D{})
+	collectionNames, err := s.database.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
 		return 0, fmt.Errorf("listing collection names: %w", err)
 	}
@@ -236,30 +239,29 @@ func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (i
 	opts := options.FindOne().SetSort(bson.D{{Key: "global_offset", Value: -1}})
 
 	highestGlobalOffset := int64(0)
-	for _, streamID := range streamIDs {
-		collection := s.database.Collection(streamID)
+	for _, collectionName := range collectionNames {
+		collection := s.database.Collection(collectionName)
 		result := collection.FindOne(ctx, bson.D{}, opts)
 		if result.Err() != nil {
 			if result.Err() == mongo.ErrNoDocuments {
-				s.log.Debug("collection for stream is empty", "collection", streamID)
+				s.log.Debug("collection for stream is empty", "collection", collectionName)
 				return 0, nil
 			}
-			return 0, fmt.Errorf("finding highest global offset in collection: %w", result.Err())
+			return 0, fmt.Errorf("finding highest global offset in collection %s: %w", collectionName, result.Err())
 		}
 
 		offsets := Offsets{}
 		if err := result.Decode(&offsets); err != nil {
-			return 0, fmt.Errorf("decoding highest global offset: %w", err)
+			return 0, fmt.Errorf("decoding highest global offset in collection %s: %w", collectionName, err)
 		}
 
-		s.log.Info("got highest global offset for collection", "collection", streamID, "global_offset", offsets.GlobalOffset)
+		s.log.Debug("found highest global offset for collection", "collection", collectionName, "global_offset", offsets.GlobalOffset)
 
 		if offsets.GlobalOffset > highestGlobalOffset {
-			s.log.Info("updating highest global offset", "global_offset", offsets.GlobalOffset)
 			highestGlobalOffset = offsets.GlobalOffset
 		}
 	}
 
-	s.log.Info("got highest global offset for event store", "global_offset", highestGlobalOffset)
+	s.log.Debug("got highest global offset for event store", "global_offset", highestGlobalOffset)
 	return highestGlobalOffset, nil
 }

@@ -156,7 +156,7 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamI
 		return 0, fmt.Errorf("decoding highest offset: %w", err)
 	}
 
-	s.log.Info("got highest offset for stream", "stream_id", streamID, "offset", offsets.Offset)
+	s.log.Debug("got highest offset for stream", "stream_id", streamID, "offset", offsets.Offset)
 	return offsets.Offset, nil
 }
 
@@ -178,6 +178,6 @@ func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (
 		return 0, fmt.Errorf("decoding highest global offset: %w", err)
 	}
 
-	s.log.Info("got highest global offset for event store", "global_offset", offsets.GlobalOffset)
+	s.log.Debug("got highest global offset for event store", "global_offset", offsets.GlobalOffset)
 	return offsets.GlobalOffset, nil
 }
