@@ -15,21 +15,32 @@ import (
 type CollectionPerStreamStrategy struct {
 	mongo     MongoClient
 	database  MongoDatabase
+	selector  CollectionSelector
 	log       estoria.Logger
 	marshaler DocumentMarshaler
 	txOpts    options.Lister[options.TransactionOptions]
 }
 
-func NewCollectionPerStreamStrategy(client MongoClient, db MongoDatabase) (*CollectionPerStreamStrategy, error) {
+type CollectionSelector func(streamID typeid.UUID) string
+
+func NewCollectionPerStreamStrategy(client MongoClient, database MongoDatabase, selector CollectionSelector) (*CollectionPerStreamStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
-	} else if db == nil {
+	} else if database == nil {
 		return nil, fmt.Errorf("database is required")
+	}
+
+	if selector == nil {
+		// by default, store all streams of the same type in the same collection
+		selector = func(streamID typeid.UUID) string {
+			return streamID.TypeName()
+		}
 	}
 
 	strategy := &CollectionPerStreamStrategy{
 		mongo:     client,
-		database:  db,
+		database:  database,
+		selector:  selector,
 		log:       estoria.GetLogger().WithGroup("eventstore"),
 		marshaler: DefaultMarshaler{},
 	}
@@ -41,17 +52,17 @@ func (s *CollectionPerStreamStrategy) GetAllIterator(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-	streamIDs, err := s.database.ListCollectionNames(ctx, bson.D{})
+	collectionNames, err := s.database.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
 		return nil, fmt.Errorf("listing collection names: %w", err)
 	}
 
-	cursors := make([]*multiStreamIteratorCursor, len(streamIDs))
-	for i, streamID := range streamIDs {
-		collection := s.database.Collection(streamID)
+	cursors := make([]*multiStreamIteratorCursor, len(collectionNames))
+	for i, collectionName := range collectionNames {
+		collection := s.database.Collection(collectionName)
 		cursor, err := collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "global_offset"))
 		if err != nil {
-			return nil, fmt.Errorf("finding events in collection %s: %w", streamID, err)
+			return nil, fmt.Errorf("finding events in collection %s: %w", collectionName, err)
 		}
 
 		cursors[i] = &multiStreamIteratorCursor{
@@ -70,8 +81,11 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-	collection := s.database.Collection(streamID.String())
-	cursor, err := collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "offset"))
+	collection := s.database.Collection(s.selector(streamID))
+	cursor, err := collection.Find(ctx, bson.D{
+		{Key: "stream_type", Value: streamID.TypeName()},
+		{Key: "stream_id", Value: streamID.Value()},
+	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -106,7 +120,7 @@ func (s *CollectionPerStreamStrategy) DoInInsertSession(
 			return nil, fmt.Errorf("getting highest offset: %w", err)
 		}
 
-		return inTxnFn(ctx, s.database.Collection(streamID.String()), offset, globalOffset)
+		return inTxnFn(ctx, s.database.Collection(s.selector(streamID)), offset, globalOffset)
 	}, s.txOpts)
 	if err != nil {
 		return nil, fmt.Errorf("executing transaction: %w", err)
