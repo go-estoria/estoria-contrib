@@ -30,25 +30,36 @@ type (
 
 	// Strategy provides APIs for reading and writing events to an event store.
 	Strategy interface {
+		// DoInInsertSession executes the given function within a new session suitable for inserting events.
+		// The function is executed within a transaction and is invoked with a session context, a collection,
+		// the current offset of the stream, and the global offset.
 		DoInInsertSession(
 			ctx context.Context,
 			streamID typeid.UUID,
 			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
 		) (any, error)
+
+		// GetAllIterator returns an iterator over all events in the event store, ordered by global offset.
 		GetAllIterator(
 			ctx context.Context,
 			opts eventstore.ReadStreamOptions,
 		) (eventstore.StreamIterator, error)
+
+		// GetStreamIterator returns an iterator over events in the specified stream, ordered by stream offset.
 		GetStreamIterator(
 			ctx context.Context,
 			streamID typeid.UUID,
 			opts eventstore.ReadStreamOptions,
 		) (eventstore.StreamIterator, error)
+
+		// Initialize initializes the strategy with the given logger, marshaler, session options, and transaction options.
 		Initialize(
 			logger estoria.Logger,
 			marshaler strategy.DocumentMarshaler,
 			sessOpts *options.SessionOptionsBuilder,
 			txOpts *options.TransactionOptionsBuilder) error
+
+		// ListStreams returns a list of cursors for iterating over stream metadata.
 		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
 	}
 

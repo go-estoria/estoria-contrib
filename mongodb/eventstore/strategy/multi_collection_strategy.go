@@ -94,6 +94,28 @@ func (s *MultiCollectionStrategy) Initialize(
 	return nil
 }
 
+// ListStreams returns a list of cursors for iterating over stream metadata.
+func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
+	collections, err := s.database.ListCollectionNames(ctx, bson.D{})
+	if err != nil {
+		return nil, fmt.Errorf("listing collection names: %w", err)
+	}
+
+	cursors := make([]*mongo.Cursor, len(collections))
+	for i, collectionName := range collections {
+		collection := s.database.Collection(collectionName)
+		cursor, err := getListStreamsCursor(ctx, collection)
+		if err != nil {
+			return nil, fmt.Errorf("getting streams cursor: %w", err)
+		}
+
+		cursors[i] = cursor
+	}
+
+	return cursors, nil
+}
+
+// GetAllIterator returns an iterator over all events in the event store, ordered by global offset.
 func (s *MultiCollectionStrategy) GetAllIterator(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
@@ -122,6 +144,7 @@ func (s *MultiCollectionStrategy) GetAllIterator(
 	}, nil
 }
 
+// GetStreamIterator returns an iterator over events in the specified stream, ordered by stream offset.
 func (s *MultiCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -142,6 +165,9 @@ func (s *MultiCollectionStrategy) GetStreamIterator(
 	}, nil
 }
 
+// DoInInsertSession executes the given function within a new session suitable for inserting events.
+// The function is executed within a transaction and is invoked with a session context, a collection,
+// the current offset of the stream, and the global offset.
 func (s *MultiCollectionStrategy) DoInInsertSession(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -175,31 +201,6 @@ func (s *MultiCollectionStrategy) DoInInsertSession(
 	}
 
 	return result, nil
-}
-
-// ListStreams returns a cursor over the streams in the event store.
-func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
-	collections, err := s.database.ListCollectionNames(ctx, bson.D{})
-	if err != nil {
-		return nil, fmt.Errorf("listing collection names: %w", err)
-	}
-
-	cursors := make([]*mongo.Cursor, len(collections))
-	for i, collectionName := range collections {
-		collection := s.database.Collection(collectionName)
-		cursor, err := getListStreamsCursor(ctx, collection)
-		if err != nil {
-			return nil, fmt.Errorf("getting streams cursor: %w", err)
-		}
-
-		cursors[i] = cursor
-	}
-
-	return cursors, nil
-}
-
-func (s *MultiCollectionStrategy) SetLogger(l estoria.Logger) {
-	s.log = l
 }
 
 func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {

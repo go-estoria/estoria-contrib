@@ -53,7 +53,17 @@ func (s *SingleCollectionStrategy) Initialize(
 	return nil
 }
 
-// GetAllIterator returns an iterator over all events in the event store.
+// ListStreams returns a list of cursors for iterating over stream metadata.
+func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
+	cursor, err := getListStreamsCursor(ctx, s.collection)
+	if err != nil {
+		return nil, fmt.Errorf("getting streams cursor: %w", err)
+	}
+
+	return []*mongo.Cursor{cursor}, nil
+}
+
+// GetAllIterator returns an iterator over all events in the event store, ordered by global offset.
 func (s *SingleCollectionStrategy) GetAllIterator(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
@@ -69,7 +79,7 @@ func (s *SingleCollectionStrategy) GetAllIterator(
 	}, nil
 }
 
-// GetStreamIterator returns an iterator over events in the stream with the given ID.
+// GetStreamIterator returns an iterator over events in the specified stream, ordered by stream offset.
 func (s *SingleCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -89,6 +99,9 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 	}, nil
 }
 
+// DoInInsertSession executes the given function within a new session suitable for inserting events.
+// The function is executed within a transaction and is invoked with a session context, a collection,
+// the current offset of the stream, and the global offset.
 func (s *SingleCollectionStrategy) DoInInsertSession(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -119,21 +132,6 @@ func (s *SingleCollectionStrategy) DoInInsertSession(
 	}
 
 	return result, nil
-}
-
-// ListStreams returns a cursor over the streams in the event store.
-func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
-	cursor, err := getListStreamsCursor(ctx, s.collection)
-	if err != nil {
-		return nil, fmt.Errorf("getting streams cursor: %w", err)
-	}
-
-	return []*mongo.Cursor{cursor}, nil
-}
-
-// SetLogger sets the logger used by the strategy.
-func (s *SingleCollectionStrategy) SetLogger(l estoria.Logger) {
-	s.log = l
 }
 
 // Finds the highest offset for the given stream.
