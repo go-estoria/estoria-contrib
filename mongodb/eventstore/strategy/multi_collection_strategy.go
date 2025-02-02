@@ -208,6 +208,7 @@ func (s *MultiCollectionStrategy) MarshalDocument(event *Event) (any, error) {
 	return s.marshaler.MarshalDocument(event)
 }
 
+// Finds the highest offset for the given stream.
 func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
 	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	collection := s.database.Collection(streamID.String())
