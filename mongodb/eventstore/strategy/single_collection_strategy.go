@@ -49,20 +49,6 @@ func NewSingleCollectionStrategy(client MongoSessionStarter, collection MongoCol
 	return strat, nil
 }
 
-// Initialize initializes the strategy with the given logger, marshaler, session options, and transaction options.
-func (s *SingleCollectionStrategy) Initialize(
-	logger estoria.Logger,
-	marshaler DocumentMarshaler,
-	sessOpts *options.SessionOptionsBuilder,
-	txOpts *options.TransactionOptionsBuilder,
-) error {
-	s.log = logger.WithGroup("strategy")
-	s.marshaler = marshaler
-	s.sessOpts = sessOpts
-	s.txOpts = txOpts
-	return nil
-}
-
 // ListStreams returns a list of cursors for iterating over stream metadata.
 func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
 	cursor, err := getListStreamsCursor(ctx, s.collection)
