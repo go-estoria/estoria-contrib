@@ -40,8 +40,8 @@ func NewSingleCollectionStrategy(client MongoClient, collection MongoCollection)
 	return strategy, nil
 }
 
-// GetAllEventsIterator returns an iterator over all events in the event store.
-func (s *SingleCollectionStrategy) GetAllEventsIterator(
+// GetAllIterator returns an iterator over all events in the event store.
+func (s *SingleCollectionStrategy) GetAllIterator(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
@@ -80,7 +80,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 func (s *SingleCollectionStrategy) DoInInsertSession(
 	ctx context.Context,
 	streamID typeid.UUID,
-	inTxnFn func(sessCtx context.Context, offset int64, globalOffset int64) (any, error),
+	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
 	session, err := s.mongo.StartSession()
 	if err != nil {
@@ -98,31 +98,13 @@ func (s *SingleCollectionStrategy) DoInInsertSession(
 			return nil, fmt.Errorf("getting highest global offset: %w", err)
 		}
 
-		return inTxnFn(ctx, offset, globalOffset)
+		return inTxnFn(ctx, s.collection, offset, globalOffset)
 	}, s.txOpts)
 	if err != nil {
 		return nil, fmt.Errorf("executing transaction: %w", err)
 	}
 
 	return result, nil
-}
-
-// InsertStreamEvents inserts the given events into the stream with the given ID.
-func (s *SingleCollectionStrategy) InsertStreamDocs(
-	ctx context.Context,
-	streamID typeid.UUID,
-	docs []any,
-) (*InsertStreamEventsResult, error) {
-	result, err := s.collection.InsertMany(ctx, docs)
-	if err != nil {
-		return nil, fmt.Errorf("inserting events: %w", err)
-	} else if len(result.InsertedIDs) != len(docs) {
-		return nil, fmt.Errorf("inserted %d events, but expected %d", len(result.InsertedIDs), len(docs))
-	}
-
-	return &InsertStreamEventsResult{
-		MongoResult: result,
-	}, nil
 }
 
 // ListStreams returns a cursor over the streams in the event store.

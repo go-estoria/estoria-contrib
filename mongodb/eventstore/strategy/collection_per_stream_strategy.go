@@ -37,7 +37,7 @@ func NewCollectionPerStreamStrategy(client MongoClient, db MongoDatabase) (*Coll
 	return strategy, nil
 }
 
-func (s *CollectionPerStreamStrategy) GetAllEventsIterator(
+func (s *CollectionPerStreamStrategy) GetAllIterator(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
@@ -93,52 +93,32 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 func (s *CollectionPerStreamStrategy) DoInInsertSession(
 	ctx context.Context,
 	streamID typeid.UUID,
-	inTxnFn func(sessCtx context.Context, offset int64, globalOffset int64) (any, error),
+	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
 	session, err := s.mongo.StartSession()
 	if err != nil {
 		return nil, fmt.Errorf("starting insert session: %w", err)
 	}
 
-	// cannot be done in a transaction; requires listing all collections
-	offset, err := s.getHighestOffset(ctx, streamID)
-	if err != nil {
-		return nil, fmt.Errorf("getting highest offset: %w", err)
-	}
-
-	// cannot be done in a transaction; requires listing all collections
+	// cannot be done in the transaction; requires listing all collections
 	globalOffset, err := s.getHighestGlobalOffset(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting highest global offset: %w", err)
 	}
 
 	result, err := session.WithTransaction(ctx, func(ctx context.Context) (any, error) {
-		return inTxnFn(ctx, offset, globalOffset)
+		offset, err := s.getHighestOffset(ctx, streamID)
+		if err != nil {
+			return nil, fmt.Errorf("getting highest offset: %w", err)
+		}
+
+		return inTxnFn(ctx, s.database.Collection(streamID.String()), offset, globalOffset)
 	}, s.txOpts)
 	if err != nil {
 		return nil, fmt.Errorf("executing transaction: %w", err)
 	}
 
 	return result, nil
-}
-
-func (s *CollectionPerStreamStrategy) InsertStreamDocs(
-	ctx context.Context,
-	streamID typeid.UUID,
-	docs []any,
-) (*InsertStreamEventsResult, error) {
-	collection := s.database.Collection(streamID.String())
-	result, err := collection.InsertMany(ctx, docs)
-	if err != nil {
-		s.log.Error("error while inserting events", "error", err)
-		return nil, fmt.Errorf("inserting events: %w", err)
-	} else if len(result.InsertedIDs) != len(docs) {
-		return nil, fmt.Errorf("inserted %d events, but expected %d", len(result.InsertedIDs), len(docs))
-	}
-
-	return &InsertStreamEventsResult{
-		MongoResult: result,
-	}, nil
 }
 
 // ListStreams returns a cursor over the streams in the event store.

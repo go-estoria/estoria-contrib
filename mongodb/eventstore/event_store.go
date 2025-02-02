@@ -30,7 +30,7 @@ type (
 
 	// Strategy provides APIs for reading and writing events to an event store.
 	Strategy interface {
-		GetAllEventsIterator(
+		GetAllIterator(
 			ctx context.Context,
 			opts eventstore.ReadStreamOptions,
 		) (eventstore.StreamIterator, error)
@@ -39,16 +39,11 @@ type (
 			streamID typeid.UUID,
 			opts eventstore.ReadStreamOptions,
 		) (eventstore.StreamIterator, error)
-		InsertStreamDocs(
-			ctx context.Context,
-			streamID typeid.UUID,
-			docs []any,
-		) (*strategy.InsertStreamEventsResult, error)
 		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
 		DoInInsertSession(
 			ctx context.Context,
 			streamID typeid.UUID,
-			inTxnFn func(sessCtx context.Context, offset int64, globalOffset int64) (any, error),
+			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
 		) (any, error)
 	}
 
@@ -183,7 +178,7 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 		"direction", opts.Direction,
 	)
 
-	iter, err := s.strategy.GetAllEventsIterator(ctx, opts)
+	iter, err := s.strategy.GetAllIterator(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("getting all events iterator: %w", err)
 	}
@@ -217,7 +212,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	)
 
 	_, err := s.strategy.DoInInsertSession(ctx, streamID,
-		func(sessCtx context.Context, offset int64, globalOffset int64) (any, error) {
+		func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
 			fullEvents := make([]*strategy.Event, len(events))
 			docs := make([]any, len(events))
 			for i, we := range events {
@@ -244,16 +239,14 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 				docs[i] = doc
 			}
 
-			insertResult, err := s.strategy.InsertStreamDocs(sessCtx, streamID, docs)
+			result, err := collection.InsertMany(ctx, docs)
 			if err != nil {
-				return nil, fmt.Errorf("inserting events: %w", err)
+				return result, fmt.Errorf("inserting events: %w", err)
+			} else if len(result.InsertedIDs) != len(docs) {
+				return result, fmt.Errorf("inserted %d events, but expected %d", len(result.InsertedIDs), len(docs))
 			}
 
-			if len(insertResult.MongoResult.InsertedIDs) != len(docs) {
-				return nil, fmt.Errorf("inserted %d documents, expected %d", len(insertResult.MongoResult.InsertedIDs), len(docs))
-			}
-
-			return insertResult, nil
+			return result, nil
 		},
 	)
 
