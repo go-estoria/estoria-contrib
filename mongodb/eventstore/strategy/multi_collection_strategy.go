@@ -165,10 +165,10 @@ func (s *MultiCollectionStrategy) GetStreamIterator(
 	}, nil
 }
 
-// DoInInsertSession executes the given function within a new session suitable for inserting events.
+// ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
 // The function is executed within a transaction and is invoked with a session context, a collection,
 // the current offset of the stream, and the global offset.
-func (s *MultiCollectionStrategy) DoInInsertSession(
+func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 	ctx context.Context,
 	streamID typeid.UUID,
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),

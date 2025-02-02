@@ -28,12 +28,12 @@ type (
 		Database(name string, opts ...options.Lister[options.DatabaseOptions]) *mongo.Database
 	}
 
-	// Strategy provides APIs for reading and writing events to an event store.
+	// Strategy provides APIs for reading and writing events to an event store, enumerating streams, and marshaling events.
 	Strategy interface {
-		// DoInInsertSession executes the given function within a new session suitable for inserting events.
+		// ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
 		// The function is executed within a transaction and is invoked with a session context, a collection,
 		// the current offset of the stream, and the global offset.
-		DoInInsertSession(
+		ExecuteInsertTransaction(
 			ctx context.Context,
 			streamID typeid.UUID,
 			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
@@ -156,7 +156,7 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 	return eventStore, nil
 }
 
-// ListStreams returns a list containing metadata for all streams in the event store.
+// ListStreams returns a list of metadata for all streams in the event store.
 func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
 	cursors, err := s.strategy.ListStreams(ctx)
 	if err != nil {
@@ -219,7 +219,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		"expected_version", opts.ExpectVersion,
 	)
 
-	_, err := s.strategy.DoInInsertSession(ctx, streamID,
+	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID,
 		func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
 			fullEvents := make([]*strategy.Event, len(events))
 			docs := make([]any, len(events))
