@@ -3,7 +3,6 @@ package strategy_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -12,15 +11,12 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
 
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
-func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
+func TestCollectionPerStreamStrategy_Integration_GetStreamIterator(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
@@ -34,9 +30,9 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
 
-	collection := mongoClient.Database("estoria").Collection("events")
+	database := mongoClient.Database("estoria")
 
-	res, err := collection.InsertMany(ctx, []any{
+	res, err := database.Collection("mockstreamtype_a422f08c-0981-49cd-8249-7a48e66a4e8c").InsertMany(ctx, []any{
 		bson.M{
 			"stream_id": "a422f08c-0981-49cd-8249-7a48e66a4e8c", "stream_type": "mockstreamtype",
 			"event_id": "b112c50d-0834-4b78-a9e7-009d80b79001", "event_type": "mockeventtypeA",
@@ -193,7 +189,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(collection)
+			haveStrategy, err := strategy.NewCollectionPerStreamStrategy(database)
 			if err != nil {
 				t.Fatalf("unexpected error creating strategy: %v", err)
 			}
@@ -234,7 +230,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 	}
 }
 
-func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
+func TestCollectionPerStreamStrategy_Integration_InsertStreamEvents(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
@@ -248,9 +244,9 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
 
-	collection := mongoClient.Database("estoria").Collection("events")
+	database := mongoClient.Database("estoria")
 
-	t.Log("MongoDB collection:", collection.Name())
+	t.Log("MongoDB database:", database.Name())
 
 	writableEvents := []*eventstore.WritableEvent{
 		{
@@ -334,7 +330,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(collection)
+			haveStrategy, err := strategy.NewCollectionPerStreamStrategy(database)
 			if err != nil {
 				t.Fatalf("unexpected error creating strategy: %v", err)
 			}
@@ -374,7 +370,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 				t.Errorf("unexpected number of inserted events, want: %d, got: %d", len(tt.haveEvents), numInserted)
 			}
 
-			cursor, err := collection.Find(context.Background(), bson.M{"stream_id": tt.haveStreamID.Value()})
+			cursor, err := database.Collection("mockstreamtype_a422f08c-0981-49cd-8249-7a48e66a4e8c").Find(context.Background(), bson.M{"stream_id": tt.haveStreamID.Value()})
 			if err != nil {
 				t.Fatalf("unexpected error finding events: %v", err)
 			}
@@ -412,45 +408,4 @@ func TestSingleCollectionStrategy_Integration_InsertStreamEvents(t *testing.T) {
 			}
 		})
 	}
-}
-
-func createMongoDBContainer(t *testing.T, ctx context.Context) (*mongo.Client, error) {
-	t.Helper()
-
-	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))
-	if err != nil {
-		return nil, fmt.Errorf("starting MongoDB container: %w", err)
-	}
-
-	t.Cleanup(func() {
-		if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
-			t.Fatalf("failed to terminate MongoDB container: %v", err)
-		}
-	})
-
-	connStr, err := mongodbContainer.ConnectionString(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get MongoDB connection string: %w", err)
-	}
-
-	t.Log("MongoDB container connection string:", connStr)
-
-	mongoClient, err := mongo.Connect(options.Client().
-		ApplyURI(connStr).
-		SetReplicaSet("rs0").
-		SetDirect(true),
-	)
-	if err != nil {
-		t.Fatalf("failed to create MongoDB client: %v", err)
-	}
-
-	t.Log("Created MongoDB client")
-
-	if err := mongoClient.Ping(ctx, nil); err != nil {
-		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
-	}
-
-	t.Log("Successfully pinged MongoDB")
-
-	return mongoClient, nil
 }

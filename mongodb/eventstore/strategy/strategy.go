@@ -17,7 +17,8 @@ type (
 
 	// MongoDatabase provides an API for obtaining a collection handle.
 	MongoDatabase interface {
-		Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection
+		Collection(string, ...options.Lister[options.CollectionOptions]) *mongo.Collection
+		ListCollectionNames(ctx context.Context, filter any, opts ...options.Lister[options.ListCollectionsOptions]) ([]string, error)
 	}
 
 	// MongoCollection provides an API for querying and inserting documents into a MongoDB collection.
