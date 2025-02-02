@@ -12,12 +12,27 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// A MultiCollectionStrategy stores events in multiple collections,
+// with the collection name derived from the stream ID.
+//
+// By default, all events for a given stream type are stored in the same collection.
+// This can be overridden by providing a custom CollectionSelector using the
+// WithCollectionSelector option. For example, to store all events for a given
+// stream ID in the same collection:
+//
+//	strategy, err := NewMultiCollectionStrategy(client, database, StreamIDCollectionSelector())
+//
+// The MultiCollectionStrategy is useful when the number of events in a single
+// collection becomes too large, and you want to partition events across multiple
+// collections.
 type MultiCollectionStrategy struct {
-	mongo     MongoClient
-	database  MongoDatabase
-	selector  CollectionSelector
+	mongo    MongoClient
+	database MongoDatabase
+	selector CollectionSelector
+
 	log       estoria.Logger
 	marshaler DocumentMarshaler
+	sessOpts  options.Lister[options.SessionOptions]
 	txOpts    options.Lister[options.TransactionOptions]
 }
 
@@ -43,27 +58,40 @@ func StreamIDCollectionSelector() CollectionSelectorFunc {
 	}
 }
 
-func NewMultiCollectionStrategy(client MongoClient, database MongoDatabase, selector CollectionSelector) (*MultiCollectionStrategy, error) {
+func NewMultiCollectionStrategy(client MongoClient, database MongoDatabase, opts ...MultiCollectionStrategyOption) (*MultiCollectionStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	} else if database == nil {
 		return nil, fmt.Errorf("database is required")
 	}
 
-	if selector == nil {
-		// by default, store all streams of the same type in the same collection
-		selector = StreamTypeCollectionSelector()
+	strat := &MultiCollectionStrategy{
+		mongo:    client,
+		database: database,
+		selector: StreamTypeCollectionSelector(),
 	}
 
-	strategy := &MultiCollectionStrategy{
-		mongo:     client,
-		database:  database,
-		selector:  selector,
-		log:       estoria.GetLogger().WithGroup("eventstore"),
-		marshaler: DefaultMarshaler{},
+	for _, opt := range opts {
+		if err := opt(strat); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
 	}
 
-	return strategy, nil
+	return strat, nil
+}
+
+// Initialize initializes the strategy with the given logger, marshaler, session options, and transaction options.
+func (s *MultiCollectionStrategy) Initialize(
+	logger estoria.Logger,
+	marshaler DocumentMarshaler,
+	sessOpts *options.SessionOptionsBuilder,
+	txOpts *options.TransactionOptionsBuilder,
+) error {
+	s.log = logger.WithGroup("strategy")
+	s.marshaler = marshaler
+	s.sessOpts = sessOpts
+	s.txOpts = txOpts
+	return nil
 }
 
 func (s *MultiCollectionStrategy) GetAllIterator(
@@ -241,4 +269,15 @@ func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (i
 
 	s.log.Info("got highest global offset for event store", "global_offset", highestGlobalOffset)
 	return highestGlobalOffset, nil
+}
+
+// A MultiCollectionStrategyOption configures a MultiCollectionStrategy.
+type MultiCollectionStrategyOption func(*MultiCollectionStrategy) error
+
+// WithCollectionSelector sets the collection selector used by the strategy.
+func WithCollectionSelector(selector CollectionSelector) MultiCollectionStrategyOption {
+	return func(s *MultiCollectionStrategy) error {
+		s.selector = selector
+		return nil
+	}
 }

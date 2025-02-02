@@ -10,6 +10,20 @@ import (
 
 type EventStoreOption func(*EventStore) error
 
+// WithDocumentMarshaler sets the marshaler to use for the event store.
+//
+// The default marshaler is strategy.DefaultMarshaler().
+func WithDocumentMarshaler(marshaler strategy.DocumentMarshaler) EventStoreOption {
+	return func(s *EventStore) error {
+		if marshaler == nil {
+			return errors.New("marshaler cannot be nil")
+		}
+
+		s.marshaler = marshaler
+		return nil
+	}
+}
+
 // WithLogger sets the logger to use for the event store.
 //
 // The default logger is estoria.DefaultLogger().
@@ -50,17 +64,6 @@ func WithStrategy(strategy Strategy) EventStoreOption {
 		}
 
 		s.strategy = strategy
-		return nil
-	}
-}
-
-func WithDocumentMarshaler(marshaler strategy.DocumentMarshaler) EventStoreOption {
-	return func(s *EventStore) error {
-		if marshaler == nil {
-			return errors.New("marshaler cannot be nil")
-		}
-
-		s.marshaler = marshaler
 		return nil
 	}
 }

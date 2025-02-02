@@ -13,12 +13,15 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// A SingleCollectionStrategy stores all events for all streams in a single collection.
 type SingleCollectionStrategy struct {
 	mongo      MongoClient
 	collection MongoCollection
-	log        estoria.Logger
-	marshaler  DocumentMarshaler
-	txOpts     options.Lister[options.TransactionOptions]
+
+	log       estoria.Logger
+	marshaler DocumentMarshaler
+	sessOpts  options.Lister[options.SessionOptions]
+	txOpts    options.Lister[options.TransactionOptions]
 }
 
 // NewSingleCollectionStrategy creates a new SingleCollectionStrategy using the given collection.
@@ -29,15 +32,26 @@ func NewSingleCollectionStrategy(client MongoClient, collection MongoCollection)
 		return nil, fmt.Errorf("collection is required")
 	}
 
-	strategy := &SingleCollectionStrategy{
+	strat := &SingleCollectionStrategy{
 		mongo:      client,
 		collection: collection,
-		log:        estoria.GetLogger().WithGroup("eventstore"),
-		marshaler:  DefaultMarshaler{},
-		txOpts:     DefaultTransactionOptions(),
 	}
 
-	return strategy, nil
+	return strat, nil
+}
+
+// Initialize initializes the strategy with the given logger, marshaler, session options, and transaction options.
+func (s *SingleCollectionStrategy) Initialize(
+	logger estoria.Logger,
+	marshaler DocumentMarshaler,
+	sessOpts *options.SessionOptionsBuilder,
+	txOpts *options.TransactionOptionsBuilder,
+) error {
+	s.log = logger.WithGroup("strategy")
+	s.marshaler = marshaler
+	s.sessOpts = sessOpts
+	s.txOpts = txOpts
+	return nil
 }
 
 // GetAllIterator returns an iterator over all events in the event store.

@@ -30,6 +30,11 @@ type (
 
 	// Strategy provides APIs for reading and writing events to an event store.
 	Strategy interface {
+		DoInInsertSession(
+			ctx context.Context,
+			streamID typeid.UUID,
+			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
+		) (any, error)
 		GetAllIterator(
 			ctx context.Context,
 			opts eventstore.ReadStreamOptions,
@@ -39,12 +44,12 @@ type (
 			streamID typeid.UUID,
 			opts eventstore.ReadStreamOptions,
 		) (eventstore.StreamIterator, error)
+		Initialize(
+			logger estoria.Logger,
+			marshaler strategy.DocumentMarshaler,
+			sessOpts *options.SessionOptionsBuilder,
+			txOpts *options.TransactionOptionsBuilder) error
 		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
-		DoInInsertSession(
-			ctx context.Context,
-			streamID typeid.UUID,
-			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
-		) (any, error)
 	}
 
 	// A TransactionHook is a function that is executed within the transaction used for appending events.
@@ -56,13 +61,14 @@ type (
 
 // An EventStore stores and retrieves events using MongoDB as the underlying storage.
 type EventStore struct {
-	mongoClient    MongoClient
-	strategy       Strategy
+	mongoClient MongoClient
+	strategy    Strategy
+	txHooks     []TransactionHook
+
+	log            estoria.Logger
 	marshaler      strategy.DocumentMarshaler
 	sessionOptions *options.SessionOptionsBuilder
 	txOptions      *options.TransactionOptionsBuilder
-	txHooks        []TransactionHook
-	log            estoria.Logger
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
@@ -121,11 +127,12 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 	eventStore := &EventStore{
 		mongoClient:    client,
-		sessionOptions: strategy.DefaultSessionOptions(),
-		txOptions:      strategy.DefaultTransactionOptions(),
 		log:            estoria.GetLogger().WithGroup("eventstore"),
 		marshaler:      strategy.DefaultMarshaler{},
+		sessionOptions: strategy.DefaultSessionOptions(),
+		txOptions:      strategy.DefaultTransactionOptions(),
 	}
+
 	for _, opt := range opts {
 		if err := opt(eventStore); err != nil {
 			return nil, fmt.Errorf("applying option: %w", err)
@@ -143,6 +150,10 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 		}
 
 		eventStore.strategy = strat
+	}
+
+	if err := eventStore.strategy.Initialize(eventStore.log, eventStore.marshaler, eventStore.sessionOptions, eventStore.txOptions); err != nil {
+		return nil, fmt.Errorf("initializing strategy: %w", err)
 	}
 
 	return eventStore, nil
