@@ -3,7 +3,6 @@ package strategy
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
@@ -95,7 +94,7 @@ func (s *SingleCollectionStrategy) DoInInsertSession(
 	streamID typeid.UUID,
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
-	session, err := s.mongo.StartSession()
+	session, err := s.mongo.StartSession(s.sessOpts)
 	if err != nil {
 		return nil, fmt.Errorf("starting insert session: %w", err)
 	}
@@ -124,22 +123,9 @@ func (s *SingleCollectionStrategy) DoInInsertSession(
 
 // ListStreams returns a cursor over the streams in the event store.
 func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
-	pipeline := mongo.Pipeline{
-		{{Key: "$sort", Value: bson.D{
-			{Key: "stream_id", Value: 1}, // Group documents together by stream_id.
-			{Key: "offset", Value: -1},   // Highest offset comes first within each stream.
-		}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: "$stream_id"}, // Group key is stream_id.
-			{Key: "stream_type", Value: bson.D{{Key: "$first", Value: "$stream_type"}}},
-			{Key: "offset", Value: bson.D{{Key: "$first", Value: "$offset"}}},
-			{Key: "global_offset", Value: bson.D{{Key: "$first", Value: "$global_offset"}}},
-		}}},
-	}
-
-	cursor, err := s.collection.Aggregate(ctx, pipeline)
+	cursor, err := getListStreamsCursor(ctx, s.collection)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("getting streams cursor: %w", err)
 	}
 
 	return []*mongo.Cursor{cursor}, nil

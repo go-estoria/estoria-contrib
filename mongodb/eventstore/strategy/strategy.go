@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-estoria/estoria/eventstore"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -71,4 +72,26 @@ func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey 
 	}
 
 	return findOpts
+}
+
+func getListStreamsCursor(ctx context.Context, collection MongoCollection) (*mongo.Cursor, error) {
+	pipeline := mongo.Pipeline{
+		{{Key: "$sort", Value: bson.D{
+			{Key: "stream_id", Value: 1}, // Group documents together by stream_id.
+			{Key: "offset", Value: -1},   // Highest offset comes first within each stream.
+		}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$stream_id"}, // Group key is stream_id.
+			{Key: "stream_type", Value: bson.D{{Key: "$first", Value: "$stream_type"}}},
+			{Key: "offset", Value: bson.D{{Key: "$first", Value: "$offset"}}},
+			{Key: "global_offset", Value: bson.D{{Key: "$first", Value: "$global_offset"}}},
+		}}},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("aggregating collection: %w", err)
+	}
+
+	return cursor, nil
 }
