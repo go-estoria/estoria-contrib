@@ -20,13 +20,13 @@ import (
 // WithCollectionSelector option. For example, to store all events for a given
 // stream ID in the same collection:
 //
-//	strategy, err := NewMultiCollectionStrategy(client, database, StreamIDCollectionSelector())
+//	strategy, err := NewMultiCollectionStrategy(client, database, CollectionPerStreamID())
 //
 // The MultiCollectionStrategy is useful when the number of events in a single
 // collection becomes too large, and you want to partition events across multiple
 // collections.
 type MultiCollectionStrategy struct {
-	mongo    MongoClient
+	mongo    MongoSessionStarter
 	database MongoDatabase
 	selector CollectionSelector
 
@@ -36,62 +36,62 @@ type MultiCollectionStrategy struct {
 	txOpts    options.Lister[options.TransactionOptions]
 }
 
+// A CollectionSelector determines the collection name to use for a given stream ID
+// when reading and storing events in a MultiCollectionStrategy.
 type CollectionSelector interface {
 	CollectionName(streamID typeid.UUID) string
 }
 
+// A CollectionSelectorFunc is a function that returns a collection name for a given stream ID.
 type CollectionSelectorFunc func(streamID typeid.UUID) string
 
+// CollectionName satisfies the CollectionSelector interface and returns the collection name
+// for the given stream ID by invoking the CollectionSelectorFunc.
 func (f CollectionSelectorFunc) CollectionName(streamID typeid.UUID) string {
 	return f(streamID)
 }
 
-func StreamTypeCollectionSelector() CollectionSelectorFunc {
-	return func(streamID typeid.UUID) string {
+// CollectionPerStreamType returns a CollectionSelector that returns the stream type name as the collection name.
+func CollectionPerStreamType() CollectionSelector {
+	return CollectionSelectorFunc(func(streamID typeid.UUID) string {
 		return streamID.TypeName()
-	}
+	})
 }
 
-func StreamIDCollectionSelector() CollectionSelectorFunc {
-	return func(streamID typeid.UUID) string {
+// CollectionPerStreamID returns a CollectionSelector that returns the stream ID as the collection name.
+func CollectionPerStreamID() CollectionSelector {
+	return CollectionSelectorFunc(func(streamID typeid.UUID) string {
 		return streamID.String()
-	}
+	})
 }
 
-func NewMultiCollectionStrategy(client MongoClient, database MongoDatabase, opts ...MultiCollectionStrategyOption) (*MultiCollectionStrategy, error) {
+// NewMultiCollectionStrategy creates a new MultiCollectionStrategy using the given client, database, and collection selector.
+func NewMultiCollectionStrategy(client MongoSessionStarter, database MongoDatabase, selector CollectionSelector, opts ...StrategyOption) (*MultiCollectionStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	} else if database == nil {
 		return nil, fmt.Errorf("database is required")
+	} else if selector == nil {
+		return nil, fmt.Errorf("selector is required")
+	}
+
+	config := newStrategyConfig()
+	if err := config.apply(opts...); err != nil {
+		return nil, fmt.Errorf("applying options: %w", err)
 	}
 
 	strat := &MultiCollectionStrategy{
 		mongo:    client,
 		database: database,
-		selector: StreamTypeCollectionSelector(),
-	}
+		selector: selector,
 
-	for _, opt := range opts {
-		if err := opt(strat); err != nil {
-			return nil, fmt.Errorf("applying option: %w", err)
-		}
+		log:       config.log,
+		marshaler: config.marshaler,
+		sessOpts:  config.sessOpts,
+		txOpts:    config.txOpts,
 	}
 
 	return strat, nil
-}
-
-// Initialize initializes the strategy with the given logger, marshaler, session options, and transaction options.
-func (s *MultiCollectionStrategy) Initialize(
-	logger estoria.Logger,
-	marshaler DocumentMarshaler,
-	sessOpts *options.SessionOptionsBuilder,
-	txOpts *options.TransactionOptionsBuilder,
-) error {
-	s.log = logger.WithGroup("strategy")
-	s.marshaler = marshaler
-	s.sessOpts = sessOpts
-	s.txOpts = txOpts
-	return nil
 }
 
 // ListStreams returns a list of cursors for iterating over stream metadata.
@@ -203,6 +203,11 @@ func (s *MultiCollectionStrategy) DoInInsertSession(
 	return result, nil
 }
 
+// MarshalDocument marshals an event into a BSON document.
+func (s *MultiCollectionStrategy) MarshalDocument(event *Event) (any, error) {
+	return s.marshaler.MarshalDocument(event)
+}
+
 func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
 	collection := s.database.Collection(streamID.String())
 
@@ -257,15 +262,4 @@ func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (i
 
 	s.log.Info("got highest global offset for event store", "global_offset", highestGlobalOffset)
 	return highestGlobalOffset, nil
-}
-
-// A MultiCollectionStrategyOption configures a MultiCollectionStrategy.
-type MultiCollectionStrategyOption func(*MultiCollectionStrategy) error
-
-// WithCollectionSelector sets the collection selector used by the strategy.
-func WithCollectionSelector(selector CollectionSelector) MultiCollectionStrategyOption {
-	return func(s *MultiCollectionStrategy) error {
-		s.selector = selector
-		return nil
-	}
 }

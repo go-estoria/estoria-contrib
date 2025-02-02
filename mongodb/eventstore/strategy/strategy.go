@@ -12,12 +12,6 @@ import (
 )
 
 type (
-	// MongoClient provides an API for obtaining a database handle.
-	MongoClient interface {
-		Database(name string, opts ...options.Lister[options.DatabaseOptions]) *mongo.Database
-		StartSession(opts ...options.Lister[options.SessionOptions]) (*mongo.Session, error)
-	}
-
 	// MongoDatabase provides an API for obtaining a collection handle.
 	MongoDatabase interface {
 		Collection(string, ...options.Lister[options.CollectionOptions]) *mongo.Collection
@@ -30,6 +24,10 @@ type (
 		Find(context.Context, any, ...options.Lister[options.FindOptions]) (*mongo.Cursor, error)
 		FindOne(context.Context, any, ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
 		InsertMany(context.Context, any, ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error)
+	}
+
+	MongoSessionStarter interface {
+		StartSession(opts ...options.Lister[options.SessionOptions]) (*mongo.Session, error)
 	}
 )
 

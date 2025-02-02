@@ -14,7 +14,7 @@ import (
 
 // A SingleCollectionStrategy stores all events for all streams in a single collection.
 type SingleCollectionStrategy struct {
-	mongo      MongoClient
+	mongo      MongoSessionStarter
 	collection MongoCollection
 
 	log       estoria.Logger
@@ -23,17 +23,27 @@ type SingleCollectionStrategy struct {
 	txOpts    options.Lister[options.TransactionOptions]
 }
 
-// NewSingleCollectionStrategy creates a new SingleCollectionStrategy using the given collection.
-func NewSingleCollectionStrategy(client MongoClient, collection MongoCollection) (*SingleCollectionStrategy, error) {
+// NewSingleCollectionStrategy creates a new SingleCollectionStrategy using the given client and collection.
+func NewSingleCollectionStrategy(client MongoSessionStarter, collection MongoCollection, opts ...StrategyOption) (*SingleCollectionStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	} else if collection == nil {
 		return nil, fmt.Errorf("collection is required")
 	}
 
+	config := newStrategyConfig()
+	if err := config.apply(opts...); err != nil {
+		return nil, fmt.Errorf("applying options: %w", err)
+	}
+
 	strat := &SingleCollectionStrategy{
 		mongo:      client,
 		collection: collection,
+
+		log:       config.log,
+		marshaler: config.marshaler,
+		sessOpts:  config.sessOpts,
+		txOpts:    config.txOpts,
 	}
 
 	return strat, nil
@@ -132,6 +142,11 @@ func (s *SingleCollectionStrategy) DoInInsertSession(
 	}
 
 	return result, nil
+}
+
+// MarshalDocument marshals an event into a BSON document.
+func (s *SingleCollectionStrategy) MarshalDocument(event *Event) (any, error) {
+	return s.marshaler.MarshalDocument(event)
 }
 
 // Finds the highest offset for the given stream.

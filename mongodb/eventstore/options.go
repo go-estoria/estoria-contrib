@@ -4,25 +4,9 @@ import (
 	"errors"
 
 	"github.com/go-estoria/estoria"
-	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type EventStoreOption func(*EventStore) error
-
-// WithDocumentMarshaler sets the marshaler to use for the event store.
-//
-// The default marshaler is strategy.DefaultMarshaler().
-func WithDocumentMarshaler(marshaler strategy.DocumentMarshaler) EventStoreOption {
-	return func(s *EventStore) error {
-		if marshaler == nil {
-			return errors.New("marshaler cannot be nil")
-		}
-
-		s.marshaler = marshaler
-		return nil
-	}
-}
 
 // WithLogger sets the logger to use for the event store.
 //
@@ -34,21 +18,6 @@ func WithLogger(logger estoria.Logger) EventStoreOption {
 		}
 
 		s.log = logger
-		return nil
-	}
-}
-
-// WithSessionOptions overrides the default session options used when starting
-// a new MongoDB session.
-//
-// By default, DefaultSessionOptions() is used.
-func WithSessionOptions(opts *options.SessionOptionsBuilder) EventStoreOption {
-	return func(s *EventStore) error {
-		if opts == nil {
-			return errors.New("session options cannot be nil")
-		}
-
-		s.sessionOptions = opts
 		return nil
 	}
 }
@@ -78,21 +47,6 @@ func WithTransactionHook(hook TransactionHook) EventStoreOption {
 		}
 
 		s.txHooks = append(s.txHooks, hook)
-		return nil
-	}
-}
-
-// WithTransactionOptions overrides the default transaction options used when
-// starting a new MongoDB transaction on a session.
-//
-// By default, DefaultTransactionOptions() is used.
-func WithTransactionOptions(opts *options.TransactionOptionsBuilder) EventStoreOption {
-	return func(s *EventStore) error {
-		if opts == nil {
-			return errors.New("transaction options cannot be nil")
-		}
-
-		s.txOptions = opts
 		return nil
 	}
 }
