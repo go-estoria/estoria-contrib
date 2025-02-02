@@ -62,7 +62,6 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-
 	cursor, err := s.collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
 		{Key: "stream_id", Value: streamID.Value()},

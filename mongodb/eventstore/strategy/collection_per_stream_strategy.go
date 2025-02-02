@@ -71,15 +71,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
 	collection := s.database.Collection(streamID.String())
-
-	findOpts := options.Find()
-	if opts.Count > 0 {
-		findOpts = findOpts.SetLimit(opts.Count)
-	}
-
-	cursor, err := collection.Find(ctx, bson.D{
-		{Key: "version", Value: bson.D{{Key: "$gt", Value: opts.Offset}}},
-	}, findOpts)
+	cursor, err := collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
