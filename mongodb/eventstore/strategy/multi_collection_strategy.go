@@ -12,7 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-type CollectionPerStreamStrategy struct {
+type MultiCollectionStrategy struct {
 	mongo     MongoClient
 	database  MongoDatabase
 	selector  CollectionSelector
@@ -21,9 +21,29 @@ type CollectionPerStreamStrategy struct {
 	txOpts    options.Lister[options.TransactionOptions]
 }
 
-type CollectionSelector func(streamID typeid.UUID) string
+type CollectionSelector interface {
+	CollectionName(streamID typeid.UUID) string
+}
 
-func NewCollectionPerStreamStrategy(client MongoClient, database MongoDatabase, selector CollectionSelector) (*CollectionPerStreamStrategy, error) {
+type CollectionSelectorFunc func(streamID typeid.UUID) string
+
+func (f CollectionSelectorFunc) CollectionName(streamID typeid.UUID) string {
+	return f(streamID)
+}
+
+func StreamTypeCollectionSelector() CollectionSelectorFunc {
+	return func(streamID typeid.UUID) string {
+		return streamID.TypeName()
+	}
+}
+
+func StreamIDCollectionSelector() CollectionSelectorFunc {
+	return func(streamID typeid.UUID) string {
+		return streamID.String()
+	}
+}
+
+func NewMultiCollectionStrategy(client MongoClient, database MongoDatabase, selector CollectionSelector) (*MultiCollectionStrategy, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	} else if database == nil {
@@ -32,12 +52,10 @@ func NewCollectionPerStreamStrategy(client MongoClient, database MongoDatabase, 
 
 	if selector == nil {
 		// by default, store all streams of the same type in the same collection
-		selector = func(streamID typeid.UUID) string {
-			return streamID.TypeName()
-		}
+		selector = StreamTypeCollectionSelector()
 	}
 
-	strategy := &CollectionPerStreamStrategy{
+	strategy := &MultiCollectionStrategy{
 		mongo:     client,
 		database:  database,
 		selector:  selector,
@@ -48,7 +66,7 @@ func NewCollectionPerStreamStrategy(client MongoClient, database MongoDatabase, 
 	return strategy, nil
 }
 
-func (s *CollectionPerStreamStrategy) GetAllIterator(
+func (s *MultiCollectionStrategy) GetAllIterator(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
@@ -76,12 +94,12 @@ func (s *CollectionPerStreamStrategy) GetAllIterator(
 	}, nil
 }
 
-func (s *CollectionPerStreamStrategy) GetStreamIterator(
+func (s *MultiCollectionStrategy) GetStreamIterator(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
-	collection := s.database.Collection(s.selector(streamID))
+	collection := s.database.Collection(s.selector.CollectionName(streamID))
 	cursor, err := collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
 		{Key: "stream_id", Value: streamID.Value()},
@@ -96,7 +114,7 @@ func (s *CollectionPerStreamStrategy) GetStreamIterator(
 	}, nil
 }
 
-func (s *CollectionPerStreamStrategy) DoInInsertSession(
+func (s *MultiCollectionStrategy) DoInInsertSession(
 	ctx context.Context,
 	streamID typeid.UUID,
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
@@ -120,7 +138,9 @@ func (s *CollectionPerStreamStrategy) DoInInsertSession(
 			return nil, fmt.Errorf("getting highest offset: %w", err)
 		}
 
-		return inTxnFn(ctx, s.database.Collection(s.selector(streamID)), offset, globalOffset)
+		collection := s.database.Collection(s.selector.CollectionName(streamID))
+
+		return inTxnFn(ctx, collection, offset, globalOffset)
 	}, s.txOpts)
 	if err != nil {
 		return nil, fmt.Errorf("executing transaction: %w", err)
@@ -130,7 +150,7 @@ func (s *CollectionPerStreamStrategy) DoInInsertSession(
 }
 
 // ListStreams returns a cursor over the streams in the event store.
-func (s *CollectionPerStreamStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
+func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
 	collections, err := s.database.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
 		return nil, fmt.Errorf("listing collection names: %w", err)
@@ -163,11 +183,11 @@ func (s *CollectionPerStreamStrategy) ListStreams(ctx context.Context) ([]*mongo
 	return cursors, nil
 }
 
-func (s *CollectionPerStreamStrategy) SetLogger(l estoria.Logger) {
+func (s *MultiCollectionStrategy) SetLogger(l estoria.Logger) {
 	s.log = l
 }
 
-func (s *CollectionPerStreamStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
+func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
 	collection := s.database.Collection(streamID.String())
 
 	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
@@ -184,7 +204,7 @@ func (s *CollectionPerStreamStrategy) getHighestOffset(ctx context.Context, stre
 }
 
 // Finds the highest global offset among all events in the event store.
-func (s *CollectionPerStreamStrategy) getHighestGlobalOffset(ctx context.Context) (int64, error) {
+func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (int64, error) {
 	s.log.Debug("finding highest global offset in event store")
 
 	streamIDs, err := s.database.ListCollectionNames(ctx, bson.D{})
