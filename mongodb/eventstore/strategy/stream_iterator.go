@@ -3,7 +3,6 @@ package strategy
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/go-estoria/estoria/eventstore"
 )
@@ -83,7 +82,6 @@ func (i *multiStreamIterator) Next(ctx context.Context) (*eventstore.Event, erro
 		if cursor.nextEvent != nil && cursor.nextEvent.GlobalOffset == i.currentGlobalOffset+1 {
 			nextEvent = &cursor.nextEvent.Event
 			i.currentGlobalOffset++
-			slog.Debug("multi-iterator returning event", "stream_id", cursor.nextEvent.StreamID, "global_offset", cursor.nextEvent.GlobalOffset)
 			cursor.nextEvent = nil
 			break
 		}
