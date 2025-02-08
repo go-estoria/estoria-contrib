@@ -248,6 +248,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 		haveCollection func(*testing.T) strategy.MongoCollection
 		haveStreamID   typeid.UUID
 		haveDocuments  []bson.M
+		wantDocuments  []bson.M
 		wantErr        error
 	}{
 		{
@@ -258,14 +259,80 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 			},
 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 			haveDocuments: []bson.M{
-				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtype", "data": bson.M{"one": 1}},
-				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtype", "data": bson.M{"two": 2}},
-				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtype", "data": bson.M{"three": 3}},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1"},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2"},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3"},
+			},
+			wantDocuments: []bson.M{
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1", "offset": int64(1), "global_offset": int64(1)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
 			},
 		},
-		// {
-		// 	name: "inserts documents into a non-empty collection with no matching stream",
-		// },
+		{
+			name: "inserts documents into a non-empty collection with no matching stream type (ok for IDs to match in disparate streams)",
+			haveCollection: func(t *testing.T) strategy.MongoCollection {
+				t.Helper()
+				collection := mongoClient.Database("estoria").Collection("events-" + uuid.Must(uuid.NewV4()).String()[0:8])
+				res, err := collection.InsertMany(ctx, []any{
+					bson.M{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1", "offset": int64(1), "global_offset": int64(1)},
+					bson.M{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
+					bson.M{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
+				})
+				if err != nil {
+					t.Fatalf("tc setup: failed to insert events into MongoDB: %v", err)
+				} else if len(res.InsertedIDs) != 3 {
+					t.Fatalf("tc setup: unexpected number of inserted IDs, want: 3, got: %d", len(res.InsertedIDs))
+				}
+				return collection
+			},
+			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+			haveDocuments: []bson.M{
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata1"},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata2"},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata3"},
+			},
+			wantDocuments: []bson.M{
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1", "offset": int64(1), "global_offset": int64(1)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata1", "offset": int64(1), "global_offset": int64(4)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata2", "offset": int64(2), "global_offset": int64(5)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata3", "offset": int64(3), "global_offset": int64(6)},
+			},
+		},
+		{
+			name: "inserts documents into a non-empty collection with no matching stream ID",
+			haveCollection: func(t *testing.T) strategy.MongoCollection {
+				t.Helper()
+				collection := mongoClient.Database("estoria").Collection("events-" + uuid.Must(uuid.NewV4()).String()[0:8])
+				res, err := collection.InsertMany(ctx, []any{
+					bson.M{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1", "offset": int64(1), "global_offset": int64(1)},
+					bson.M{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
+					bson.M{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
+				})
+				if err != nil {
+					t.Fatalf("tc setup: failed to insert events into MongoDB: %v", err)
+				} else if len(res.InsertedIDs) != 3 {
+					t.Fatalf("tc setup: unexpected number of inserted IDs, want: 3, got: %d", len(res.InsertedIDs))
+				}
+				return collection
+			},
+			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("7de3ee60-1e2a-4169-a6a9-3ce2b298350e"))),
+			haveDocuments: []bson.M{
+				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata1"},
+				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata2"},
+				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata3"},
+			},
+			wantDocuments: []bson.M{
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1", "offset": int64(1), "global_offset": int64(1)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
+				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata1", "offset": int64(1), "global_offset": int64(4)},
+				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(5)},
+				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(6)},
+			},
+		},
 		// {
 		// 	name: "inserts documents into a non-empty collection with a matching stream",
 		// },
@@ -277,13 +344,18 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 		// },
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, tt.haveCollection(t))
+			haveCollection := tt.haveCollection(t)
+			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, haveCollection)
 			if err != nil {
 				t.Fatalf("unexpected error creating strategy: %v", err)
 			}
 
 			gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(context.Background(), tt.haveStreamID,
 				func(sessCtx context.Context, coll strategy.MongoCollection, offset, globalOffset int64) (any, error) {
+					for i := range tt.haveDocuments {
+						tt.haveDocuments[i]["offset"] = offset + int64(i) + 1
+						tt.haveDocuments[i]["global_offset"] = globalOffset + int64(i) + 1
+					}
 					return coll.InsertMany(sessCtx, tt.haveDocuments)
 				},
 			)
@@ -305,6 +377,37 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				t.Fatalf("unexpected result type, want: *mongo.InsertManyResult, got: %T", gotResult)
 			} else if len(gotInsertManyResult.InsertedIDs) != len(tt.haveDocuments) {
 				t.Errorf("unexpected number of inserted IDs, want: %d, got: %d", len(tt.haveDocuments), len(gotInsertManyResult.InsertedIDs))
+			}
+
+			cursor, err := haveCollection.Find(ctx, bson.D{})
+			if err != nil {
+				t.Fatalf("failed to find documents in collection: %v", err)
+			}
+
+			gotStreamDocs := []bson.M{}
+			if err := cursor.All(ctx, &gotStreamDocs); err != nil {
+				t.Fatalf("failed to decode documents from cursor: %v", err)
+			}
+
+			if len(gotStreamDocs) != len(tt.wantDocuments) {
+				t.Errorf("unexpected number of documents, want: %d, got: %d", len(tt.wantDocuments), len(gotStreamDocs))
+			}
+
+			for i, wantDoc := range tt.wantDocuments {
+				switch {
+				case gotStreamDocs[i]["_id"] == nil:
+					t.Errorf("unexpected nil ID at index %d", i)
+				case gotStreamDocs[i]["stream_id"] != tt.wantDocuments[i]["stream_id"]:
+					t.Errorf("unexpected stream ID at index %d, want: %s, got: %s", i, wantDoc["stream_id"], gotStreamDocs[i]["stream_id"])
+				case gotStreamDocs[i]["stream_type"] != tt.wantDocuments[i]["stream_type"]:
+					t.Errorf("unexpected stream type at index %d, want: %s, got: %s", i, wantDoc["stream_type"], gotStreamDocs[i]["stream_type"])
+				case gotStreamDocs[i]["data"] != tt.wantDocuments[i]["data"]:
+					t.Errorf("unexpected data at index %d, want: %v, got: %v", i, wantDoc["data"], gotStreamDocs[i]["data"])
+				case gotStreamDocs[i]["offset"] != tt.wantDocuments[i]["offset"]:
+					t.Errorf("unexpected offset at index %d, want: %d, got: %d", i, wantDoc["offset"], gotStreamDocs[i]["offset"])
+				case gotStreamDocs[i]["global_offset"] != tt.wantDocuments[i]["global_offset"]:
+					t.Errorf("unexpected global offset at index %d, want: %d, got: %d", i, wantDoc["global_offset"], gotStreamDocs[i]["global_offset"])
+				}
 			}
 		})
 	}
