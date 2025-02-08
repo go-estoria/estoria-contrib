@@ -12,8 +12,7 @@ import (
 	"github.com/gofrs/uuid/v5"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
@@ -244,167 +243,68 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
 
-	collection := mongoClient.Database("estoria").Collection("events")
-
-	t.Log("MongoDB collection:", collection.Name())
-
-	writableEvents := []*eventstore.WritableEvent{
-		{
-			ID:        typeid.FromUUID("mockeventtypeA", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79001"))),
-			Timestamp: time.Date(2025, 11, 5, 12, 34, 01, 0, time.UTC),
-			Data:      []byte{0x01, 0x02, 0x03},
-		},
-		{
-			ID:        typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-			Timestamp: time.Date(2025, 11, 5, 12, 34, 02, 0, time.UTC),
-			Data:      []byte{0x04, 0x05, 0x06},
-		},
-		{
-			ID:        typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-			Timestamp: time.Date(2025, 11, 5, 12, 34, 03, 0, time.UTC),
-			Data:      []byte{0x07, 0x08, 0x09},
-		},
-		{
-			ID:        typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-			Timestamp: time.Date(2025, 11, 5, 12, 34, 04, 0, time.UTC),
-			Data:      []byte{0x0a, 0x0b, 0x0c},
-		},
-		{
-			ID:        typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-			Timestamp: time.Date(2025, 11, 5, 12, 34, 05, 0, time.UTC),
-			Data:      []byte{0x0d, 0x0e, 0x0f},
-		},
-	}
-
-	events := []*eventstore.Event{
-		{
-			ID:            typeid.FromUUID("mockeventtypeA", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79001"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 1,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 01, 0, time.UTC),
-			Data:          []byte{0x01, 0x02, 0x03},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 2,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 02, 0, time.UTC),
-			Data:          []byte{0x04, 0x05, 0x06},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 3,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 03, 0, time.UTC),
-			Data:          []byte{0x07, 0x08, 0x09},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtypeB", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 4,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 04, 0, time.UTC),
-			Data:          []byte{0x0a, 0x0b, 0x0c},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtypeC", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 5,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 05, 0, time.UTC),
-			Data:          []byte{0x0d, 0x0e, 0x0f},
-		},
-	}
-
 	for _, tt := range []struct {
-		name         string
-		haveStreamID typeid.UUID
-		haveEvents   []*eventstore.WritableEvent
-		haveOpts     eventstore.AppendStreamOptions
-		wantEvents   []*eventstore.Event
-		wantErr      error
+		name           string
+		haveCollection func(*testing.T) strategy.MongoCollection
+		haveStreamID   typeid.UUID
+		haveDocuments  []bson.M
+		wantErr        error
 	}{
 		{
-			name:         "inserts events into a new stream with default options",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			haveEvents:   []*eventstore.WritableEvent{writableEvents[0], writableEvents[1], writableEvents[2], writableEvents[3], writableEvents[4]},
-			wantEvents:   []*eventstore.Event{events[0], events[1], events[2], events[3], events[4]},
+			name: "inserts documents into an empty collection",
+			haveCollection: func(t *testing.T) strategy.MongoCollection {
+				t.Helper()
+				return mongoClient.Database("estoria").Collection("events-" + uuid.Must(uuid.NewV4()).String()[0:8])
+			},
+			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+			haveDocuments: []bson.M{
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtype", "data": bson.M{"one": 1}},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtype", "data": bson.M{"two": 2}},
+				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtype", "data": bson.M{"three": 3}},
+			},
 		},
+		// {
+		// 	name: "inserts documents into a non-empty collection with no matching stream",
+		// },
+		// {
+		// 	name: "inserts documents into a non-empty collection with a matching stream",
+		// },
+		// {
+		// 	name: "inserts documents into a non-empty collection with a stream whose highest offset is equal to the global offset",
+		// },
+		// {
+		// 	name: "inserts documents into a non-empty collection with a stream whose highest offset is less than the global offset",
+		// },
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, collection)
+			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, tt.haveCollection(t))
 			if err != nil {
 				t.Fatalf("unexpected error creating strategy: %v", err)
 			}
 
-			session, err := mongoClient.StartSession()
-			if err != nil {
-				t.Fatalf("unexpected error starting session: %v", err)
-			}
-
-			t.Log("MongoDB session:", session)
-
-			defer func() {
-				t.Log("Ending MongoDB session")
-				session.EndSession(ctx)
-				t.Log("Ended MongoDB session")
-			}()
-
-			txOpts := options.Transaction().SetReadPreference(readpref.Primary())
-
-			gotResult, gotErr := session.WithTransaction(context.Background(), func(sessionCtx context.Context) (any, error) {
-				t.Log("MongoDB session context:", sessionCtx)
-				t.Log("Inserting events into stream:", tt.haveStreamID)
-				return haveStrategy.InsertStreamEvents(sessionCtx, tt.haveStreamID, tt.haveEvents, tt.haveOpts)
-			}, txOpts)
+			gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(context.Background(), tt.haveStreamID,
+				func(sessCtx context.Context, coll strategy.MongoCollection, offset, globalOffset int64) (any, error) {
+					return coll.InsertMany(sessCtx, tt.haveDocuments)
+				},
+			)
 			if gotErr != nil {
 				if tt.wantErr == nil {
-					t.Errorf("unexpected no error inserting events, but got: %v", gotErr)
+					t.Fatalf("expected no error inserting events, but got: %v", gotErr)
 				} else if err.Error() != tt.wantErr.Error() {
-					t.Errorf("unexpected error inserting events, want: %v, got: %v", tt.wantErr, gotErr)
+					t.Fatalf("unexpected error inserting events, want: %v, got: %v", tt.wantErr, gotErr)
 				}
 				return
+			} else if tt.wantErr != nil {
+				t.Fatalf("expected error inserting events, but got nil")
 			} else if gotResult == nil {
 				t.Fatalf("unexpected nil result")
 			}
 
-			if numInserted := len(gotResult.(*strategy.InsertStreamEventsResult).InsertedEvents); numInserted != len(tt.haveEvents) {
-				t.Errorf("unexpected number of inserted events, want: %d, got: %d", len(tt.haveEvents), numInserted)
-			}
-
-			cursor, err := collection.Find(context.Background(), bson.M{"stream_id": tt.haveStreamID.Value()})
-			if err != nil {
-				t.Fatalf("unexpected error finding events: %v", err)
-			}
-
-			gotEvents := []*strategy.Event{}
-			for cursor.Next(context.Background()) {
-				event, err := (&strategy.DefaultSingleCollectionDocumentMarshaler{}).UnmarshalDocument(cursor.Decode)
-				if err != nil {
-					t.Fatalf("unexpected error decoding event: %v", err)
-				}
-
-				gotEvents = append(gotEvents, event)
-			}
-
-			if len(gotEvents) != len(tt.wantEvents) {
-				t.Errorf("unexpected number of events, want: %d, got: %d", len(tt.wantEvents), len(gotEvents))
-			}
-
-			for i, wantEvent := range tt.wantEvents {
-				if gotEvents[i].StreamID != wantEvent.StreamID {
-					t.Errorf("unexpected stream ID at index %d, want: %s, got: %s", i, wantEvent.StreamID, gotEvents[i].StreamID)
-				}
-				if gotEvents[i].StreamVersion != wantEvent.StreamVersion {
-					t.Errorf("unexpected event version at index %d, want: %d, got: %d", i, wantEvent.StreamVersion, gotEvents[i].StreamVersion)
-				}
-				if gotEvents[i].ID != wantEvent.ID {
-					t.Errorf("unexpected stream ID at index %d, want: %s, got: %s", i, wantEvent.ID, gotEvents[i].ID)
-				}
-				if gotEvents[i].Timestamp != wantEvent.Timestamp {
-					t.Errorf("unexpected timestamp at index %d, want: %v, got: %v", i, wantEvent.Timestamp, gotEvents[i].Timestamp)
-				}
-				if string(gotEvents[i].Data) != string(wantEvent.Data) {
-					t.Errorf("unexpected data at index %d, want: %s, got: %s", i, wantEvent.Data, gotEvents[i].Data)
-				}
+			gotInsertManyResult, ok := gotResult.(*mongo.InsertManyResult)
+			if !ok {
+				t.Fatalf("unexpected result type, want: *mongo.InsertManyResult, got: %T", gotResult)
+			} else if len(gotInsertManyResult.InsertedIDs) != len(tt.haveDocuments) {
+				t.Errorf("unexpected number of inserted IDs, want: %d, got: %d", len(tt.haveDocuments), len(gotInsertManyResult.InsertedIDs))
 			}
 		})
 	}
