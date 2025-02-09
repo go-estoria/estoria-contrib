@@ -104,7 +104,11 @@ func (i *StreamInfo) UnmarshalBSON(b []byte) error {
 	for _, elem := range data {
 		switch elem.Key {
 		case "_id":
-			id = uuid.FromStringOrNil(elem.Value.(string))
+			uid, err := uuid.FromString(elem.Value.(string))
+			if err != nil {
+				return fmt.Errorf("parsing UUID: %w", err)
+			}
+			id = uid
 		case "stream_type":
 			typ = elem.Value.(string)
 		case "offset":
