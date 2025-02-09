@@ -211,11 +211,14 @@ func (s *MultiCollectionStrategy) MarshalDocument(event *Event) (any, error) {
 // Finds the highest offset for the given stream.
 func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
 	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
-	collection := s.database.Collection(streamID.String())
+	collection := s.database.Collection(s.selector.CollectionName(streamID))
 
 	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	offsets := Offsets{}
-	if err := collection.FindOne(ctx, bson.D{}, opts).Decode(&offsets); err != nil {
+	if err := collection.FindOne(ctx, bson.D{
+		{Key: "stream_type", Value: streamID.TypeName()},
+		{Key: "stream_id", Value: streamID.UUID().String()},
+	}, opts).Decode(&offsets); err != nil {
 		if err == mongo.ErrNoDocuments {
 			s.log.Debug("stream not found", "stream_id", streamID)
 			return 0, nil
