@@ -2,9 +2,7 @@ package strategy_test
 
 import (
 	"context"
-	"errors"
 	"testing"
-	"time"
 
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
@@ -31,88 +29,52 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 
 	collection := mongoClient.Database("estoria").Collection("events")
 
-	res, err := collection.InsertMany(ctx, []any{
-		bson.M{
+	docs := []bson.M{
+		{
 			"stream_id": "a422f08c-0981-49cd-8249-7a48e66a4e8c", "stream_type": "mockstreamtype",
 			"event_id": "b112c50d-0834-4b78-a9e7-009d80b79001", "event_type": "mockeventtypeA",
-			"offset": 1, "timestamp": "2025-11-05T12:34:01Z", "data": bson.M{},
+			"offset": int64(1), "timestamp": "2025-11-05T12:34:01Z", "data": bson.M{},
 		},
-		bson.M{
+		{
 			"stream_id": "a422f08c-0981-49cd-8249-7a48e66a4e8c", "stream_type": "mockstreamtype",
 			"event_id": "b112c50d-0834-4b78-a9e7-009d80b79002", "event_type": "mockeventtypeB",
-			"offset": 2, "timestamp": "2025-11-05T12:34:02Z", "data": bson.M{},
+			"offset": int64(2), "timestamp": "2025-11-05T12:34:02Z", "data": bson.M{},
 		},
-		bson.M{
+		{
 			"stream_id": "a422f08c-0981-49cd-8249-7a48e66a4e8c", "stream_type": "mockstreamtype",
 			"event_id": "b112c50d-0834-4b78-a9e7-009d80b79003", "event_type": "mockeventtypeC",
-			"offset": 3, "timestamp": "2025-11-05T12:34:03Z", "data": bson.M{},
+			"offset": int64(3), "timestamp": "2025-11-05T12:34:03Z", "data": bson.M{},
 		},
-		bson.M{
+		{
 			"stream_id": "a422f08c-0981-49cd-8249-7a48e66a4e8c", "stream_type": "mockstreamtype",
 			"event_id": "b112c50d-0834-4b78-a9e7-009d80b79002", "event_type": "mockeventtypeB",
-			"offset": 4, "timestamp": "2025-11-05T12:34:04Z", "data": bson.M{},
+			"offset": int64(4), "timestamp": "2025-11-05T12:34:04Z", "data": bson.M{},
 		},
-		bson.M{
+		{
 			"stream_id": "a422f08c-0981-49cd-8249-7a48e66a4e8c", "stream_type": "mockstreamtype",
 			"event_id": "b112c50d-0834-4b78-a9e7-009d80b79003", "event_type": "mockeventtypeC",
-			"offset": 5, "timestamp": "2025-11-05T12:34:05Z", "data": bson.M{},
+			"offset": int64(5), "timestamp": "2025-11-05T12:34:05Z", "data": bson.M{},
 		},
-	})
+	}
+
+	res, err := collection.InsertMany(ctx, docs)
 	if err != nil {
 		t.Fatalf("failed to insert events into MongoDB: %v", err)
 	} else if len(res.InsertedIDs) != 5 {
 		t.Fatalf("unexpected number of inserted IDs, want: 5, got: %d", len(res.InsertedIDs))
 	}
 
-	events := []*eventstore.Event{
-		{
-			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79001"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 1,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 01, 0, time.UTC),
-			Data:          []byte{},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 2,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 02, 0, time.UTC),
-			Data:          []byte{},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 3,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 03, 0, time.UTC),
-			Data:          []byte{},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 4,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 04, 0, time.UTC),
-			Data:          []byte{},
-		},
-		{
-			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			StreamVersion: 5,
-			Timestamp:     time.Date(2025, 11, 5, 12, 34, 05, 0, time.UTC),
-			Data:          []byte{},
-		},
-	}
-
 	for _, tt := range []struct {
 		name         string
 		haveStreamID typeid.UUID
 		haveOpts     eventstore.ReadStreamOptions
-		wantEvents   []*eventstore.Event
+		wantEvents   []bson.M
 		wantErr      error
 	}{
 		{
 			name:         "returns a default stream iterator",
 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
-			wantEvents:   []*eventstore.Event{events[0], events[1], events[2], events[3], events[4]},
+			wantEvents:   []bson.M{docs[0], docs[1], docs[2], docs[3], docs[4]},
 		},
 		{
 			name:         "returns a forward stream iterator",
@@ -120,7 +82,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Forward,
 			},
-			wantEvents: []*eventstore.Event{events[0], events[1], events[2], events[3], events[4]},
+			wantEvents: []bson.M{docs[0], docs[1], docs[2], docs[3], docs[4]},
 		},
 		{
 			name:         "returns a reverse stream iterator",
@@ -128,7 +90,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Reverse,
 			},
-			wantEvents: []*eventstore.Event{events[4], events[3], events[2], events[1], events[0]},
+			wantEvents: []bson.M{docs[4], docs[3], docs[2], docs[1], docs[0]},
 		},
 		{
 			name:         "returns a forward stream iterator with an offset",
@@ -137,7 +99,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 				Direction: eventstore.Forward,
 				Offset:    2,
 			},
-			wantEvents: []*eventstore.Event{events[2], events[3], events[4]},
+			wantEvents: []bson.M{docs[2], docs[3], docs[4]},
 		},
 		{
 			name:         "returns a reverse stream iterator with an offset",
@@ -146,7 +108,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 				Direction: eventstore.Reverse,
 				Offset:    2,
 			},
-			wantEvents: []*eventstore.Event{events[2], events[1], events[0]},
+			wantEvents: []bson.M{docs[2], docs[1], docs[0]},
 		},
 		{
 			name:         "returns a forward stream iterator with a count",
@@ -155,7 +117,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 				Direction: eventstore.Forward,
 				Count:     2,
 			},
-			wantEvents: []*eventstore.Event{events[0], events[1]},
+			wantEvents: []bson.M{docs[0], docs[1]},
 		},
 		{
 			name:         "returns a reverse stream iterator with a count",
@@ -164,7 +126,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 				Direction: eventstore.Reverse,
 				Count:     2,
 			},
-			wantEvents: []*eventstore.Event{events[4], events[3]},
+			wantEvents: []bson.M{docs[4], docs[3]},
 		},
 		{
 			name:         "returns a forward stream iterator with an offset and a count",
@@ -174,7 +136,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 				Offset:    2,
 				Count:     2,
 			},
-			wantEvents: []*eventstore.Event{events[2], events[3]},
+			wantEvents: []bson.M{docs[2], docs[3]},
 		},
 		{
 			name:         "returns a reverse stream iterator with an offset and a count",
@@ -184,7 +146,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 				Offset:    2,
 				Count:     2,
 			},
-			wantEvents: []*eventstore.Event{events[2], events[1]},
+			wantEvents: []bson.M{docs[2], docs[1]},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,36 +155,29 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 				t.Fatalf("unexpected error creating strategy: %v", err)
 			}
 
-			gotIter, err := haveStrategy.GetStreamIterator(context.Background(), tt.haveStreamID, tt.haveOpts)
+			gotCursor, err := haveStrategy.GetStreamCursor(context.Background(), tt.haveStreamID, tt.haveOpts)
 			if err != nil {
 				if tt.wantErr == nil {
 					t.Errorf("unexpected no error creating stream iterator, but got: %v", err)
 				} else if err.Error() != tt.wantErr.Error() {
 					t.Errorf("unexpected error creating stream iterator, want: %v, got: %v", tt.wantErr, err)
 				}
-			} else if gotIter == nil {
-				t.Fatalf("unexpected nil stream iterator")
+			} else if gotCursor == nil {
+				t.Fatalf("unexpected nil stream cursor")
 			}
 
-			gotEvents := []*eventstore.Event{}
-			for {
-				event, err := gotIter.Next(context.Background())
-				if errors.Is(err, eventstore.ErrEndOfEventStream) {
-					break
-				} else if err != nil {
-					t.Errorf("unexpected error reading event from stream iterator: %v", err)
-				}
-
-				gotEvents = append(gotEvents, event)
+			gotDocs := []bson.M{}
+			if err := gotCursor.All(context.Background(), &gotDocs); err != nil {
+				t.Fatalf("failed to decode stream cursor: %v", err)
 			}
 
-			if len(gotEvents) != len(tt.wantEvents) {
-				t.Errorf("unexpected number of events, want: %d, got: %d", len(tt.wantEvents), len(gotEvents))
+			if len(gotDocs) != len(tt.wantEvents) {
+				t.Errorf("unexpected number of events, want: %d, got: %d", len(tt.wantEvents), len(gotDocs))
 			}
 
 			for i, wantEvent := range tt.wantEvents {
-				if gotEvents[i].StreamVersion != wantEvent.StreamVersion {
-					t.Errorf("unexpected event version at index %d, want: %d, got: %d", i, wantEvent.StreamVersion, gotEvents[i].StreamVersion)
+				if gotDocs[i]["offset"].(int64) != wantEvent["offset"].(int64) {
+					t.Errorf("unexpected offset at index %d, want: %d, got: %d", i, wantEvent["offset"], gotDocs[i]["offset"])
 				}
 			}
 		})

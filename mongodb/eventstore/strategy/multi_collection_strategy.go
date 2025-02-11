@@ -30,10 +30,9 @@ type MultiCollectionStrategy struct {
 	database MongoDatabase
 	selector CollectionSelector
 
-	log       estoria.Logger
-	marshaler DocumentMarshaler
-	sessOpts  options.Lister[options.SessionOptions]
-	txOpts    options.Lister[options.TransactionOptions]
+	log      estoria.Logger
+	sessOpts options.Lister[options.SessionOptions]
+	txOpts   options.Lister[options.TransactionOptions]
 }
 
 // A CollectionSelector determines the collection name to use for a given stream ID
@@ -85,10 +84,9 @@ func NewMultiCollectionStrategy(client MongoSessionStarter, database MongoDataba
 		database: database,
 		selector: selector,
 
-		log:       config.log,
-		marshaler: config.marshaler,
-		sessOpts:  config.sessOpts,
-		txOpts:    config.txOpts,
+		log:      config.log,
+		sessOpts: config.sessOpts,
+		txOpts:   config.txOpts,
 	}
 
 	return strat, nil
@@ -115,17 +113,17 @@ func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cur
 	return cursors, nil
 }
 
-// GetAllIterator returns an iterator over all events in the event store, ordered by global offset.
-func (s *MultiCollectionStrategy) GetAllIterator(
+// GetAllCursor returns an iterator over all events in the event store, ordered by global offset.
+func (s *MultiCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.StreamIterator, error) {
+) ([]*mongo.Cursor, error) {
 	collectionNames, err := s.database.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
 		return nil, fmt.Errorf("listing collection names: %w", err)
 	}
 
-	cursors := make([]*multiStreamIteratorCursor, len(collectionNames))
+	cursors := make([]*mongo.Cursor, len(collectionNames))
 	for i, collectionName := range collectionNames {
 		collection := s.database.Collection(collectionName)
 		cursor, err := collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "global_offset"))
@@ -133,23 +131,18 @@ func (s *MultiCollectionStrategy) GetAllIterator(
 			return nil, fmt.Errorf("finding events in collection %s: %w", collectionName, err)
 		}
 
-		cursors[i] = &multiStreamIteratorCursor{
-			cursor: cursor,
-		}
+		cursors[i] = cursor
 	}
 
-	return &multiStreamIterator{
-		cursors:   cursors,
-		marshaler: s.marshaler,
-	}, nil
+	return cursors, nil
 }
 
-// GetStreamIterator returns an iterator over events in the specified stream, ordered by stream offset.
-func (s *MultiCollectionStrategy) GetStreamIterator(
+// GetStreamCursor returns an iterator over events in the specified stream, ordered by stream offset.
+func (s *MultiCollectionStrategy) GetStreamCursor(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.StreamIterator, error) {
+) (*mongo.Cursor, error) {
 	collection := s.database.Collection(s.selector.CollectionName(streamID))
 	cursor, err := collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
@@ -159,10 +152,7 @@ func (s *MultiCollectionStrategy) GetStreamIterator(
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &streamIterator{
-		cursor:    cursor,
-		marshaler: s.marshaler,
-	}, nil
+	return cursor, nil
 }
 
 // ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
@@ -201,11 +191,6 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 	}
 
 	return result, nil
-}
-
-// MarshalDocument marshals an event into a BSON document.
-func (s *MultiCollectionStrategy) MarshalDocument(event *Event) (any, error) {
-	return s.marshaler.MarshalDocument(event)
 }
 
 // Finds the highest offset for the given stream.

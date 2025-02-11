@@ -115,7 +115,7 @@ func TestEventStore_Integration_ListStreams(t *testing.T) {
 				t.Errorf("expected %d streams, got %d", len(tt.wantStreams), len(gotStreams))
 			}
 
-			// TODO: fix this test (stream info is not always returned in the same)
+			// TODO: fix this test (stream info is not always returned in the same order)
 			// for i, wantStream := range tt.wantStreams {
 			// 	if gotStream := gotStreams[i]; gotStream != wantStream {
 			// 		t.Errorf("expected stream %d to be %v, got %v", i, wantStream, gotStream)

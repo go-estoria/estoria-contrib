@@ -22,6 +22,20 @@ func WithLogger(logger estoria.Logger) EventStoreOption {
 	}
 }
 
+// WithDocumentMarshaler sets the marshaler to use for the event store.
+//
+// The default marshaler is DefaultMarshaler().
+func WithDocumentMarshaler(marshaler DocumentMarshaler) EventStoreOption {
+	return func(s *EventStore) error {
+		if marshaler == nil {
+			return errors.New("marshaler cannot be nil")
+		}
+
+		s.marshaler = marshaler
+		return nil
+	}
+}
+
 // WithStrategy sets the strategy to use for the event store.
 //
 // The default strategy is to use a database named "estoria"

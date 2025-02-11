@@ -17,10 +17,9 @@ type SingleCollectionStrategy struct {
 	mongo      MongoSessionStarter
 	collection MongoCollection
 
-	log       estoria.Logger
-	marshaler DocumentMarshaler
-	sessOpts  options.Lister[options.SessionOptions]
-	txOpts    options.Lister[options.TransactionOptions]
+	log      estoria.Logger
+	sessOpts options.Lister[options.SessionOptions]
+	txOpts   options.Lister[options.TransactionOptions]
 }
 
 // NewSingleCollectionStrategy creates a new SingleCollectionStrategy using the given client and collection.
@@ -40,10 +39,9 @@ func NewSingleCollectionStrategy(client MongoSessionStarter, collection MongoCol
 		mongo:      client,
 		collection: collection,
 
-		log:       config.log,
-		marshaler: config.marshaler,
-		sessOpts:  config.sessOpts,
-		txOpts:    config.txOpts,
+		log:      config.log,
+		sessOpts: config.sessOpts,
+		txOpts:   config.txOpts,
 	}
 
 	return strat, nil
@@ -59,28 +57,25 @@ func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cu
 	return []*mongo.Cursor{cursor}, nil
 }
 
-// GetAllIterator returns an iterator over all events in the event store, ordered by global offset.
-func (s *SingleCollectionStrategy) GetAllIterator(
+// GetAllCursor returns an iterator over all events in the event store, ordered by global offset.
+func (s *SingleCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.StreamIterator, error) {
+) ([]*mongo.Cursor, error) {
 	cursor, err := s.collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "global_offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &streamIterator{
-		cursor:    cursor,
-		marshaler: s.marshaler,
-	}, nil
+	return []*mongo.Cursor{cursor}, nil
 }
 
-// GetStreamIterator returns an iterator over events in the specified stream, ordered by stream offset.
-func (s *SingleCollectionStrategy) GetStreamIterator(
+// GetStreamCursor returns an iterator over events in the specified stream, ordered by stream offset.
+func (s *SingleCollectionStrategy) GetStreamCursor(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.StreamIterator, error) {
+) (*mongo.Cursor, error) {
 	cursor, err := s.collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.TypeName()},
 		{Key: "stream_id", Value: streamID.Value()},
@@ -89,10 +84,7 @@ func (s *SingleCollectionStrategy) GetStreamIterator(
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
 
-	return &streamIterator{
-		cursor:    cursor,
-		marshaler: s.marshaler,
-	}, nil
+	return cursor, nil
 }
 
 // ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
@@ -128,11 +120,6 @@ func (s *SingleCollectionStrategy) ExecuteInsertTransaction(
 	}
 
 	return result, nil
-}
-
-// MarshalDocument marshals an event into a BSON document.
-func (s *SingleCollectionStrategy) MarshalDocument(event *Event) (any, error) {
-	return s.marshaler.MarshalDocument(event)
 }
 
 // Finds the highest offset for the given stream.

@@ -39,24 +39,21 @@ type (
 			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
 		) (any, error)
 
-		// GetAllIterator returns an iterator over all events in the event store, ordered by global offset.
-		GetAllIterator(
+		// GetAllCursor returns one or more Mongo cursors for all events in the event store, ordered by global offset.
+		GetAllCursor(
 			ctx context.Context,
 			opts eventstore.ReadStreamOptions,
-		) (eventstore.StreamIterator, error)
+		) ([]*mongo.Cursor, error)
 
-		// GetStreamIterator returns an iterator over events in the specified stream, ordered by stream offset.
-		GetStreamIterator(
+		// GetStreamCursor returns a Mongo cursor for events in the specified stream, ordered by stream offset.
+		GetStreamCursor(
 			ctx context.Context,
 			streamID typeid.UUID,
 			opts eventstore.ReadStreamOptions,
-		) (eventstore.StreamIterator, error)
+		) (*mongo.Cursor, error)
 
 		// ListStreams returns a list of cursors for iterating over stream metadata.
 		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
-
-		// MarshalDocument marshals an event into a BSON document.
-		MarshalDocument(event *strategy.Event) (any, error)
 	}
 
 	// A TransactionHook is a function that is executed within the transaction used for appending events.
@@ -70,6 +67,7 @@ type (
 type EventStore struct {
 	mongoClient MongoClient
 	strategy    Strategy
+	marshaler   DocumentMarshaler
 	txHooks     []TransactionHook
 
 	log estoria.Logger
@@ -190,12 +188,29 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 		"direction", opts.Direction,
 	)
 
-	iter, err := s.strategy.GetAllIterator(ctx, opts)
+	cursors, err := s.strategy.GetAllCursor(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("getting all events iterator: %w", err)
 	}
 
-	return iter, nil
+	if len(cursors) == 1 {
+		return &streamIterator{
+			cursor:    cursors[0],
+			marshaler: s.marshaler,
+		}, nil
+	}
+
+	iteratorCursors := make([]*multiStreamIteratorCursor, len(cursors))
+	for i, cursor := range cursors {
+		iteratorCursors[i] = &multiStreamIteratorCursor{
+			cursor: cursor,
+		}
+	}
+
+	return &multiStreamIterator{
+		cursors:   iteratorCursors,
+		marshaler: s.marshaler,
+	}, nil
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
@@ -207,12 +222,15 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 		"direction", opts.Direction,
 	)
 
-	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
+	cursor, err := s.strategy.GetStreamCursor(ctx, streamID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("getting stream iterator: %w", err)
 	}
 
-	return iter, nil
+	return &streamIterator{
+		cursor:    cursor,
+		marshaler: s.marshaler,
+	}, nil
 }
 
 // AppendStream appends events to the specified stream.
@@ -225,14 +243,14 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID,
 		func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
-			fullEvents := make([]*strategy.Event, len(events))
+			fullEvents := make([]*Event, len(events))
 			docs := make([]any, len(events))
 			for i, we := range events {
 				if we.Timestamp.IsZero() {
 					we.Timestamp = time.Now()
 				}
 
-				fullEvents[i] = &strategy.Event{
+				fullEvents[i] = &Event{
 					Event: eventstore.Event{
 						ID:            we.ID,
 						StreamID:      streamID,
@@ -243,7 +261,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 					GlobalOffset: globalOffset + int64(i) + 1,
 				}
 
-				doc, err := s.strategy.MarshalDocument(fullEvents[i])
+				doc, err := s.marshaler.MarshalDocument(fullEvents[i])
 				if err != nil {
 					return nil, fmt.Errorf("marshaling event: %w", err)
 				}

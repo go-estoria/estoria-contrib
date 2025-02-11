@@ -8,18 +8,16 @@ import (
 )
 
 type strategyConfig struct {
-	log       estoria.Logger
-	marshaler DocumentMarshaler
-	sessOpts  *options.SessionOptionsBuilder
-	txOpts    *options.TransactionOptionsBuilder
+	log      estoria.Logger
+	sessOpts *options.SessionOptionsBuilder
+	txOpts   *options.TransactionOptionsBuilder
 }
 
 func newStrategyConfig() *strategyConfig {
 	return &strategyConfig{
-		log:       estoria.DefaultLogger(),
-		marshaler: DefaultMarshaler{},
-		sessOpts:  DefaultSessionOptions(),
-		txOpts:    DefaultTransactionOptions(),
+		log:      estoria.DefaultLogger(),
+		sessOpts: DefaultSessionOptions(),
+		txOpts:   DefaultTransactionOptions(),
 	}
 }
 
@@ -34,20 +32,6 @@ func (c *strategyConfig) apply(opts ...StrategyOption) error {
 }
 
 type StrategyOption func(*strategyConfig) error
-
-// WithDocumentMarshaler sets the marshaler to use for the event store.
-//
-// The default marshaler is DefaultMarshaler().
-func WithDocumentMarshaler(marshaler DocumentMarshaler) StrategyOption {
-	return func(s *strategyConfig) error {
-		if marshaler == nil {
-			return errors.New("marshaler cannot be nil")
-		}
-
-		s.marshaler = marshaler
-		return nil
-	}
-}
 
 // WithLogger sets the logger to use for the event store.
 //

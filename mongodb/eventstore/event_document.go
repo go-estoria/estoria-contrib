@@ -1,4 +1,4 @@
-package strategy
+package eventstore
 
 import (
 	"fmt"
