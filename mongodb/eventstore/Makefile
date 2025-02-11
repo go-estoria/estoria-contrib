@@ -13,3 +13,7 @@ itestv:
 
 smoke:
 	go test -timeout $(ITEST_TIMEOUT) -failfast -run SmokeTest .
+
+smokev:
+	go clean -testcache
+	go test -timeout $(ITEST_TIMEOUT) -failfast -run SmokeTest -v .
