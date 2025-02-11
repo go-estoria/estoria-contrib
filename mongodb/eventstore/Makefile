@@ -10,3 +10,6 @@ itest:
 itestv:
 	go clean -testcache
 	go test -timeout $(ITEST_TIMEOUT) -failfast -run Integration -v .
+
+smoke:
+	go test -timeout $(ITEST_TIMEOUT) -failfast -run SmokeTest .

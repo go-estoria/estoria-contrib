@@ -133,6 +133,7 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 	eventStore := &EventStore{
 		mongoClient: client,
+		marshaler:   DefaultMarshaler{},
 		log:         estoria.GetLogger().WithGroup("eventstore"),
 	}
 
