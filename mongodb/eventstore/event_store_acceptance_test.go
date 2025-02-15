@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-func TestEventStore_SmokeTest(t *testing.T) {
+func TestEventStore_AcceptanceTest(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
@@ -80,7 +80,7 @@ func TestEventStore_SmokeTest(t *testing.T) {
 			t.Fatalf("tc setup: failed to create EventStore: %v", err)
 		}
 
-		if err := tests.EventStoreSmokeTest(t, eventStore); err != nil {
+		if err := tests.EventStoreAcceptanceTest(t, eventStore); err != nil {
 			t.Errorf("smoke test failed: %s: %v", tt.name, err)
 		}
 	}

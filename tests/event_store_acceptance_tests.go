@@ -10,7 +10,7 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
-func EventStoreSmokeTest(t *testing.T, eventStore eventstore.Store) error {
+func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	t.Helper()
 
 	streamID, err := typeid.NewUUID("streamtype")
