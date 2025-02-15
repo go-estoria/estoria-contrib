@@ -24,27 +24,34 @@ type EventStore struct {
 	appendTxHooks []TransactionHook
 }
 
+type Event struct {
+	eventstore.Event
+	GlobalOffset int64
+}
+
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
 
 type Strategy interface {
-	GetStreamIterator(
+	// ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
+	// The function is executed within a transaction and is invoked with a session context, a collection,
+	// the current offset of the stream, and the global offset.
+	ExecuteInsertTransaction(
+		ctx context.Context,
+		streamID typeid.UUID,
+		inTxnFn func(txn *sql.Tx, table string, offset int64, globalOffset int64) ([]sql.Result, error),
+	) error
+	GetStreamRows(
 		ctx context.Context,
 		streamID typeid.UUID,
 		opts eventstore.ReadStreamOptions,
-	) (eventstore.StreamIterator, error)
-	InsertStreamEvents(
-		tx strategy.SQLTx,
-		streamID typeid.UUID,
-		events []*eventstore.WritableEvent,
-		opts eventstore.AppendStreamOptions,
-	) (*strategy.InsertStreamEventsResult, error)
+	) (*sql.Rows, error)
 }
 
-// NewEventStore creates a new event store using the given database connection.
-func NewEventStore(db SQLDatabase, opts ...EventStoreOption) (*EventStore, error) {
+// New creates a new event store using the given database connection.
+func New(db SQLDatabase, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		db: db,
 	}
@@ -79,72 +86,68 @@ func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
 
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
-	s.log.Debug("reading events from Postgres stream", "stream_id", streamID.String())
+	s.log.Debug("reading events from Postgres stream",
+		"stream_id", streamID.String(),
+		"offset", opts.Offset,
+		"count", opts.Count,
+		"direction", opts.Direction,
+	)
 
-	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
+	rows, err := s.strategy.GetStreamRows(ctx, streamID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("getting stream cursor: %w", err)
 	}
 
-	return iter, nil
+	return &streamIterator{
+		streamID: streamID,
+		rows:     rows,
+	}, nil
 }
 
 // AppendStream appends events to the specified stream.
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
-	fullEvents := make([]*eventstore.Event, len(events))
-	for i, event := range events {
-		fullEvents[i] = &eventstore.Event{
-			ID:        event.ID,
-			StreamID:  streamID,
-			Timestamp: time.Now(),
-			Data:      event.Data,
-			// StreamVersion: 0, // assigned by the strategy
-		}
-	}
-
-	_, txErr := doInTransaction(ctx, s.db, func(tx *sql.Tx) (sql.Result, error) {
-		s.log.Debug("inserting events", "events", len(events))
-		insertResult, err := s.strategy.InsertStreamEvents(tx, streamID, events, opts)
-		if err != nil {
-			return nil, fmt.Errorf("inserting events: %w", err)
-		}
-
-		for _, hook := range s.appendTxHooks {
-			if err := hook(tx, insertResult.InsertedEvents); err != nil {
-				return nil, fmt.Errorf("executing transaction hook: %w", err)
+	return s.strategy.ExecuteInsertTransaction(ctx, streamID,
+		func(txn *sql.Tx, table string, offset int64, globalOffset int64) ([]sql.Result, error) {
+			if opts.ExpectVersion > 0 && offset != opts.ExpectVersion {
+				return nil, fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, offset)
 			}
-		}
 
-		return nil, nil
-	})
-	if txErr != nil {
-		return fmt.Errorf("inserting events: %w", txErr)
-	}
+			stmt, err := txn.Prepare(fmt.Sprintf(`
+				INSERT INTO "%s" (event_id, stream_type, stream_id, event_type, timestamp, stream_offset, global_offset, data)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`, table))
+			if err != nil {
+				return nil, fmt.Errorf("preparing statement: %w", err)
+			}
+			defer stmt.Close()
 
-	return nil
-}
+			now := time.Now()
+			results := make([]sql.Result, len(events))
+			for i, we := range events {
+				if we.Timestamp.IsZero() {
+					we.Timestamp = now
+				}
 
-// Executes the given function within a transaction.
-func doInTransaction(ctx context.Context, db SQLDatabase, f func(tx *sql.Tx) (sql.Result, error)) (any, error) {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("beginning transaction: %w", err)
-	}
+				res, err := stmt.Exec(
+					we.ID.Value(),
+					streamID.TypeName(),
+					streamID.Value(),
+					we.ID.TypeName(),
+					we.Timestamp,
+					offset+int64(i)+1,
+					globalOffset+int64(i)+1,
+					we.Data,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("executing statement: %w", err)
+				}
 
-	result, err := f(tx)
-	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			return nil, fmt.Errorf("rolling back transaction: %s (original transaction error: %w)", rollbackErr, err)
-		}
+				results[i] = res
+			}
 
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("committing transaction: %w", err)
-	}
-
-	return result, nil
+			return results, nil
+		},
+	)
 }

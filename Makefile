@@ -12,6 +12,9 @@ start-esdb-deps:
 start-mongo-deps:
 	docker-compose up -d mongo mongo-express
 
+start-postgres-deps:
+	docker-compose up -d postgres
+
 start-redis-deps:
 	docker-compose up -d redis redis-commander
 

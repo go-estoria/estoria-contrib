@@ -1,4 +1,4 @@
-package strategy
+package eventstore
 
 import (
 	"context"
@@ -27,16 +27,18 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 		return nil, fmt.Errorf("iterating rows: %w", err)
 	}
 
-	var e eventstore.Event
-	var eventID uuid.UUID
-	var eventType string
-	if err := i.rows.Scan(&eventID, &eventType, &e.Timestamp, &e.Data); err != nil {
+	var (
+		e         Event
+		eventID   uuid.UUID
+		eventType string
+	)
+	if err := i.rows.Scan(&eventID, &eventType, &e.Timestamp, &e.StreamVersion, &e.GlobalOffset, &e.Data); err != nil {
 		return nil, fmt.Errorf("scanning row: %w", err)
 	}
 
 	e.ID = typeid.FromUUID(eventType, eventID)
 
-	return &e, nil
+	return &e.Event, nil
 }
 
 func (i *streamIterator) Close(_ context.Context) error {

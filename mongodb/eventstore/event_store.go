@@ -244,11 +244,16 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID,
 		func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
+			if opts.ExpectVersion > 0 && offset != opts.ExpectVersion {
+				return nil, fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, offset)
+			}
+
+			now := time.Now()
 			fullEvents := make([]*Event, len(events))
 			docs := make([]any, len(events))
 			for i, we := range events {
 				if we.Timestamp.IsZero() {
-					we.Timestamp = time.Now()
+					we.Timestamp = now
 				}
 
 				fullEvents[i] = &Event{

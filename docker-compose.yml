@@ -74,6 +74,20 @@ services:
     networks:
       - example-net
 
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    environment:
+      POSTGRES_USER: estoria
+      POSTGRES_PASSWORD: estoria
+      POSTGRES_DB: estoria
+    ports:
+      - "5432:5432"
+    networks:
+      - example-net
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   s3:
     image: minio/minio
     container_name: s3
@@ -170,3 +184,4 @@ volumes:
     driver: local
   mongo1_data:
   mongo1_config:
+  postgres_data:

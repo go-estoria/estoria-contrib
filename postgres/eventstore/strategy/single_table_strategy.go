@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
@@ -12,6 +11,7 @@ import (
 )
 
 type SQLDB interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
@@ -28,7 +28,7 @@ type SingleTableStrategy struct {
 }
 
 type InsertStreamEventsResult struct {
-	InsertedEvents []*eventstore.Event
+	StatementResults []sql.Result
 }
 
 func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, error) {
@@ -45,11 +45,11 @@ func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, e
 	}, nil
 }
 
-func (s *SingleTableStrategy) GetStreamIterator(
+func (s *SingleTableStrategy) GetStreamRows(
 	ctx context.Context,
 	streamID typeid.UUID,
 	opts eventstore.ReadStreamOptions,
-) (eventstore.StreamIterator, error) {
+) (*sql.Rows, error) {
 	s.log.Debug("querying events", "stream_id", streamID)
 
 	limitClause := ""
@@ -57,95 +57,78 @@ func (s *SingleTableStrategy) GetStreamIterator(
 		limitClause = fmt.Sprintf("LIMIT %d", opts.Count)
 	}
 
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT event_id, event_type, timestamp, data
+	return s.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT event_id, event_type, timestamp, stream_offset, global_offset, data
 		FROM %s
 		WHERE stream_type = $1 AND stream_id = $2
-		ORDER BY version ASC
+		ORDER BY stream_offset ASC
 		%s
 		OFFSET $3
 	`, s.tableName, limitClause), streamID.TypeName(), streamID.Value(), opts.Offset)
-	if err != nil {
-		return nil, fmt.Errorf("querying events: %w", err)
-	}
-
-	return &streamIterator{
-		streamID: streamID,
-		rows:     rows,
-	}, nil
 }
 
-func (s *SingleTableStrategy) InsertStreamEvents(
-	tx SQLTx,
+// ExecuteInsertTransaction executes the given function within a new SQL transaction suitable for inserting events.
+// The function is executed within a transaction and is invoked with the transaction handle, a table name,
+// the current offset of the stream, and the global offset.
+func (s *SingleTableStrategy) ExecuteInsertTransaction(
+	ctx context.Context,
 	streamID typeid.UUID,
-	events []*eventstore.WritableEvent,
-	opts eventstore.AppendStreamOptions,
-) (*InsertStreamEventsResult, error) {
-	latestVersion, err := s.getLatestVersion(tx, streamID)
+	inTxnFn func(tx *sql.Tx, table string, offset int64, globalOffset int64) ([]sql.Result, error),
+) (e error) {
+	tx, err := s.db.BeginTx(ctx, nil) // TODO: add transaction options
 	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			s.log.Error("error rolling back transaction", "error", rollbackErr)
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+
+	defer func() {
+		if e != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", e)
+			}
+		} else if err := tx.Commit(); err != nil {
+			e = fmt.Errorf("committing transaction: %w", err)
 		}
+	}()
 
-		return nil, fmt.Errorf("getting latest version: %w", err)
-	}
-
-	if opts.ExpectVersion > 0 && latestVersion != opts.ExpectVersion {
-		return nil, fmt.Errorf("expected version %d, but stream has version %d", opts.ExpectVersion, latestVersion)
-	}
-
-	stmt, err := tx.Prepare(fmt.Sprintf(`
-		INSERT INTO %s (event_id, stream_type, stream_id, event_type, timestamp, version, data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, s.tableName))
+	offset, err := s.getHighestOffset(tx, streamID)
 	if err != nil {
-		return nil, fmt.Errorf("preparing statement: %w", err)
-	}
-	defer stmt.Close()
-
-	now := time.Now()
-
-	version := latestVersion
-
-	fullEvents := make([]*eventstore.Event, len(events))
-	for i, we := range events {
-		version++
-		fullEvents[i] = &eventstore.Event{
-			ID:            we.ID,
-			StreamID:      streamID,
-			StreamVersion: version,
-			Timestamp:     now,
-			Data:          we.Data,
-		}
-
-		_, err := stmt.Exec(
-			we.ID.Value(),
-			streamID.TypeName(),
-			streamID.Value(),
-			we.ID.TypeName(),
-			now,
-			version,
-			we.Data,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("executing statement: %w", err)
-		}
+		return fmt.Errorf("getting highest offset: %w", err)
 	}
 
-	return &InsertStreamEventsResult{
-		InsertedEvents: fullEvents,
-	}, nil
+	globalOffset, err := s.getHighestGlobalOffset(tx)
+	if err != nil {
+		return fmt.Errorf("getting highest global offset: %w", err)
+	}
+
+	_, err = inTxnFn(tx, s.tableName, offset, globalOffset)
+	return err
 }
 
-func (s *SingleTableStrategy) getLatestVersion(tx SQLTx, streamID typeid.UUID) (int64, error) {
-	var version int64
+func (s *SingleTableStrategy) getHighestOffset(tx SQLTx, streamID typeid.UUID) (int64, error) {
+	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
+	var offset int64
 	if err := tx.QueryRow(fmt.Sprintf(`
-		SELECT COALESCE(MAX(version), 0)
-		FROM %s
+		SELECT COALESCE(MAX(stream_offset), 0)
+		FROM "%s"
 		WHERE stream_type = $1 AND stream_id = $2
-	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&version); err != nil {
-		return 0, fmt.Errorf("querying latest version: %w", err)
+	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&offset); err != nil {
+		return 0, fmt.Errorf("querying highest offset: %w", err)
 	}
 
-	return version, nil
+	s.log.Debug("got highest offset for stream", "stream_id", streamID, "offset", offset)
+	return offset, nil
+}
+
+func (s *SingleTableStrategy) getHighestGlobalOffset(tx SQLTx) (int64, error) {
+	s.log.Debug("finding highest global offset in event store")
+	var offset int64
+	if err := tx.QueryRow(fmt.Sprintf(`
+		SELECT COALESCE(MAX(global_offset), 0)
+		FROM "%s"
+	`, s.tableName)).Scan(&offset); err != nil {
+		return 0, fmt.Errorf("querying highest global offset: %w", err)
+	}
+
+	s.log.Debug("got highest global offset in event store", "offset", offset)
+	return offset, nil
 }
