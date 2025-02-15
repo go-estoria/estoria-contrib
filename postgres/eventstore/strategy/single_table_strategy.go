@@ -45,6 +45,38 @@ func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, e
 	}, nil
 }
 
+// ListStreams returns a list of cursors for iterating over stream metadata.
+func (s *SingleTableStrategy) ListStreams(ctx context.Context) ([]*sql.Rows, error) {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT stream_id, stream_type, MAX(stream_offset), MAX(global_offset)
+		FROM %s
+		GROUP BY stream_id, stream_type
+	`, s.tableName))
+	if err != nil {
+		return nil, fmt.Errorf("querying streams: %w", err)
+	}
+
+	return []*sql.Rows{rows}, nil
+}
+
+// GetAllRows returns an iterator over all events in the event store, ordered by global offset.
+func (s *SingleTableStrategy) GetAllRows(
+	ctx context.Context,
+	opts eventstore.ReadStreamOptions,
+) ([]*sql.Rows, error) {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT stream_id, stream_type, event_id, event_type, timestamp, stream_offset, global_offset, data
+		FROM %s
+		ORDER BY global_offset ASC
+		OFFSET $1
+	`, s.tableName), opts.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("querying events: %w", err)
+	}
+
+	return []*sql.Rows{rows}, nil
+}
+
 func (s *SingleTableStrategy) GetStreamRows(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -58,7 +90,7 @@ func (s *SingleTableStrategy) GetStreamRows(
 	}
 
 	return s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT event_id, event_type, timestamp, stream_offset, global_offset, data
+		SELECT stream_id, stream_type, event_id, event_type, timestamp, stream_offset, global_offset, data
 		FROM %s
 		WHERE stream_type = $1 AND stream_id = $2
 		ORDER BY stream_offset ASC

@@ -12,8 +12,7 @@ import (
 )
 
 type streamIterator struct {
-	streamID typeid.UUID
-	rows     *sql.Rows
+	rows *sql.Rows
 }
 
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
@@ -28,15 +27,18 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	}
 
 	var (
-		e         Event
-		eventID   uuid.UUID
-		eventType string
+		e          Event
+		streamID   uuid.UUID
+		streamType string
+		eventID    uuid.UUID
+		eventType  string
 	)
-	if err := i.rows.Scan(&eventID, &eventType, &e.Timestamp, &e.StreamVersion, &e.GlobalOffset, &e.Data); err != nil {
+	if err := i.rows.Scan(&streamID, &streamType, &eventID, &eventType, &e.Timestamp, &e.StreamVersion, &e.GlobalOffset, &e.Data); err != nil {
 		return nil, fmt.Errorf("scanning row: %w", err)
 	}
 
 	e.ID = typeid.FromUUID(eventType, eventID)
+	e.StreamID = typeid.FromUUID(streamType, streamID)
 
 	return &e.Event, nil
 }
