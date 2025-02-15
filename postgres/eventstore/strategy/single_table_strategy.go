@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/go-estoria/estoria"
@@ -144,10 +145,14 @@ func (s *SingleTableStrategy) getHighestOffset(ctx context.Context, tx Transacti
 	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	var offset int64
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT COALESCE(MAX(stream_offset), 0)
+		SELECT stream_offset
 		FROM "%s"
 		WHERE stream_type = $1 AND stream_id = $2
-	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&offset); err != nil {
+		ORDER BY stream_offset DESC
+		LIMIT 1
+	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&offset); errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	} else if err != nil {
 		return 0, fmt.Errorf("querying highest offset: %w", err)
 	}
 
@@ -160,9 +165,13 @@ func (s *SingleTableStrategy) getHighestGlobalOffset(ctx context.Context, tx Tra
 	s.log.Debug("finding highest global offset in event store")
 	var offset int64
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT COALESCE(MAX(global_offset), 0)
+		SELECT global_offset
 		FROM "%s"
-	`, s.tableName)).Scan(&offset); err != nil {
+		ORDER BY global_offset DESC
+		LIMIT 1
+	`, s.tableName)).Scan(&offset); errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	} else if err != nil {
 		return 0, fmt.Errorf("querying highest global offset: %w", err)
 	}
 
