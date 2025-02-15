@@ -26,7 +26,7 @@ func WithLogger(logger estoria.Logger) EventStoreOption {
 // WithOutbox sets the outbox to use for the event store.
 func WithOutbox(outbox *outbox.Outbox) EventStoreOption {
 	return func(s *EventStore) error {
-		s.AddTransactionalHook(outbox.HandleEvents)
+		s.AddTransactionalHooks(outbox.HandleEvents)
 		return nil
 	}
 }
@@ -41,6 +41,14 @@ func WithStrategy(strategy Strategy) EventStoreOption {
 		}
 
 		s.strategy = strategy
+		return nil
+	}
+}
+
+// WithTransactionalHook adds a transactional hook to the event store.
+func WithTransactionalHooks(hooks ...TransactionHook) EventStoreOption {
+	return func(s *EventStore) error {
+		s.AddTransactionalHooks(hooks...)
 		return nil
 	}
 }

@@ -102,8 +102,8 @@ func New(db strategy.Database, opts ...EventStoreOption) (*EventStore, error) {
 
 // AddTransactionalHook adds a hook to be executed within the transaction when appending events.
 // If an error is returned from any hook, the transaction will be aborted.
-func (s *EventStore) AddTransactionalHook(hook TransactionHook) {
-	s.appendTxHooks = append(s.appendTxHooks, hook)
+func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
+	s.appendTxHooks = append(s.appendTxHooks, hooks...)
 }
 
 // ListStreams returns a list of metadata for all streams in the event store.
@@ -191,27 +191,42 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 			defer stmt.Close()
 
 			now := time.Now()
+			fullEvents := make([]*eventstore.Event, len(events))
 			results := make([]sql.Result, len(events))
 			for i, we := range events {
 				if we.Timestamp.IsZero() {
 					we.Timestamp = now
 				}
 
+				fullEvents[i] = &eventstore.Event{
+					ID:            we.ID,
+					StreamID:      streamID,
+					StreamVersion: offset + int64(i) + 1,
+					Timestamp:     we.Timestamp,
+					Data:          we.Data,
+				}
+
 				res, err := stmt.Exec(
-					we.ID.Value(),
-					streamID.TypeName(),
-					streamID.Value(),
-					we.ID.TypeName(),
-					we.Timestamp,
-					offset+int64(i)+1,
+					fullEvents[i].ID.Value(),
+					fullEvents[i].StreamID.TypeName(),
+					fullEvents[i].StreamID.Value(),
+					fullEvents[i].ID.TypeName(),
+					fullEvents[i].Timestamp,
+					fullEvents[i].StreamVersion,
 					globalOffset+int64(i)+1,
-					we.Data,
+					fullEvents[i].Data,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("executing statement: %w", err)
 				}
 
 				results[i] = res
+			}
+
+			for _, hook := range s.appendTxHooks {
+				if err := hook(txn.(*sql.Tx), fullEvents); err != nil {
+					return nil, fmt.Errorf("executing transaction hook: %w", err)
+				}
 			}
 
 			return results, nil
