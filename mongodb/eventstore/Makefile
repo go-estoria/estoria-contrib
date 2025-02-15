@@ -11,9 +11,11 @@ itestv:
 	go clean -testcache
 	go test -timeout $(ITEST_TIMEOUT) -failfast -run Integration -v .
 
-smoke:
-	go test -timeout $(ITEST_TIMEOUT) -failfast -run SmokeTest .
+# Run acceptance tests
+atest:
+	go test -timeout $(ITEST_TIMEOUT) -failfast -run AcceptanceTest .
 
-smokev:
+# Run acceptance tests in verbose mode
+atestv:
 	go clean -testcache
-	go test -timeout $(ITEST_TIMEOUT) -failfast -run SmokeTest -v .
+	go test -timeout $(ITEST_TIMEOUT) -failfast -run AcceptanceTest -v .

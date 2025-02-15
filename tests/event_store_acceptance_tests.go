@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -32,27 +31,18 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 		})
 	}
 
-	if err := eventStore.AppendStream(context.Background(), streamID, appendedEvents, eventstore.AppendStreamOptions{}); err != nil {
+	if err := eventStore.AppendStream(t.Context(), streamID, appendedEvents, eventstore.AppendStreamOptions{}); err != nil {
 		return fmt.Errorf("error appending events to stream: %v", err)
 	}
 
-	iter, err := eventStore.ReadStream(context.Background(), streamID, eventstore.ReadStreamOptions{})
+	iter, err := eventStore.ReadStream(t.Context(), streamID, eventstore.ReadStreamOptions{})
 	if err != nil {
 		return fmt.Errorf("error reading stream: %v", err)
 	}
 
-	readEvents := []*eventstore.Event{}
-	for {
-		event, err := iter.Next(context.Background())
-		if err == eventstore.ErrEndOfEventStream {
-			break
-		}
-
-		if err != nil {
-			return fmt.Errorf("error reading event: %v", err)
-		}
-
-		readEvents = append(readEvents, event)
+	readEvents, err := eventstore.ReadAll(t.Context(), iter)
+	if err != nil {
+		return fmt.Errorf("error reading events: %v", err)
 	}
 
 	if len(readEvents) != len(appendedEvents) {

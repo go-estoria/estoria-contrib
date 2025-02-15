@@ -1,6 +1,6 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.23.4
+go 1.24.0
 
 replace github.com/go-estoria/estoria => ../estoria
 
