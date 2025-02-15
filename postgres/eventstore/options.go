@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/go-estoria/estoria"
-	"github.com/go-estoria/estoria-contrib/sql/outbox"
+	"github.com/go-estoria/estoria-contrib/postgres/outbox"
 )
 
 type EventStoreOption func(*EventStore) error
