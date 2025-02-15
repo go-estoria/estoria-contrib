@@ -10,19 +10,19 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
-type SQLDB interface {
+type Database interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
-type SQLTx interface {
+type Transaction interface {
 	QueryRow(query string, args ...any) *sql.Row
 	Rollback() error
 	Prepare(query string) (*sql.Stmt, error)
 }
 
 type SingleTableStrategy struct {
-	db        SQLDB
+	db        Database
 	tableName string
 	log       estoria.Logger
 }
@@ -31,7 +31,7 @@ type InsertStreamEventsResult struct {
 	StatementResults []sql.Result
 }
 
-func NewSingleTableStrategy(db SQLDB, tableName string) (*SingleTableStrategy, error) {
+func NewSingleTableStrategy(db Database, tableName string) (*SingleTableStrategy, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
 	} else if tableName == "" {
@@ -105,7 +105,7 @@ func (s *SingleTableStrategy) GetStreamRows(
 func (s *SingleTableStrategy) ExecuteInsertTransaction(
 	ctx context.Context,
 	streamID typeid.UUID,
-	inTxnFn func(tx *sql.Tx, table string, offset int64, globalOffset int64) ([]sql.Result, error),
+	inTxnFn func(tx Transaction, table string, offset int64, globalOffset int64) ([]sql.Result, error),
 ) (e error) {
 	tx, err := s.db.BeginTx(ctx, nil) // TODO: add transaction options
 	if err != nil {
@@ -136,7 +136,7 @@ func (s *SingleTableStrategy) ExecuteInsertTransaction(
 	return err
 }
 
-func (s *SingleTableStrategy) getHighestOffset(tx SQLTx, streamID typeid.UUID) (int64, error) {
+func (s *SingleTableStrategy) getHighestOffset(tx Transaction, streamID typeid.UUID) (int64, error) {
 	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	var offset int64
 	if err := tx.QueryRow(fmt.Sprintf(`
@@ -151,7 +151,7 @@ func (s *SingleTableStrategy) getHighestOffset(tx SQLTx, streamID typeid.UUID) (
 	return offset, nil
 }
 
-func (s *SingleTableStrategy) getHighestGlobalOffset(tx SQLTx) (int64, error) {
+func (s *SingleTableStrategy) getHighestGlobalOffset(tx Transaction) (int64, error) {
 	s.log.Debug("finding highest global offset in event store")
 	var offset int64
 	if err := tx.QueryRow(fmt.Sprintf(`

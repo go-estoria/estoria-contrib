@@ -13,13 +13,37 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
-type SQLDatabase interface {
-	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
+type (
+	Strategy interface {
+		// ExecuteInsertTransaction executes the given function within a SQL transaction suitable for inserting events.
+		// The function is invoked with a transaction handle, a collection, the current offset of the stream, and the global offset.
+		ExecuteInsertTransaction(
+			ctx context.Context,
+			streamID typeid.UUID,
+			inTxnFn func(txn strategy.Transaction, table string, offset int64, globalOffset int64) ([]sql.Result, error),
+		) error
+		// GetAllRows returns one or more SQL rows objects for all events in the event store, ordered by global offset.
+		GetAllRows(
+			ctx context.Context,
+			opts eventstore.ReadStreamOptions,
+		) ([]*sql.Rows, error)
+		// GetStreamRows returns a SQL rows object for events in the specified stream, ordered by stream offset.
+		GetStreamRows(
+			ctx context.Context,
+			streamID typeid.UUID,
+			opts eventstore.ReadStreamOptions,
+		) (*sql.Rows, error)
+		// ListStreams returns a list of SQL rows objects for iterating over stream metadata.
+		ListStreams(ctx context.Context) ([]*sql.Rows, error)
+	}
+
+	SQLDatabase interface {
+		BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	}
+)
 
 type EventStore struct {
-	db            SQLDatabase
 	strategy      Strategy
 	log           estoria.Logger
 	appendTxHooks []TransactionHook
@@ -54,43 +78,16 @@ func (i StreamInfo) String() string {
 
 type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
 
-type Strategy interface {
-	// ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
-	// The function is executed within a transaction and is invoked with a session context, a collection,
-	// the current offset of the stream, and the global offset.
-	ExecuteInsertTransaction(
-		ctx context.Context,
-		streamID typeid.UUID,
-		inTxnFn func(txn *sql.Tx, table string, offset int64, globalOffset int64) ([]sql.Result, error),
-	) error
-	// GetAllRows returns one or more SQL rows objects for all events in the event store, ordered by global offset.
-	GetAllRows(
-		ctx context.Context,
-		opts eventstore.ReadStreamOptions,
-	) ([]*sql.Rows, error)
-	GetStreamRows(
-		ctx context.Context,
-		streamID typeid.UUID,
-		opts eventstore.ReadStreamOptions,
-	) (*sql.Rows, error)
-	// ListStreams returns a list of SQL rows objects for iterating over stream metadata.
-	ListStreams(ctx context.Context) ([]*sql.Rows, error)
-}
-
 // New creates a new event store using the given database connection.
-func New(db SQLDatabase, opts ...EventStoreOption) (*EventStore, error) {
+func New(db strategy.Database, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
-		db: db,
+		log: estoria.GetLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
 		if err := opt(eventStore); err != nil {
 			return nil, fmt.Errorf("applying option: %w", err)
 		}
-	}
-
-	if eventStore.log == nil {
-		eventStore.log = estoria.GetLogger().WithGroup("eventstore")
 	}
 
 	if eventStore.strategy == nil {
@@ -181,7 +178,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
 	return s.strategy.ExecuteInsertTransaction(ctx, streamID,
-		func(txn *sql.Tx, table string, offset int64, globalOffset int64) ([]sql.Result, error) {
+		func(txn strategy.Transaction, table string, offset int64, globalOffset int64) ([]sql.Result, error) {
 			if opts.ExpectVersion > 0 && offset != opts.ExpectVersion {
 				return nil, fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, offset)
 			}
