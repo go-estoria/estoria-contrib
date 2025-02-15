@@ -14,6 +14,7 @@ import (
 )
 
 type (
+	// Strategy provides APIs for reading and writing events to an event store, and for enumerating streams.
 	Strategy interface {
 		// ExecuteInsertTransaction executes the given function within a SQL transaction suitable for inserting events.
 		// The function is invoked with a transaction handle, a collection, the current offset of the stream, and the global offset.
@@ -36,26 +37,23 @@ type (
 		// ListStreams returns a list of SQL rows objects for iterating over stream metadata.
 		ListStreams(ctx context.Context) ([]*sql.Rows, error)
 	}
-
-	SQLDatabase interface {
-		BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
-		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	}
 )
 
+// An EventStore stores and retrieves events using Postgres as the underlying storage.
 type EventStore struct {
 	strategy      Strategy
 	log           estoria.Logger
 	appendTxHooks []TransactionHook
 }
 
+var _ eventstore.StreamReader = (*EventStore)(nil)
+var _ eventstore.StreamWriter = (*EventStore)(nil)
+
+// Event represents an event in the event store.
 type Event struct {
 	eventstore.Event
 	GlobalOffset int64
 }
-
-var _ eventstore.StreamReader = (*EventStore)(nil)
-var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 // StreamInfo represents information about a single stream in the event store.
 type StreamInfo struct {

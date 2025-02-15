@@ -10,27 +10,29 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
-type Database interface {
-	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
+type (
+	// Database is an interface for starting transactions and performing queries.
+	Database interface {
+		BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	}
 
-type Transaction interface {
-	QueryRow(query string, args ...any) *sql.Row
-	Rollback() error
-	Prepare(query string) (*sql.Stmt, error)
-}
+	// Transaction is an interface for executing queries and rolling back transactions.
+	Transaction interface {
+		Prepare(query string) (*sql.Stmt, error)
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+		Rollback() error
+	}
+)
 
+// A SingleTableStrategy stores all events for all streams in a single table.
 type SingleTableStrategy struct {
 	db        Database
 	tableName string
 	log       estoria.Logger
 }
 
-type InsertStreamEventsResult struct {
-	StatementResults []sql.Result
-}
-
+// NewSingleTableStrategy creates a new SingleTableStrategy using the given database and table name.
 func NewSingleTableStrategy(db Database, tableName string) (*SingleTableStrategy, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
@@ -77,6 +79,7 @@ func (s *SingleTableStrategy) GetAllRows(
 	return []*sql.Rows{rows}, nil
 }
 
+// GetStreamCursor returns a SQL rows object for events in the specified stream, ordered by stream offset.
 func (s *SingleTableStrategy) GetStreamRows(
 	ctx context.Context,
 	streamID typeid.UUID,
@@ -122,12 +125,12 @@ func (s *SingleTableStrategy) ExecuteInsertTransaction(
 		}
 	}()
 
-	offset, err := s.getHighestOffset(tx, streamID)
+	offset, err := s.getHighestOffset(ctx, tx, streamID)
 	if err != nil {
 		return fmt.Errorf("getting highest offset: %w", err)
 	}
 
-	globalOffset, err := s.getHighestGlobalOffset(tx)
+	globalOffset, err := s.getHighestGlobalOffset(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("getting highest global offset: %w", err)
 	}
@@ -136,10 +139,11 @@ func (s *SingleTableStrategy) ExecuteInsertTransaction(
 	return err
 }
 
-func (s *SingleTableStrategy) getHighestOffset(tx Transaction, streamID typeid.UUID) (int64, error) {
+// Finds the highest offset for the given stream.
+func (s *SingleTableStrategy) getHighestOffset(ctx context.Context, tx Transaction, streamID typeid.UUID) (int64, error) {
 	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	var offset int64
-	if err := tx.QueryRow(fmt.Sprintf(`
+	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT COALESCE(MAX(stream_offset), 0)
 		FROM "%s"
 		WHERE stream_type = $1 AND stream_id = $2
@@ -151,10 +155,11 @@ func (s *SingleTableStrategy) getHighestOffset(tx Transaction, streamID typeid.U
 	return offset, nil
 }
 
-func (s *SingleTableStrategy) getHighestGlobalOffset(tx Transaction) (int64, error) {
+// Finds the highest global offset among all events in the event store.
+func (s *SingleTableStrategy) getHighestGlobalOffset(ctx context.Context, tx Transaction) (int64, error) {
 	s.log.Debug("finding highest global offset in event store")
 	var offset int64
-	if err := tx.QueryRow(fmt.Sprintf(`
+	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT COALESCE(MAX(global_offset), 0)
 		FROM "%s"
 	`, s.tableName)).Scan(&offset); err != nil {
