@@ -13,6 +13,10 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
+const (
+	DefaultTableName string = "events"
+)
+
 type (
 	// Strategy provides APIs for reading and writing events to an event store, and for enumerating streams.
 	Strategy interface {
@@ -89,7 +93,7 @@ func New(db strategy.Database, opts ...EventStoreOption) (*EventStore, error) {
 	}
 
 	if eventStore.strategy == nil {
-		strat, err := strategy.NewSingleTableStrategy(db, "events")
+		strat, err := strategy.NewSingleTableStrategy(db, DefaultTableName)
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}

@@ -22,7 +22,6 @@ type (
 	Transaction interface {
 		Prepare(query string) (*sql.Stmt, error)
 		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-		Rollback() error
 	}
 )
 
