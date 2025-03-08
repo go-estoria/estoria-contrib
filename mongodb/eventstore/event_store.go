@@ -248,7 +248,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 				return nil, fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, offset)
 			}
 
-			now := time.Now()
+			now := time.Now().UTC()
 			fullEvents := make([]*Event, len(events))
 			docs := make([]any, len(events))
 			for i, we := range events {

@@ -1,4 +1,4 @@
-package strategy_test
+package eventstore_test
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func createPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, error)
 		}
 	})
 
-	connStr, err := postgresContainer.ConnectionString(ctx)
+	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Postgres connection string: %w", err)
 	}
@@ -39,10 +39,10 @@ func createPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, error)
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		t.Fatalf("failed to create SQL client: %v", err)
+		t.Fatalf("failed to create Postgres client: %v", err)
 	}
 
-	t.Log("Created SQL client")
+	t.Log("Created Postgres client")
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping Postgres: %w", err)

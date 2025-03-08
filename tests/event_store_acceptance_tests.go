@@ -18,7 +18,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	}
 
 	appendedEvents := []*eventstore.WritableEvent{}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		id, err := typeid.NewUUID("eventtype")
 		if err != nil {
 			return fmt.Errorf("error creating event ID: %v", err)
@@ -26,8 +26,8 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 
 		appendedEvents = append(appendedEvents, &eventstore.WritableEvent{
 			ID:        id,
-			Data:      []byte(fmt.Sprintf("event data %d", i)),
-			Timestamp: time.Now(),
+			Data:      fmt.Appendf(nil, "event data %d", i),
+			Timestamp: time.Now().UTC(),
 		})
 	}
 
@@ -66,7 +66,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 			return fmt.Errorf("expected event data %s, got %s", string(appendedEvents[i].Data), string(readEvent.Data))
 		}
 
-		if readEvent.Timestamp.Equal(appendedEvents[i].Timestamp) {
+		if !readEvent.Timestamp.Truncate(time.Millisecond).Equal(appendedEvents[i].Timestamp.Truncate(time.Millisecond)) {
 			return fmt.Errorf("expected event timestamp %s, got %s", appendedEvents[i].Timestamp, readEvent.Timestamp)
 		}
 	}

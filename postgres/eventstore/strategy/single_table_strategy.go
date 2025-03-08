@@ -15,6 +15,7 @@ type (
 	// Database is an interface for starting transactions and performing queries.
 	Database interface {
 		BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+		ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	}
 
@@ -40,11 +41,17 @@ func NewSingleTableStrategy(db Database, tableName string) (*SingleTableStrategy
 		return nil, fmt.Errorf("table is required")
 	}
 
-	return &SingleTableStrategy{
+	strat := &SingleTableStrategy{
 		db:        db,
 		tableName: tableName,
 		log:       estoria.GetLogger().WithGroup("eventstore"),
-	}, nil
+	}
+
+	if err := strat.ensureEventsTable(context.Background()); err != nil {
+		return nil, fmt.Errorf("creating %s table: %w", strat.tableName, err)
+	}
+
+	return strat, nil
 }
 
 // ListStreams returns a list of cursors for iterating over stream metadata.
@@ -136,6 +143,30 @@ func (s *SingleTableStrategy) ExecuteInsertTransaction(
 	}
 
 	_, err = inTxnFn(tx, s.tableName, offset, globalOffset)
+	return err
+}
+
+// Creates the events table if it does not already exist.
+func (s *SingleTableStrategy) ensureEventsTable(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGSERIAL PRIMARY KEY,
+			stream_id uuid NOT NULL,
+			stream_type varchar(255) NOT NULL,
+			event_id uuid NOT NULL,
+			event_type varchar(255) NOT NULL,
+			timestamp timestamptz NOT NULL,
+			stream_offset bigint NOT NULL,
+			global_offset bigint NOT NULL,
+			data bytea,
+
+			UNIQUE (stream_id, stream_type, stream_offset),
+			UNIQUE (global_offset),
+
+			CHECK (stream_offset > 0),
+			CHECK (global_offset > 0)
+		)
+	`, s.tableName))
 	return err
 }
 

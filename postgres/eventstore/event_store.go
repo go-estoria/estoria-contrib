@@ -194,7 +194,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 			}
 			defer stmt.Close()
 
-			now := time.Now()
+			now := time.Now().UTC()
 			fullEvents := make([]*eventstore.Event, len(events))
 			results := make([]sql.Result, len(events))
 			for i, we := range events {

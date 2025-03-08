@@ -1,6 +1,6 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.24.0
+go 1.24.1
 
 replace github.com/go-estoria/estoria => ../estoria
 
@@ -14,6 +14,7 @@ require (
 	github.com/go-estoria/estoria v0.1.6
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/gofrs/uuid/v5 v5.2.0
+	github.com/lib/pq v1.10.9
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/valkey-io/valkey-go v1.0.52
 	go.jetify.com/typeid v1.2.0
