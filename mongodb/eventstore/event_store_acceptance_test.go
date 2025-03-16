@@ -81,7 +81,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 		}
 
 		if err := tests.EventStoreAcceptanceTest(t, eventStore); err != nil {
-			t.Errorf("smoke test failed: %s: %v", tt.name, err)
+			t.Errorf("acceptance test failed: %s: %v", tt.name, err)
 		}
 	}
 }
