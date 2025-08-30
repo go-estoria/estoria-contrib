@@ -59,6 +59,14 @@ func NewSingleTableStrategy(db Database, tableName string) (*SingleTableStrategy
 	return strat, nil
 }
 
+func (s *SingleTableStrategy) BeginTransaction(ctx context.Context) (Transaction, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	return tx, nil
+}
+
 // ListStreams returns a list of cursors for iterating over stream metadata.
 func (s *SingleTableStrategy) ListStreams(ctx context.Context) ([]*sql.Rows, error) {
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
