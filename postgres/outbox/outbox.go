@@ -1,8 +1,9 @@
 package outbox
 
 import (
-	"database/sql"
 	"fmt"
+
+	"github.com/go-estoria/estoria-contrib/postgres/eventstore/strategy"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
@@ -22,7 +23,8 @@ func New(table string) (*Outbox, error) {
 	return outbox, nil
 }
 
-func (o *Outbox) HandleEvents(tx *sql.Tx, events []*eventstore.Event) error {
+// HandleEvents inserts emitted events into the outbox table using the given transactional context.
+func (o *Outbox) HandleEvents(tx strategy.Transaction, events []*eventstore.Event) error {
 	o.log.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
 
 	statement := fmt.Sprintf(`

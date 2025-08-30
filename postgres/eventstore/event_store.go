@@ -17,31 +17,31 @@ const (
 	DefaultTableName string = "events"
 )
 
-type (
-	// Strategy provides APIs for reading and writing events to an event store, and for enumerating streams.
-	Strategy interface {
-		// ExecuteInsertTransaction executes the given function within a SQL transaction suitable for inserting events.
-		// The function is invoked with a transaction handle, a collection, the current offset of the stream, and the global offset.
-		ExecuteInsertTransaction(
-			ctx context.Context,
-			streamID typeid.UUID,
-			inTxnFn func(txn strategy.Transaction, table string, offset int64, globalOffset int64) ([]sql.Result, error),
-		) error
-		// GetAllRows returns one or more SQL rows objects for all events in the event store, ordered by global offset.
-		GetAllRows(
-			ctx context.Context,
-			opts eventstore.ReadStreamOptions,
-		) ([]*sql.Rows, error)
-		// GetStreamRows returns a SQL rows object for events in the specified stream, ordered by stream offset.
-		GetStreamRows(
-			ctx context.Context,
-			streamID typeid.UUID,
-			opts eventstore.ReadStreamOptions,
-		) (*sql.Rows, error)
-		// ListStreams returns a list of SQL rows objects for iterating over stream metadata.
-		ListStreams(ctx context.Context) ([]*sql.Rows, error)
-	}
-)
+// ReadStrategy provides APIs for reading events and streams.
+type ReadStrategy interface {
+	// ListStreams returns a list of SQL rows for iterating over stream metadata.
+	ListStreams(ctx context.Context) ([]*sql.Rows, error)
+	// GetAllRows returns one or more SQL rows objects for all events, ordered by global offset.
+	GetAllRows(ctx context.Context, opts eventstore.ReadStreamOptions) ([]*sql.Rows, error)
+	// GetStreamRows returns a SQL rows object for events in a specific stream, ordered by stream offset.
+	GetStreamRows(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (*sql.Rows, error)
+}
+
+// WriteStrategy provides APIs for transactional writes of events.
+type WriteStrategy interface {
+	// ExecuteInsertTransaction runs the provided function inside a transaction for appending events.
+	ExecuteInsertTransaction(
+		ctx context.Context,
+		streamID typeid.UUID,
+		inTxnFn func(txn strategy.Transaction, table string, offset int64, globalOffset int64) ([]sql.Result, error),
+	) error
+}
+
+// Strategy combines read and write capabilities.
+type Strategy interface {
+	ReadStrategy
+	WriteStrategy
+}
 
 // An EventStore stores and retrieves events using Postgres as the underlying storage.
 type EventStore struct {
@@ -78,7 +78,8 @@ func (i StreamInfo) String() string {
 	return fmt.Sprintf("stream {ID: %s, Offset: %d, GlobalOffset: %d}", i.StreamID, i.Offset, i.GlobalOffset)
 }
 
-type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
+// TransactionHook is invoked during a write transaction and receives the transactional context.
+type TransactionHook func(tx strategy.Transaction, events []*eventstore.Event) error
 
 // New creates a new event store using the given database connection.
 func New(db strategy.Database, opts ...EventStoreOption) (*EventStore, error) {
@@ -192,7 +193,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 			if err != nil {
 				return nil, fmt.Errorf("preparing statement: %w", err)
 			}
-			defer stmt.Close()
+			defer func() { _ = stmt.Close() }()
 
 			now := time.Now().UTC()
 			fullEvents := make([]*eventstore.Event, len(events))
@@ -228,7 +229,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 			}
 
 			for _, hook := range s.appendTxHooks {
-				if err := hook(txn.(*sql.Tx), fullEvents); err != nil {
+				if err := hook(txn, fullEvents); err != nil {
 					return nil, fmt.Errorf("executing transaction hook: %w", err)
 				}
 			}

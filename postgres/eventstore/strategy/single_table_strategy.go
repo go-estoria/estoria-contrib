@@ -19,10 +19,15 @@ type (
 		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	}
 
-	// Transaction is an interface for executing queries and rolling back transactions.
+	// Transaction is an interface for executing queries within a transactional context.
+	// It abstracts *sql.Tx by exposing prepare, query, and exec methods, plus commit/rollback.
 	Transaction interface {
 		Prepare(query string) (*sql.Stmt, error)
 		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+		ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+		Commit() error
+		Rollback() error
 	}
 )
 

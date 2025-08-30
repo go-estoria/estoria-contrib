@@ -31,16 +31,14 @@ func WithOutbox(outbox *outbox.Outbox) EventStoreOption {
 	}
 }
 
-// WithStrategy sets the strategy to use for the event store.
-//
-// The default strategy is one collection per stream.
-func WithStrategy(strategy Strategy) EventStoreOption {
+// WithStrategy sets a custom read/write strategy for the event store.
+// The provided strategy must implement both ReadStrategy and WriteStrategy.
+func WithStrategy(strat Strategy) EventStoreOption {
 	return func(s *EventStore) error {
-		if strategy == nil {
+		if strat == nil {
 			return errors.New("strategy cannot be nil")
 		}
-
-		s.strategy = strategy
+		s.strategy = strat
 		return nil
 	}
 }
