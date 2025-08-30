@@ -1,6 +1,6 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.24.1
+go 1.24.6
 
 replace github.com/go-estoria/estoria => ../estoria
 
@@ -16,6 +16,7 @@ require (
 	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/lib/pq v1.10.9
 	github.com/redis/go-redis/v9 v9.7.0
+	github.com/stretchr/testify v1.10.0
 	github.com/valkey-io/valkey-go v1.0.52
 	go.jetify.com/typeid v1.2.0
 	go.mongodb.org/mongo-driver/v2 v2.0.0
@@ -47,7 +48,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
