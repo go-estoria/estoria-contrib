@@ -37,8 +37,8 @@ type SingleTableStrategy struct {
 func NewSingleTableStrategy(db Database, tableName string) (*SingleTableStrategy, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
-	} else if tableName == "" {
-		return nil, fmt.Errorf("table is required")
+	} else if err := validateTableName(tableName); err != nil {
+		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 
 	strat := &SingleTableStrategy{
