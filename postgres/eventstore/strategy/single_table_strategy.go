@@ -12,13 +12,19 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
+const (
+	defaultTableName = "events"
+)
+
+// SingleTableStrategy is a strategy for storing all events in a single database table.
 type SingleTableStrategy struct {
 	tableName string
 }
 
+// NewSingleTableStrategy creates a new SingleTableStrategy with optional options.
 func NewSingleTableStrategy(opts ...SingleTableStrategyOption) (*SingleTableStrategy, error) {
 	strategy := &SingleTableStrategy{
-		tableName: "events",
+		tableName: defaultTableName,
 	}
 
 	for _, opt := range opts {
@@ -161,10 +167,15 @@ func (s *SingleTableStrategy) Schema() string {
 func (s *SingleTableStrategy) GetHighestOffset(ctx context.Context, tx *sql.Tx, streamID typeid.UUID) (int64, error) {
 	var offset int64
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT stream_offset
+		SELECT
+			stream_offset
 		FROM "%s"
-		WHERE stream_type = $1 AND stream_id = $2
-		ORDER BY stream_offset DESC
+		WHERE
+			stream_type = $1
+			AND
+			stream_id = $2
+		ORDER BY
+			stream_offset DESC
 		LIMIT 1
 	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&offset); errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
