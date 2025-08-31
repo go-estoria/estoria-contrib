@@ -78,15 +78,23 @@ func New(db Database, opts ...EventStoreOption) (*EventStore, error) {
 	}
 
 	eventStore := &EventStore{
-		db:       db,
-		strategy: strategy.NewSingleTableStrategy(),
-		log:      estoria.GetLogger().WithGroup("eventstore"),
+		db:  db,
+		log: estoria.GetLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
 		if err := opt(eventStore); err != nil {
 			return nil, fmt.Errorf("applying option: %w", err)
 		}
+	}
+
+	if eventStore.strategy == nil {
+		strategy, err := strategy.NewSingleTableStrategy()
+		if err != nil {
+			return nil, fmt.Errorf("creating default strategy: %w", err)
+		}
+
+		eventStore.strategy = strategy
 	}
 
 	return eventStore, nil

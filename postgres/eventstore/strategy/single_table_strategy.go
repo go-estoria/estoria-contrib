@@ -16,7 +16,7 @@ type SingleTableStrategy struct {
 	tableName string
 }
 
-func NewSingleTableStrategy(opts ...SingleTableStrategyOption) *SingleTableStrategy {
+func NewSingleTableStrategy(opts ...SingleTableStrategyOption) (*SingleTableStrategy, error) {
 	strategy := &SingleTableStrategy{
 		tableName: "events",
 	}
@@ -25,7 +25,11 @@ func NewSingleTableStrategy(opts ...SingleTableStrategyOption) *SingleTableStrat
 		opt(strategy)
 	}
 
-	return strategy
+	if err := validateTableName(strategy.tableName); err != nil {
+		return nil, fmt.Errorf("invalid table name: %w", err)
+	}
+
+	return strategy, nil
 }
 
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
@@ -174,7 +178,7 @@ func (s *SingleTableStrategy) GetHighestOffset(ctx context.Context, tx *sql.Tx, 
 // validateTableName validates that the given table name is a valid SQL identifier.
 func validateTableName(name string) error {
 	if ok, err := regexp.Match(`^[A-Za-z_][A-Za-z0-9_$]{0,62}$`, []byte(name)); err != nil {
-		return fmt.Errorf("validating table name: %w", err)
+		return fmt.Errorf("matching regex: %w", err)
 	} else if !ok {
 		return errors.New("table name must be a valid SQL identifier")
 	}
