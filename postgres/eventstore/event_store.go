@@ -3,15 +3,13 @@ package eventstore
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/go-estoria/estoria"
+	"github.com/go-estoria/estoria-contrib/postgres/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/gofrs/uuid/v5"
 )
 
 const (
@@ -36,22 +34,24 @@ type Transaction interface {
 	Rollback() error
 }
 
+type Strategy interface {
+	AppendStreamExecArgs(event *eventstore.Event) []any
+	AppendStreamStatement(ids []typeid.UUID) (string, error)
+	GetHighestOffset(ctx context.Context, tx *sql.Tx, streamID typeid.UUID) (int64, error)
+	ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, error)
+	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
+}
+
 // An EventStore stores and retrieves events using Postgres as the underlying storage.
 type EventStore struct {
 	db            Database
-	tableName     string
+	strategy      Strategy
 	log           estoria.Logger
 	appendTxHooks []TransactionHook
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
-
-// Event represents an event in the event store.
-type Event struct {
-	eventstore.Event
-	GlobalOffset int64
-}
 
 // StreamInfo represents information about a single stream in the event store.
 type StreamInfo struct {
@@ -61,15 +61,11 @@ type StreamInfo struct {
 	// Offset is the stream-specific offset of the most recent event in the stream.
 	// Thus, it also represents the number of events in the stream.
 	Offset int64
-
-	// GlobalOffset is the global offset of the most recent event in the stream
-	// among all events in the event store.
-	GlobalOffset int64
 }
 
 // String returns a string representation of a StreamInfo.
 func (i StreamInfo) String() string {
-	return fmt.Sprintf("stream {ID: %s, Offset: %d, GlobalOffset: %d}", i.StreamID, i.Offset, i.GlobalOffset)
+	return fmt.Sprintf("stream {ID: %s, Offset: %d}", i.StreamID, i.Offset)
 }
 
 // TransactionHook is invoked during a write transaction and receives the transactional context.
@@ -82,23 +78,15 @@ func New(db Database, opts ...EventStoreOption) (*EventStore, error) {
 	}
 
 	eventStore := &EventStore{
-		db:        db,
-		tableName: DefaultTableName,
-		log:       estoria.GetLogger().WithGroup("eventstore"),
+		db:       db,
+		strategy: strategy.NewSingleTableStrategy(),
+		log:      estoria.GetLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
 		if err := opt(eventStore); err != nil {
 			return nil, fmt.Errorf("applying option: %w", err)
 		}
-	}
-
-	if err := validateTableName(eventStore.tableName); err != nil {
-		return nil, fmt.Errorf("invalid table name: %w", err)
-	}
-
-	if err := eventStore.ensureEventsTable(context.Background()); err != nil {
-		return nil, fmt.Errorf("creating %s table: %w", eventStore.tableName, err)
 	}
 
 	return eventStore, nil
@@ -110,60 +98,6 @@ func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
 	s.appendTxHooks = append(s.appendTxHooks, hooks...)
 }
 
-// ListStreams returns a list of metadata for all streams in the event store.
-func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT stream_id, stream_type, MAX(stream_offset), MAX(global_offset)
-		FROM %s
-		GROUP BY stream_id, stream_type
-	`, s.tableName))
-	if err != nil {
-		return nil, fmt.Errorf("querying streams: %w", err)
-	}
-	defer rows.Close()
-
-	streams := []StreamInfo{}
-	for rows.Next() {
-		var (
-			info       = StreamInfo{}
-			streamID   uuid.UUID
-			streamType string
-		)
-		if err := rows.Scan(&streamID, &streamType, &info.Offset, &info.GlobalOffset); err != nil {
-			return nil, fmt.Errorf("decoding streams: %w", err)
-		}
-
-		info.StreamID = typeid.FromUUID(streamType, streamID)
-
-		streams = append(streams, info)
-	}
-
-	return streams, nil
-}
-
-// ReadAll returns an iterator for reading all events in the event store.
-func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
-	s.log.Debug("reading events from Postgres event store",
-		"offset", opts.Offset,
-		"count", opts.Count,
-		"direction", opts.Direction,
-	)
-
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT stream_id, stream_type, event_id, event_type, timestamp, stream_offset, global_offset, data
-		FROM %s
-		ORDER BY global_offset ASC
-		OFFSET $1
-	`, s.tableName), opts.Offset)
-	if err != nil {
-		return nil, fmt.Errorf("querying events: %w", err)
-	}
-
-	return &streamIterator{
-		rows: rows,
-	}, nil
-}
-
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from Postgres stream",
@@ -173,25 +107,19 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 		"direction", opts.Direction,
 	)
 
-	limitClause := ""
-	if opts.Count > 0 {
-		limitClause = fmt.Sprintf("LIMIT %d", opts.Count)
+	query, err := s.strategy.ReadStreamQuery(streamID, opts)
+	if err != nil {
+		return nil, fmt.Errorf("building query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT stream_id, stream_type, event_id, event_type, timestamp, stream_offset, global_offset, data
-		FROM %s
-		WHERE stream_type = $1 AND stream_id = $2
-		ORDER BY stream_offset ASC
-		%s
-		OFFSET $3
-	`, s.tableName, limitClause), streamID.TypeName(), streamID.Value(), opts.Offset)
+	rows, err := s.db.QueryContext(ctx, query, streamID.TypeName(), streamID.Value())
 	if err != nil {
 		return nil, fmt.Errorf("querying stream events: %w", err)
 	}
 
 	return &streamIterator{
-		rows: rows,
+		strategy: s.strategy,
+		rows:     rows,
 	}, nil
 }
 
@@ -212,28 +140,34 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		}
 	}()
 
-	offset, err := s.getHighestOffset(ctx, tx, streamID)
+	offset, err := s.strategy.GetHighestOffset(ctx, tx, streamID)
 	if err != nil {
 		return fmt.Errorf("getting highest offset: %w", err)
-	}
-
-	globalOffset, err := s.getHighestGlobalOffset(ctx, tx)
-	if err != nil {
-		return fmt.Errorf("getting highest global offset: %w", err)
 	}
 
 	if opts.ExpectVersion > 0 && offset != opts.ExpectVersion {
 		return fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, offset)
 	}
 
-	stmt, err := tx.Prepare(fmt.Sprintf(`
-		INSERT INTO "%s" (event_id, stream_type, stream_id, event_type, timestamp, stream_offset, global_offset, data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, s.tableName))
+	ids := make([]typeid.UUID, len(events))
+	for i, e := range events {
+		ids[i] = e.ID
+	}
+
+	stmtQuery, err := s.strategy.AppendStreamStatement(ids)
+	if err != nil {
+		return fmt.Errorf("building append statement: %w", err)
+	}
+
+	stmt, err := tx.Prepare(stmtQuery)
 	if err != nil {
 		return fmt.Errorf("preparing statement: %w", err)
 	}
-	defer func() { _ = stmt.Close() }()
+	defer func() {
+		if err := stmt.Close(); err != nil {
+			s.log.Error("closing statement", "error", err)
+		}
+	}()
 
 	now := time.Now().UTC()
 	fullEvents := make([]*eventstore.Event, len(events))
@@ -250,16 +184,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 			Data:          we.Data,
 		}
 
-		_, err := stmt.Exec(
-			fullEvents[i].ID.Value(),
-			fullEvents[i].StreamID.TypeName(),
-			fullEvents[i].StreamID.Value(),
-			fullEvents[i].ID.TypeName(),
-			fullEvents[i].Timestamp,
-			fullEvents[i].StreamVersion,
-			globalOffset+int64(i)+1,
-			fullEvents[i].Data,
-		)
+		_, err := stmt.Exec(s.strategy.AppendStreamExecArgs(fullEvents[i])...)
 		if err != nil {
 			return fmt.Errorf("executing statement: %w", err)
 		}
@@ -273,80 +198,6 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("committing transaction: %w", err)
-	}
-
-	return nil
-}
-
-// Creates the events table if it does not already exist.
-func (s *EventStore) ensureEventsTable(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id BIGSERIAL PRIMARY KEY,
-			stream_id uuid NOT NULL,
-			stream_type varchar(255) NOT NULL,
-			event_id uuid NOT NULL,
-			event_type varchar(255) NOT NULL,
-			timestamp timestamptz NOT NULL,
-			stream_offset bigint NOT NULL,
-			global_offset bigint NOT NULL,
-			data bytea,
-
-			UNIQUE (stream_id, stream_type, stream_offset),
-			UNIQUE (global_offset),
-
-			CHECK (stream_offset > 0),
-			CHECK (global_offset > 0)
-		)
-	`, s.tableName))
-	return err
-}
-
-// Finds the highest offset for the given stream.
-func (s *EventStore) getHighestOffset(ctx context.Context, tx Transaction, streamID typeid.UUID) (int64, error) {
-	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
-	var offset int64
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT stream_offset
-		FROM "%s"
-		WHERE stream_type = $1 AND stream_id = $2
-		ORDER BY stream_offset DESC
-		LIMIT 1
-	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&offset); errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	} else if err != nil {
-		return 0, fmt.Errorf("querying highest offset: %w", err)
-	}
-
-	s.log.Debug("got highest offset for stream", "stream_id", streamID, "offset", offset)
-	return offset, nil
-}
-
-// Finds the highest global offset among all events in the event store.
-func (s *EventStore) getHighestGlobalOffset(ctx context.Context, tx Transaction) (int64, error) {
-	s.log.Debug("finding highest global offset in event store")
-	var offset int64
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT global_offset
-		FROM "%s"
-		ORDER BY global_offset DESC
-		LIMIT 1
-	`, s.tableName)).Scan(&offset); errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	} else if err != nil {
-		return 0, fmt.Errorf("querying highest global offset: %w", err)
-	}
-
-	s.log.Debug("got highest global offset in event store", "offset", offset)
-	return offset, nil
-}
-
-// validateTableName validates that the given table name is a valid SQL identifier.
-func validateTableName(name string) error {
-	if ok, err := regexp.Match(`^[A-Za-z_][A-Za-z0-9_$]{0,62}$`, []byte(name)); err != nil {
-		return fmt.Errorf("validating table name: %w", err)
-	} else if !ok {
-		return errors.New("table name must be a valid SQL identifier")
 	}
 
 	return nil
