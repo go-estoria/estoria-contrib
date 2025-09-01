@@ -115,12 +115,13 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
-		if we.Timestamp.IsZero() {
-			we.Timestamp = now
+		eventID, err := typeid.NewUUID(we.Type)
+		if err != nil {
+			return nil, fmt.Errorf("generating event ID: %w", err)
 		}
 
 		fullEvents[i] = &eventstore.Event{
-			ID:            we.ID,
+			ID:            eventID,
 			StreamID:      streamID,
 			StreamVersion: latestVersion + int64(i) + 1,
 			Timestamp:     now,

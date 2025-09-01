@@ -26,30 +26,22 @@ var (
 		must(typeid.NewUUID("stream_fe1701cb-5e5c-4ef4-b031-250e93adaa3c")),
 	}
 
-	eventIDs = []typeid.UUID{
-		must(typeid.NewUUID("event_7841ba8b-1e6e-4a96-a3cf-fce9c1c262b7")),
-		must(typeid.NewUUID("event_072775fe-d52a-4940-80e7-0d990574df9d")),
-		must(typeid.NewUUID("event_c3d6204b-40d7-40b2-8f70-a53882727fee")),
-		must(typeid.NewUUID("event_0430d522-909b-4b15-8207-c4ea4623cca3")),
-		must(typeid.NewUUID("event_7c187c90-b726-43d4-a273-b3c03e6ed096")),
-	}
-
 	writableEvents = []*eventstore.WritableEvent{
-		{ID: eventIDs[0], Timestamp: now.Add(1 * time.Second), Data: []byte(`{"foo":"one","bar":100,"baz":true}`)},
-		{ID: eventIDs[1], Timestamp: now.Add(2 * time.Second), Data: []byte(`{"foo":"two","bar":200,"baz":false}`)},
-		{ID: eventIDs[2], Timestamp: now.Add(3 * time.Second), Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
-		{ID: eventIDs[3], Timestamp: now.Add(4 * time.Second), Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
-		{ID: eventIDs[4], Timestamp: now.Add(5 * time.Second), Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
+		{Type: "event", Data: []byte(`{"foo":"one","bar":100,"baz":true}`)},
+		{Type: "event", Data: []byte(`{"foo":"two","bar":200,"baz":false}`)},
+		{Type: "event", Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
+		{Type: "event", Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
+		{Type: "event", Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
 	}
 )
 
 func eventsFor(streamID typeid.UUID) []*eventstore.Event {
 	return []*eventstore.Event{
-		{ID: eventIDs[0], StreamID: streamID, StreamVersion: 1, Timestamp: now.Add(1 * time.Second), Data: []byte(`{"foo":"one","bar":100,"baz":true}`)},
-		{ID: eventIDs[1], StreamID: streamID, StreamVersion: 2, Timestamp: now.Add(2 * time.Second), Data: []byte(`{"foo":"two","bar":200,"baz":false}`)},
-		{ID: eventIDs[2], StreamID: streamID, StreamVersion: 3, Timestamp: now.Add(3 * time.Second), Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
-		{ID: eventIDs[3], StreamID: streamID, StreamVersion: 4, Timestamp: now.Add(4 * time.Second), Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
-		{ID: eventIDs[4], StreamID: streamID, StreamVersion: 5, Timestamp: now.Add(5 * time.Second), Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
+		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 1, Timestamp: now.Add(1 * time.Second), Data: writableEvents[0].Data},
+		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 2, Timestamp: now.Add(2 * time.Second), Data: writableEvents[1].Data},
+		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 3, Timestamp: now.Add(3 * time.Second), Data: writableEvents[2].Data},
+		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 4, Timestamp: now.Add(4 * time.Second), Data: writableEvents[3].Data},
+		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 5, Timestamp: now.Add(5 * time.Second), Data: writableEvents[4].Data},
 	}
 }
 
@@ -285,11 +277,11 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				}
 
 				for i := range gotEvents {
-					if gotEvents[i].ID.TypeName() != tt.wantEvents[i].ID.TypeName() {
-						t.Errorf("event %d: expected type %q, got %q", i, tt.wantEvents[i].ID.TypeName(), gotEvents[i].ID.TypeName())
+					if gotEvents[i].ID.IsEmpty() {
+						t.Errorf("event %d: ID is empty", i)
 					}
-					if gotEvents[i].ID.Value() != tt.wantEvents[i].ID.Value() {
-						t.Errorf("event %d: expected ID %q, got %q", i, tt.wantEvents[i].ID.Value(), gotEvents[i].ID.Value())
+					if gotEvents[i].ID.TypeName() != tt.wantEvents[i].ID.TypeName() {
+						t.Errorf("event %d: expected ID type %q, got %q", i, tt.wantEvents[i].ID.TypeName(), gotEvents[i].ID.TypeName())
 					}
 					if gotEvents[i].StreamID != tt.wantEvents[i].StreamID {
 						t.Errorf("event %d: expected StreamID %q, got %q", i, tt.wantEvents[i].StreamID, gotEvents[i].StreamID)
@@ -494,11 +486,11 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				}
 
 				for i := range gotEvents {
-					if gotEvents[i].ID.TypeName() != tt.wantEvents[i].ID.TypeName() {
-						t.Errorf("event %d: expected type %q, got %q", i, tt.wantEvents[i].ID.TypeName(), gotEvents[i].ID.TypeName())
+					if gotEvents[i].ID.IsEmpty() {
+						t.Errorf("event %d: ID is empty", i)
 					}
-					if gotEvents[i].ID.Value() != tt.wantEvents[i].ID.Value() {
-						t.Errorf("event %d: expected ID %q, got %q", i, tt.wantEvents[i].ID.Value(), gotEvents[i].ID.Value())
+					if gotEvents[i].ID.TypeName() != tt.wantEvents[i].ID.TypeName() {
+						t.Errorf("event %d: expected ID type %q, got %q", i, tt.wantEvents[i].ID.TypeName(), gotEvents[i].ID.TypeName())
 					}
 					if gotEvents[i].StreamID != tt.wantEvents[i].StreamID {
 						t.Errorf("event %d: expected StreamID %q, got %q", i, tt.wantEvents[i].StreamID, gotEvents[i].StreamID)

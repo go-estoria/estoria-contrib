@@ -3,7 +3,6 @@ package tests
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
@@ -19,15 +18,9 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 
 	appendedEvents := []*eventstore.WritableEvent{}
 	for i := range 10 {
-		id, err := typeid.NewUUID("eventtype")
-		if err != nil {
-			return fmt.Errorf("error creating event ID: %v", err)
-		}
-
 		appendedEvents = append(appendedEvents, &eventstore.WritableEvent{
-			ID:        id,
-			Data:      fmt.Appendf(nil, "event data %d", i),
-			Timestamp: time.Now().UTC(),
+			Type: "eventtype",
+			Data: fmt.Appendf(nil, "event data %d", i),
 		})
 	}
 
@@ -50,8 +43,8 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	}
 
 	for i, readEvent := range readEvents {
-		if readEvent.ID != appendedEvents[i].ID {
-			return fmt.Errorf("expected event ID %s, got %s", appendedEvents[i].ID, readEvent.ID)
+		if readEvent.ID.IsEmpty() {
+			return fmt.Errorf("event ID is empty")
 		}
 
 		if readEvent.StreamID != streamID {
@@ -64,10 +57,6 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 
 		if string(readEvent.Data) != string(appendedEvents[i].Data) {
 			return fmt.Errorf("expected event data %s, got %s", string(appendedEvents[i].Data), string(readEvent.Data))
-		}
-
-		if !readEvent.Timestamp.Truncate(time.Millisecond).Equal(appendedEvents[i].Timestamp.Truncate(time.Millisecond)) {
-			return fmt.Errorf("expected event timestamp %s, got %s", appendedEvents[i].Timestamp, readEvent.Timestamp)
 		}
 	}
 

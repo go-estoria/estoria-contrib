@@ -249,19 +249,21 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 			}
 
 			now := time.Now().UTC()
+
 			fullEvents := make([]*Event, len(events))
 			docs := make([]any, len(events))
 			for i, we := range events {
-				if we.Timestamp.IsZero() {
-					we.Timestamp = now
+				eventID, err := typeid.NewUUID(we.Type)
+				if err != nil {
+					return nil, fmt.Errorf("generating event ID: %w", err)
 				}
 
 				fullEvents[i] = &Event{
 					Event: eventstore.Event{
-						ID:            we.ID,
+						ID:            eventID,
 						StreamID:      streamID,
 						StreamVersion: offset + int64(i) + 1,
-						Timestamp:     we.Timestamp,
+						Timestamp:     now,
 						Data:          we.Data,
 					},
 					GlobalOffset: globalOffset + int64(i) + 1,

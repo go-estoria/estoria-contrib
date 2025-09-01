@@ -18,7 +18,7 @@ type Strategy interface {
 	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
 
 	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
-	AppendStreamStatement(ids []typeid.UUID) (string, error)
+	AppendStreamStatement() (string, error)
 	AppendStreamExecArgs(event *eventstore.Event) []any
 
 	Schema() string
@@ -157,12 +157,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		}
 	}
 
-	ids := make([]typeid.UUID, len(events))
-	for i, e := range events {
-		ids[i] = e.ID
-	}
-
-	stmtQuery, err := s.strategy.AppendStreamStatement(ids)
+	stmtQuery, err := s.strategy.AppendStreamStatement()
 	if err != nil {
 		return fmt.Errorf("building append statement: %w", err)
 	}
@@ -181,20 +176,20 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
-		if we.Timestamp.IsZero() {
-			we.Timestamp = now
+		eventID, err := typeid.NewUUID(we.Type)
+		if err != nil {
+			return fmt.Errorf("generating event ID: %w", err)
 		}
 
 		fullEvents[i] = &eventstore.Event{
-			ID:            we.ID,
+			ID:            eventID,
 			StreamID:      streamID,
 			StreamVersion: currentOffset + int64(i) + 1,
-			Timestamp:     we.Timestamp,
+			Timestamp:     now,
 			Data:          we.Data,
 		}
 
-		_, err := stmt.Exec(s.strategy.AppendStreamExecArgs(fullEvents[i])...)
-		if err != nil {
+		if _, err := stmt.ExecContext(ctx, s.strategy.AppendStreamExecArgs(fullEvents[i])...); err != nil {
 			return fmt.Errorf("executing statement: %w", err)
 		}
 	}

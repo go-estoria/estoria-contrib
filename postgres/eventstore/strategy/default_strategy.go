@@ -148,7 +148,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 }
 
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
-func (s *DefaultStrategy) AppendStreamStatement(_ []typeid.UUID) (string, error) {
+func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 	return fmt.Sprintf(`
 		INSERT INTO "%s" (
 			event_id,
