@@ -13,25 +13,28 @@ import (
 )
 
 const (
-	defaultTableName = "events"
+	defaultEventsTableName  = "event"
+	defaultStreamsTableName = "stream"
 )
 
 // SingleTableStrategy is a strategy for storing all events in a single database table.
 type SingleTableStrategy struct {
-	tableName string
+	eventsTableName  string
+	streamsTableName string
 }
 
 // NewSingleTableStrategy creates a new SingleTableStrategy with optional options.
 func NewSingleTableStrategy(opts ...SingleTableStrategyOption) (*SingleTableStrategy, error) {
 	strategy := &SingleTableStrategy{
-		tableName: defaultTableName,
+		eventsTableName:  defaultEventsTableName,
+		streamsTableName: defaultStreamsTableName,
 	}
 
 	for _, opt := range opts {
 		opt(strategy)
 	}
 
-	if err := validateTableName(strategy.tableName); err != nil {
+	if err := validateTableName(strategy.eventsTableName); err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 
@@ -65,7 +68,7 @@ func (s *SingleTableStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventst
 			timestamp,
 			stream_offset,
 			data
-		FROM %s
+		FROM "%s"
 		WHERE
 			stream_type = $1
 			AND
@@ -74,7 +77,7 @@ func (s *SingleTableStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventst
 			stream_offset %s
 		%s
 		%s
-	`, s.tableName, direction, offsetClause, limitClause), nil
+	`, s.eventsTableName, direction, offsetClause, limitClause), nil
 }
 
 // ScanEventRow scans a single event row from the given SQL rows and returns an event.
@@ -104,6 +107,50 @@ func (s *SingleTableStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, e
 	return &e, nil
 }
 
+func (s *SingleTableStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error) {
+	var nextOffset = int64(numEvents)
+
+	// reserve a block of offsets for the stream
+	res, err := tx.QueryContext(ctx, fmt.Sprintf(`
+		UPDATE "%s"
+		SET
+			last_offset = last_offset + $3
+		WHERE
+			stream_type = $1
+			AND
+			stream_id = $2
+		RETURNING last_offset;
+	`, s.streamsTableName), streamID.TypeName(), streamID.Value(), numEvents)
+	if err != nil {
+		return 0, fmt.Errorf("updating last offset: %w", err)
+	}
+
+	defer func() { _ = res.Close() }()
+
+	if !res.Next() {
+		if err := res.Err(); err != nil {
+			return 0, fmt.Errorf("preparing row: %w", err)
+		}
+
+		// stream metadata does not exist yet, insert it and carry on
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			INSERT INTO "%s" (
+				stream_type,
+				stream_id,
+				last_offset
+			)
+			VALUES ($1, $2, $3);
+		`, s.streamsTableName), streamID.TypeName(), streamID.Value(), numEvents); err != nil {
+			return 0, fmt.Errorf("inserting new stream metadata: %w", err)
+		}
+
+	} else if err := res.Scan(&nextOffset); err != nil {
+		return 0, fmt.Errorf("scanning updated offset: %w", err)
+	}
+
+	return nextOffset, nil
+}
+
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
 func (s *SingleTableStrategy) AppendStreamStatement(_ []typeid.UUID) (string, error) {
 	return fmt.Sprintf(`
@@ -117,7 +164,7 @@ func (s *SingleTableStrategy) AppendStreamStatement(_ []typeid.UUID) (string, er
 			data
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, s.tableName), nil
+	`, s.eventsTableName), nil
 }
 
 func (s *SingleTableStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
@@ -139,14 +186,20 @@ type SingleTableStrategyOption func(*SingleTableStrategy)
 // The default table name is "events".
 func WithTableName(name string) SingleTableStrategyOption {
 	return func(s *SingleTableStrategy) {
-		s.tableName = name
+		s.eventsTableName = name
+	}
+}
+
+func WithStreamsTableName(name string) SingleTableStrategyOption {
+	return func(s *SingleTableStrategy) {
+		s.streamsTableName = name
 	}
 }
 
 // Schema returns the complete SQL schema for the event store.
 func (s *SingleTableStrategy) Schema() string {
 	return fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
+		CREATE TABLE IF NOT EXISTS "%s" (
 			id            bigserial    PRIMARY KEY,
 			stream_id     uuid         NOT NULL,
 			stream_type   varchar(255) NOT NULL,
@@ -159,31 +212,16 @@ func (s *SingleTableStrategy) Schema() string {
 			UNIQUE (stream_id, stream_type, stream_offset),
 
 			CHECK (stream_offset > 0)
-		)
-	`, s.tableName)
-}
+		);
 
-// Finds the highest offset for the given stream.
-func (s *SingleTableStrategy) GetHighestOffset(ctx context.Context, tx *sql.Tx, streamID typeid.UUID) (int64, error) {
-	var offset int64
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT
-			stream_offset
-		FROM "%s"
-		WHERE
-			stream_type = $1
-			AND
-			stream_id = $2
-		ORDER BY
-			stream_offset DESC
-		LIMIT 1
-	`, s.tableName), streamID.TypeName(), streamID.Value()).Scan(&offset); errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	} else if err != nil {
-		return 0, fmt.Errorf("querying highest offset: %w", err)
-	}
+		CREATE TABLE IF NOT EXISTS "%s" (
+			stream_type   varchar(255) NOT NULL,
+			stream_id     uuid         NOT NULL,
+			last_offset   bigint       NOT NULL DEFAULT 0,
 
-	return offset, nil
+			PRIMARY KEY (stream_type, stream_id)
+		);
+	`, s.eventsTableName, s.streamsTableName)
 }
 
 // validateTableName validates that the given table name is a valid SQL identifier.

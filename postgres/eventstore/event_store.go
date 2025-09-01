@@ -37,7 +37,7 @@ type Transaction interface {
 type Strategy interface {
 	AppendStreamExecArgs(event *eventstore.Event) []any
 	AppendStreamStatement(ids []typeid.UUID) (string, error)
-	GetHighestOffset(ctx context.Context, tx *sql.Tx, streamID typeid.UUID) (int64, error)
+	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
 	ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, error)
 	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
 }
@@ -148,13 +148,14 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		}
 	}()
 
-	offset, err := s.strategy.GetHighestOffset(ctx, tx, streamID)
+	newMaxOffset, err := s.strategy.NextHighwaterMark(ctx, tx, streamID, len(events))
 	if err != nil {
 		return fmt.Errorf("getting highest offset: %w", err)
 	}
 
-	if opts.ExpectVersion > 0 && offset != opts.ExpectVersion {
-		return fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, offset)
+	currentOffset := newMaxOffset - int64(len(events))
+	if opts.ExpectVersion > 0 && currentOffset != opts.ExpectVersion {
+		return fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, currentOffset)
 	}
 
 	ids := make([]typeid.UUID, len(events))
@@ -187,7 +188,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 		fullEvents[i] = &eventstore.Event{
 			ID:            we.ID,
 			StreamID:      streamID,
-			StreamVersion: offset + int64(i) + 1,
+			StreamVersion: currentOffset + int64(i) + 1,
 			Timestamp:     we.Timestamp,
 			Data:          we.Data,
 		}
