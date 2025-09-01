@@ -23,7 +23,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 		t.Fatalf("failed to create Postgres container: %v", err)
 	}
 
-	strat, err := strategy.NewSingleTableStrategy()
+	strat, err := strategy.NewDefaultStrategy()
 	if err != nil {
 		t.Fatalf("tc setup: failed to create event store strategy: %v", err)
 	}

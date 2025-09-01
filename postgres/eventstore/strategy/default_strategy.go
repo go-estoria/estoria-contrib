@@ -17,15 +17,15 @@ const (
 	defaultStreamsTableName = "stream"
 )
 
-// SingleTableStrategy is a strategy for storing all events in a single database table.
-type SingleTableStrategy struct {
+// DefaultStrategy is a strategy for storing all events in a single database table.
+type DefaultStrategy struct {
 	eventsTableName  string
 	streamsTableName string
 }
 
-// NewSingleTableStrategy creates a new SingleTableStrategy with optional options.
-func NewSingleTableStrategy(opts ...SingleTableStrategyOption) (*SingleTableStrategy, error) {
-	strategy := &SingleTableStrategy{
+// NewDefaultStrategy creates a new DefaultStrategy with optional options.
+func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error) {
+	strategy := &DefaultStrategy{
 		eventsTableName:  defaultEventsTableName,
 		streamsTableName: defaultStreamsTableName,
 	}
@@ -45,7 +45,7 @@ func NewSingleTableStrategy(opts ...SingleTableStrategyOption) (*SingleTableStra
 
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
 // The query must be designed to expect exactly two parameters: the stream type and the stream ID.
-func (s *SingleTableStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error) {
+func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error) {
 	direction := "ASC"
 	if opts.Direction == eventstore.Reverse {
 		direction = "DESC"
@@ -86,7 +86,7 @@ func (s *SingleTableStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventst
 }
 
 // ScanEventRow scans a single event row from the given SQL rows and returns an event.
-func (s *SingleTableStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error) {
+func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error) {
 	var (
 		e          eventstore.Event
 		streamID   uuid.UUID
@@ -114,7 +114,7 @@ func (s *SingleTableStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, e
 
 // NextHighwaterMark reserves and returns the next highwater mark (stream offset) for the given stream ID.
 // It uses the provided transactional context to ensure atomicity.
-func (s *SingleTableStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error) {
+func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error) {
 	var nextOffset = int64(numEvents)
 
 	// reserve a block of offsets for the stream
@@ -159,7 +159,7 @@ func (s *SingleTableStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx,
 }
 
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
-func (s *SingleTableStrategy) AppendStreamStatement(_ []typeid.UUID) (string, error) {
+func (s *DefaultStrategy) AppendStreamStatement(_ []typeid.UUID) (string, error) {
 	return fmt.Sprintf(`
 		INSERT INTO "%s" (
 			event_id,
@@ -175,7 +175,7 @@ func (s *SingleTableStrategy) AppendStreamStatement(_ []typeid.UUID) (string, er
 }
 
 // AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
-func (s *SingleTableStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
+func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 	return []any{
 		event.ID.Value(),
 		event.StreamID.TypeName(),
@@ -187,14 +187,14 @@ func (s *SingleTableStrategy) AppendStreamExecArgs(event *eventstore.Event) []an
 	}
 }
 
-// SingleTableStrategyOption is a function option that configures a SingleTableStrategy.
-type SingleTableStrategyOption func(*SingleTableStrategy)
+// DefaultStrategyOption is a function option that configures a DefaultStrategy.
+type DefaultStrategyOption func(*DefaultStrategy)
 
 // WithTableName sets a custom table name for the table that stores events.
 //
 // The default is "event".
-func WithTableName(name string) SingleTableStrategyOption {
-	return func(s *SingleTableStrategy) {
+func WithTableName(name string) DefaultStrategyOption {
+	return func(s *DefaultStrategy) {
 		s.eventsTableName = name
 	}
 }
@@ -202,14 +202,14 @@ func WithTableName(name string) SingleTableStrategyOption {
 // WithStreamsTableName sets a custom table name for the table that stores stream metadata.
 //
 // The default is "stream".
-func WithStreamsTableName(name string) SingleTableStrategyOption {
-	return func(s *SingleTableStrategy) {
+func WithStreamsTableName(name string) DefaultStrategyOption {
+	return func(s *DefaultStrategy) {
 		s.streamsTableName = name
 	}
 }
 
 // Schema returns the complete SQL schema for the event store.
-func (s *SingleTableStrategy) Schema() string {
+func (s *DefaultStrategy) Schema() string {
 	return fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS "%s" (
 			id            bigserial    PRIMARY KEY,

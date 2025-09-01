@@ -72,7 +72,7 @@ func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 	}
 
 	if eventStore.strategy == nil {
-		strategy, err := strategy.NewSingleTableStrategy()
+		strategy, err := strategy.NewDefaultStrategy()
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}
