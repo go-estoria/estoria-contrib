@@ -35,20 +35,14 @@ func createPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, error)
 		return nil, fmt.Errorf("failed to get Postgres connection string: %w", err)
 	}
 
-	t.Log("Postgres container connection string:", connStr)
-
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		t.Fatalf("failed to create Postgres client: %v", err)
 	}
 
-	t.Log("Created Postgres client")
-
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping Postgres: %w", err)
 	}
-
-	t.Log("Successfully pinged Postgres")
 
 	return db, nil
 }
