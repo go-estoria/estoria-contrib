@@ -327,17 +327,17 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				return must(strategy.NewDefaultStrategy())
 			},
 		},
-		// {
-		// 	name: testStrategyDefault,
-		// 	desc: "custom table names",
-		// 	create: func(t *testing.T) pgeventstore.Strategy {
-		// 		t.Helper()
-		// 		return must(strategy.NewDefaultStrategy(
-		// 			strategy.WithEventsTableName("event"),
-		// 			strategy.WithStreamsTableName("stream"),
-		// 		))
-		// 	},
-		// },
+		{
+			name: testStrategyDefault,
+			desc: "custom table names",
+			create: func(t *testing.T) pgeventstore.Strategy {
+				t.Helper()
+				return must(strategy.NewDefaultStrategy(
+					strategy.WithEventsTableName("event"),
+					strategy.WithStreamsTableName("stream"),
+				))
+			},
+		},
 	} {
 		for _, tt := range []struct {
 			name         string
