@@ -30,7 +30,7 @@ type EventStore struct {
 	strategy      Strategy
 	log           estoria.Logger
 	txOpts        *sql.TxOptions
-	appendTxHooks []TransactionHookFunc
+	appendTxHooks []TransactionHook
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
@@ -195,7 +195,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	}
 
 	for _, hook := range s.appendTxHooks {
-		if err := hook(ctx, tx, fullEvents); err != nil {
+		if err := hook.HandleEvents(ctx, tx, fullEvents); err != nil {
 			return fmt.Errorf("executing transaction hook: %w", err)
 		}
 	}
@@ -207,12 +207,14 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	return nil
 }
 
-// AddAppendHooks adds one or more hooks to be executed as part of the database transaction when appending events.
+// AddAppendHooks adds one or more hooks to be executed during the database transaction when appending events.
 //
-// Hooks are executed in the order they are added. Each hook receives the full set of events that
-// have been appended for the transaction, including their stream offsets.
+// Hooks are executed in the order they were added, after the events have been inserted. Each hook receives the
+// full set of events that have been inserted for the transaction, including their stream offsets.
 //
-// If an error is returned from any hook, the transaction will be aborted.
-func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHookFunc) {
+// If an error is returned from any hook, the transaction will be aborted. Thus, it is not safe to perform
+// operations that cannot be rolled back within a hook, such as publishing messages to an external message bus
+// or making irreversible changes to external systems.
+func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
 	s.appendTxHooks = append(s.appendTxHooks, hooks...)
 }

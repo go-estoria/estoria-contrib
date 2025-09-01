@@ -32,7 +32,7 @@ func WithStrategy(strategy Strategy) EventStoreOption {
 }
 
 // WithTransactionalHook adds a transactional hook to the event store.
-func WithTransactionalHooks(hooks ...TransactionHookFunc) EventStoreOption {
+func WithTransactionalHooks(hooks ...TransactionHook) EventStoreOption {
 	return func(s *EventStore) error {
 		s.AddTransactionalHooks(hooks...)
 		return nil
