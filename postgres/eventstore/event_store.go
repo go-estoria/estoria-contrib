@@ -30,14 +30,31 @@ type EventStore struct {
 	strategy      Strategy
 	log           estoria.Logger
 	txOpts        *sql.TxOptions
-	appendTxHooks []TransactionHook
+	appendTxHooks []TransactionHookFunc
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
-// TransactionHook is invoked during a write transaction and receives the transactional context.
-type TransactionHook func(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error
+// A TransactionHook is invoked during a write transaction, after the events have been writen,
+// and receives both the transactional context and the full set of events pending insertion in
+// the transaction.
+//
+// If an error is returned, the entire append transaction will be aborted.
+//
+// Transaction hooks can be used to perform post-processing of events that must succeed or fail atomically
+// with the event append operation, such as inserting items into to an outbox table.
+type TransactionHook interface {
+	HandleEvents(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error
+}
+
+// TransactionHookFunc is a functional adapter for TransactionHook.
+type TransactionHookFunc func(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error
+
+// HandleEvents implements TransactionHook.HandleEvents.
+func (f TransactionHookFunc) HandleEvents(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error {
+	return f(ctx, tx, events)
+}
 
 // New creates a new event store using the provided database connection.
 func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
@@ -161,6 +178,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	}()
 
 	now := time.Now().UTC()
+
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
 		if we.Timestamp.IsZero() {
@@ -200,6 +218,6 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 // have been appended for the transaction, including their stream offsets.
 //
 // If an error is returned from any hook, the transaction will be aborted.
-func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
+func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHookFunc) {
 	s.appendTxHooks = append(s.appendTxHooks, hooks...)
 }
