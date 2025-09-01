@@ -35,7 +35,9 @@ func NewSingleTableStrategy(opts ...SingleTableStrategyOption) (*SingleTableStra
 	}
 
 	if err := validateTableName(strategy.eventsTableName); err != nil {
-		return nil, fmt.Errorf("invalid table name: %w", err)
+		return nil, fmt.Errorf("invalid events table name: %w", err)
+	} else if err := validateTableName(strategy.streamsTableName); err != nil {
+		return nil, fmt.Errorf("invalid streams table name: %w", err)
 	}
 
 	return strategy, nil
@@ -110,6 +112,8 @@ func (s *SingleTableStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, e
 	return &e, nil
 }
 
+// NextHighwaterMark reserves and returns the next highwater mark (stream offset) for the given stream ID.
+// It uses the provided transactional context to ensure atomicity.
 func (s *SingleTableStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error) {
 	var nextOffset = int64(numEvents)
 
@@ -170,6 +174,7 @@ func (s *SingleTableStrategy) AppendStreamStatement(_ []typeid.UUID) (string, er
 	`, s.eventsTableName), nil
 }
 
+// AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
 func (s *SingleTableStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 	return []any{
 		event.ID.Value(),
@@ -182,17 +187,21 @@ func (s *SingleTableStrategy) AppendStreamExecArgs(event *eventstore.Event) []an
 	}
 }
 
+// SingleTableStrategyOption is a function option that configures a SingleTableStrategy.
 type SingleTableStrategyOption func(*SingleTableStrategy)
 
-// WithTableName sets a custom table name for the event store.
+// WithTableName sets a custom table name for the table that stores events.
 //
-// The default table name is "events".
+// The default is "event".
 func WithTableName(name string) SingleTableStrategyOption {
 	return func(s *SingleTableStrategy) {
 		s.eventsTableName = name
 	}
 }
 
+// WithStreamsTableName sets a custom table name for the table that stores stream metadata.
+//
+// The default is "stream".
 func WithStreamsTableName(name string) SingleTableStrategyOption {
 	return func(s *SingleTableStrategy) {
 		s.streamsTableName = name

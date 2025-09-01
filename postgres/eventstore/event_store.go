@@ -16,6 +16,7 @@ const (
 	DefaultTableName string = "events"
 )
 
+// Strategy is an interface for defining lower-level query and append mechanics.
 type Strategy interface {
 	AppendStreamExecArgs(event *eventstore.Event) []any
 	AppendStreamStatement(ids []typeid.UUID) (string, error)
