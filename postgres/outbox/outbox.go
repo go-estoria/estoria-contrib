@@ -1,24 +1,12 @@
 package outbox
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 )
-
-// Transaction is an interface for executing queries within a transactional context.
-// It abstracts *sql.Tx by exposing prepare, query, and exec methods, plus commit/rollback.
-type Transaction interface {
-	Prepare(query string) (*sql.Stmt, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	Commit() error
-	Rollback() error
-}
 
 type Outbox struct {
 	table string
@@ -35,18 +23,27 @@ func New(table string) (*Outbox, error) {
 }
 
 // HandleEvents inserts emitted events into the outbox table using the given transactional context.
-func (o *Outbox) HandleEvents(tx Transaction, events []*eventstore.Event) error {
-	o.log.Debug("inserting events into outbox", "tx", "inherited", "events", len(events))
+func (o *Outbox) HandleEvents(tx *sql.Tx, events []*eventstore.Event) error {
+	o.log.Debug("inserting events into outbox", "events", len(events))
 
-	statement := fmt.Sprintf(`
-		INSERT INTO "%s" (stream_id, stream_type, event_id, event_type, timestamp, stream_offset, data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		o.table)
-	stmt, err := tx.Prepare(statement)
+	stmt, err := tx.Prepare(fmt.Sprintf(`
+		INSERT INTO "%s" (
+			stream_id,
+			stream_type,
+			event_id,
+			event_type, 
+			timestamp,
+			stream_offset,
+			data,
+			added_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		o.table))
 	if err != nil {
 		return fmt.Errorf("preparing statement: %w", err)
 	}
-	defer stmt.Close()
+
+	defer func() { _ = stmt.Close() }()
 
 	for _, event := range events {
 		if _, err := stmt.Exec(
@@ -63,4 +60,26 @@ func (o *Outbox) HandleEvents(tx Transaction, events []*eventstore.Event) error 
 	}
 
 	return nil
+}
+
+func (o *Outbox) Schema() string {
+	return fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS "%s" (
+			stream_id     text        NOT NULL,
+			stream_type   text        NOT NULL,
+			event_id      text        NOT NULL,
+			event_type    text        NOT NULL,
+			timestamp     timestamptz NOT NULL,
+			stream_offset bigint      NOT NULL,
+			data          jsonb       NOT NULL,
+
+			added_at	  timestamptz NOT NULL DEFAULT timezone('utc' now()),
+			handled_at	  timestamptz NULL
+		);
+
+		PRIMARY KEY (event_id, event_type);
+
+		CREATE INDEX IF NOT EXISTS "%s_stream" ON "%s" (stream_type, stream_id);
+		CREATE INDEX IF NOT EXISTS "%s_handled_at" ON "%s" (stream_id, stream_type, handled_at);
+	`, o.table, o.table, o.table, o.table, o.table)
 }
