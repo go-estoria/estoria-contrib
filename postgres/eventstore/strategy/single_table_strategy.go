@@ -43,7 +43,7 @@ func NewSingleTableStrategy(opts ...SingleTableStrategyOption) (*SingleTableStra
 
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
 // The query must be designed to expect exactly two parameters: the stream type and the stream ID.
-func (s *SingleTableStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, error) {
+func (s *SingleTableStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error) {
 	direction := "ASC"
 	if opts.Direction == eventstore.Reverse {
 		direction = "DESC"
@@ -77,7 +77,10 @@ func (s *SingleTableStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventst
 			stream_offset %s
 		%s
 		%s
-	`, s.eventsTableName, direction, offsetClause, limitClause), nil
+	`, s.eventsTableName, direction, offsetClause, limitClause), []any{
+			streamID.TypeName(),
+			streamID.Value(),
+		}, nil
 }
 
 // ScanEventRow scans a single event row from the given SQL rows and returns an event.

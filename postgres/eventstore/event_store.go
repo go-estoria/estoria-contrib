@@ -38,7 +38,7 @@ type Strategy interface {
 	AppendStreamExecArgs(event *eventstore.Event) []any
 	AppendStreamStatement(ids []typeid.UUID) (string, error)
 	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
-	ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, error)
+	ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error)
 	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
 }
 
@@ -109,12 +109,12 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 		"direction", opts.Direction,
 	)
 
-	query, err := s.strategy.ReadStreamQuery(streamID, opts)
+	query, args, err := s.strategy.ReadStreamQuery(streamID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("building query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, streamID.TypeName(), streamID.Value())
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying stream events: %w", err)
 	}
