@@ -20,6 +20,8 @@ type Strategy interface {
 	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
 	AppendStreamStatement(ids []typeid.UUID) (string, error)
 	AppendStreamExecArgs(event *eventstore.Event) []any
+
+	Schema() string
 }
 
 // EventStore stores and retrieves events using Postgres as the underlying storage.
