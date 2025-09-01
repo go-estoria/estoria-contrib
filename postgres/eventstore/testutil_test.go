@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -45,4 +46,18 @@ func createPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, error)
 	}
 
 	return db, nil
+}
+
+func must[T any](val T, err error) T {
+	if err != nil {
+		panic("unexpected error: " + err.Error())
+	}
+	return val
+}
+
+func reversed[T any](s []T) []T {
+	r := make([]T, len(s))
+	copy(r, s)
+	slices.Reverse(r)
+	return r
 }

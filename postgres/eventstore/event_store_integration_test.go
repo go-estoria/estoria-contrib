@@ -2,7 +2,6 @@ package eventstore_test
 
 import (
 	"errors"
-	"slices"
 	"testing"
 	"time"
 
@@ -305,20 +304,6 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			})
 		}
 	}
-}
-
-func must[T any](val T, err error) T {
-	if err != nil {
-		panic("unexpected error: " + err.Error())
-	}
-	return val
-}
-
-func reversed[T any](s []T) []T {
-	r := make([]T, len(s))
-	copy(r, s)
-	slices.Reverse(r)
-	return r
 }
 
 // TestEventStore_Integration_AppendStream tests appending events to a stream
