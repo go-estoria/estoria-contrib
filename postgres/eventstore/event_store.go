@@ -26,6 +26,7 @@ type EventStore struct {
 	db            *sql.DB
 	strategy      Strategy
 	log           estoria.Logger
+	txOpts        *sql.TxOptions
 	appendTxHooks []TransactionHook
 }
 
@@ -93,7 +94,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
-	tx, err := s.db.BeginTx(ctx, nil) // TODO: add transaction options
+	tx, err := s.db.BeginTx(ctx, s.txOpts)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}

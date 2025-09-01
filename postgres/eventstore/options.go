@@ -1,6 +1,7 @@
 package eventstore
 
 import (
+	"database/sql"
 	"errors"
 
 	"github.com/go-estoria/estoria"
@@ -41,6 +42,13 @@ func WithTransactionalHooks(hooks ...TransactionHook) EventStoreOption {
 func WithStrategy(strategy Strategy) EventStoreOption {
 	return func(s *EventStore) error {
 		s.strategy = strategy
+		return nil
+	}
+}
+
+func WithTxOptions(opts sql.TxOptions) EventStoreOption {
+	return func(s *EventStore) error {
+		s.txOpts = &opts
 		return nil
 	}
 }
