@@ -12,10 +12,6 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
-const (
-	DefaultTableName string = "events"
-)
-
 // Strategy is an interface for defining lower-level query and append mechanics.
 type Strategy interface {
 	AppendStreamExecArgs(event *eventstore.Event) []any
@@ -25,7 +21,7 @@ type Strategy interface {
 	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
 }
 
-// An EventStore stores and retrieves events using Postgres as the underlying storage.
+// EventStore stores and retrieves events using Postgres as the underlying storage.
 type EventStore struct {
 	db            *sql.DB
 	strategy      Strategy
@@ -35,21 +31,6 @@ type EventStore struct {
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
-
-// StreamInfo represents information about a single stream in the event store.
-type StreamInfo struct {
-	// StreamID is the typed ID of the stream.
-	StreamID typeid.UUID
-
-	// Offset is the stream-specific offset of the most recent event in the stream.
-	// Thus, it also represents the number of events in the stream.
-	Offset int64
-}
-
-// String returns a string representation of a StreamInfo.
-func (i StreamInfo) String() string {
-	return fmt.Sprintf("stream {ID: %s, Offset: %d}", i.StreamID, i.Offset)
-}
 
 // TransactionHook is invoked during a write transaction and receives the transactional context.
 type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
