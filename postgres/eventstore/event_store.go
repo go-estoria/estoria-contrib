@@ -33,9 +33,9 @@ var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 // TransactionHook is invoked during a write transaction and receives the transactional context.
-type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
+type TransactionHook func(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error
 
-// New creates a new event store using the given database connection.
+// New creates a new event store using the provided database connection.
 func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
@@ -158,7 +158,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	}
 
 	for _, hook := range s.appendTxHooks {
-		if err := hook(tx, fullEvents); err != nil {
+		if err := hook(ctx, tx, fullEvents); err != nil {
 			return fmt.Errorf("executing transaction hook: %w", err)
 		}
 	}
@@ -170,7 +170,11 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	return nil
 }
 
-// AddTransactionalHook adds a hook to be executed within the transaction when appending events.
+// AddAppendHooks adds one or more hooks to be executed as part of the database transaction when appending events.
+//
+// Hooks are executed in the order they are added. Each hook receives the full set of events that
+// have been appended for the transaction, including their stream offsets.
+//
 // If an error is returned from any hook, the transaction will be aborted.
 func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
 	s.appendTxHooks = append(s.appendTxHooks, hooks...)
