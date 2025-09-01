@@ -14,11 +14,12 @@ import (
 
 // Strategy is an interface for defining lower-level query and append mechanics.
 type Strategy interface {
-	AppendStreamExecArgs(event *eventstore.Event) []any
-	AppendStreamStatement(ids []typeid.UUID) (string, error)
-	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
 	ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error)
 	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
+
+	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
+	AppendStreamStatement(ids []typeid.UUID) (string, error)
+	AppendStreamExecArgs(event *eventstore.Event) []any
 }
 
 // EventStore stores and retrieves events using Postgres as the underlying storage.

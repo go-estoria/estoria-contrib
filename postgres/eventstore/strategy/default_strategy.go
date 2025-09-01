@@ -116,10 +116,21 @@ func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error
 // NextHighwaterMark reserves and returns the next highwater mark (stream offset) for the given stream ID.
 // It uses the provided transactional context to ensure atomicity.
 func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error) {
-	var nextOffset = int64(numEvents)
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO "%s" (
+			stream_type,
+			stream_id,
+			last_offset
+		)
+		VALUES ($1, $2, 0)
+		ON CONFLICT (stream_type, stream_id) DO NOTHING`,
+		s.streamsTableName,
+	), streamID.TypeName(), streamID.Value()); err != nil {
+		return 0, fmt.Errorf("upserting stream metadata: %w", err)
+	}
 
-	// reserve a block of offsets for the stream
-	res, err := tx.QueryContext(ctx, fmt.Sprintf(`
+	var newOffset int64
+	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 		UPDATE "%s"
 		SET
 			last_offset = last_offset + $3
@@ -127,36 +138,12 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 			stream_type = $1
 			AND
 			stream_id = $2
-		RETURNING last_offset;
-	`, s.streamsTableName), streamID.TypeName(), streamID.Value(), numEvents)
-	if err != nil {
-		return 0, fmt.Errorf("updating last offset: %w", err)
+		RETURNING last_offset`,
+		s.streamsTableName,
+	), streamID.TypeName(), streamID.Value(), numEvents).Scan(&newOffset); err != nil {
+		return 0, fmt.Errorf("bumping last_offset: %w", err)
 	}
-
-	defer func() { _ = res.Close() }()
-
-	if !res.Next() {
-		if err := res.Err(); err != nil {
-			return 0, fmt.Errorf("preparing row: %w", err)
-		}
-
-		// stream metadata does not exist yet, insert it and carry on
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-			INSERT INTO "%s" (
-				stream_type,
-				stream_id,
-				last_offset
-			)
-			VALUES ($1, $2, $3);
-		`, s.streamsTableName), streamID.TypeName(), streamID.Value(), numEvents); err != nil {
-			return 0, fmt.Errorf("inserting new stream metadata: %w", err)
-		}
-
-	} else if err := res.Scan(&nextOffset); err != nil {
-		return 0, fmt.Errorf("scanning updated offset: %w", err)
-	}
-
-	return nextOffset, nil
+	return newOffset, nil
 }
 
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
