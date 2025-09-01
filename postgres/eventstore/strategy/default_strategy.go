@@ -80,7 +80,8 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.
 			stream_offset %s
 		%s
 		%s
-	`, s.eventsTableName, direction, offsetClause, limitClause), []any{
+	`, s.eventsTableName, direction, offsetClause, limitClause),
+		[]any{
 			streamID.TypeName(),
 			streamID.Value(),
 		}, nil

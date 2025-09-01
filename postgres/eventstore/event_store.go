@@ -87,9 +87,25 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 		return nil, fmt.Errorf("querying stream events: %w", err)
 	}
 
+	// no rows means the stream doesn't exist
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("preparing stream events results: %w", err)
+		}
+
+		return nil, eventstore.ErrStreamNotFound
+	}
+
+	// calling .Next() advanced the cursor, so scan the first row now
+	first, err := s.strategy.ScanEventRow(rows)
+	if err != nil {
+		return nil, fmt.Errorf("scanning event row: %w", err)
+	}
+
 	return &streamIterator{
 		strategy: s.strategy,
 		rows:     rows,
+		first:    first,
 	}, nil
 }
 

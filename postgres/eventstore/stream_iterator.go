@@ -12,9 +12,16 @@ import (
 type streamIterator struct {
 	strategy Strategy
 	rows     *sql.Rows
+	first    *eventstore.Event
 }
 
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
+	if i.first != nil {
+		event := i.first
+		i.first = nil
+		return event, nil
+	}
+
 	if !i.rows.Next() {
 		return nil, eventstore.ErrEndOfEventStream
 	}

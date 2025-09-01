@@ -47,15 +47,15 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			wantErr      error
 		}{
 			{
-				name:         "read from empty stream",
+				name:         "read from non-existent stream",
 				haveStreamID: must(typeid.NewUUID("nonexistentstream")),
-				wantEvents:   []*eventstore.Event{},
+				wantErr:      eventstore.ErrStreamNotFound,
 			},
 			{
 				name: "read from stream with one event",
 				withDBState: func(t *testing.T, db *sql.DB) {
 					t.Helper()
-					insertEvents(t, db, "default", []*eventstore.Event{
+					insertEvents(t, db, tStrat.name, []*eventstore.Event{
 						{
 							ID:            must(typeid.ParseUUID("event_7841ba8b-1e6e-4a96-a3cf-fce9c1c262b7")),
 							StreamID:      must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
@@ -73,6 +73,59 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 						StreamVersion: 1,
 						Timestamp:     now,
 						Data:          []byte(`{"foo":"abc","bar":123,"baz":true}`),
+					},
+				},
+			},
+			{
+				name: "read from stream with multiple events",
+				withDBState: func(t *testing.T, db *sql.DB) {
+					t.Helper()
+					insertEvents(t, db, tStrat.name, []*eventstore.Event{
+						{
+							ID:            must(typeid.ParseUUID("event_7841ba8b-1e6e-4a96-a3cf-fce9c1c262b7")),
+							StreamID:      must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
+							StreamVersion: 1,
+							Timestamp:     now,
+							Data:          []byte(`{"foo":"abc","bar":123,"baz":true}`),
+						},
+						{
+							ID:            must(typeid.ParseUUID("event_072775fe-d52a-4940-80e7-0d990574df9d")),
+							StreamID:      must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
+							StreamVersion: 2,
+							Timestamp:     now,
+							Data:          []byte(`{"foo":"def","bar":456,"baz":false}`),
+						},
+						{
+							ID:            must(typeid.ParseUUID("event_c3d6204b-40d7-40b2-8f70-a53882727fee")),
+							StreamID:      must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
+							StreamVersion: 3,
+							Timestamp:     now,
+							Data:          []byte(`{"foo":"ghi","bar":789,"baz":true}`),
+						},
+					})
+				},
+				haveStreamID: must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
+				wantEvents: []*eventstore.Event{
+					{
+						ID:            must(typeid.ParseUUID("event_7841ba8b-1e6e-4a96-a3cf-fce9c1c262b7")),
+						StreamID:      must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
+						StreamVersion: 1,
+						Timestamp:     now,
+						Data:          []byte(`{"foo":"abc","bar":123,"baz":true}`),
+					},
+					{
+						ID:            must(typeid.ParseUUID("event_072775fe-d52a-4940-80e7-0d990574df9d")),
+						StreamID:      must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
+						StreamVersion: 2,
+						Timestamp:     now,
+						Data:          []byte(`{"foo":"def","bar":456,"baz":false}`),
+					},
+					{
+						ID:            must(typeid.ParseUUID("event_c3d6204b-40d7-40b2-8f70-a53882727fee")),
+						StreamID:      must(typeid.ParseUUID("stream_d0972d91-9b86-4adc-9158-3eb894f5e0a3")),
+						StreamVersion: 3,
+						Timestamp:     now,
+						Data:          []byte(`{"foo":"ghi","bar":789,"baz":true}`),
 					},
 				},
 			},
@@ -134,6 +187,12 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				}
 
 				if len(gotEvents) != len(tt.wantEvents) {
+					for _, e := range tt.wantEvents {
+						t.Logf("want event: ID=%s StreamID=%s StreamVersion=%d Data=%s", e.ID.String(), e.StreamID.String(), e.StreamVersion, string(e.Data))
+					}
+					for _, e := range gotEvents {
+						t.Logf("got event: ID=%s StreamID=%s StreamVersion=%d Data=%s", e.ID.String(), e.StreamID.String(), e.StreamVersion, string(e.Data))
+					}
 					t.Fatalf("expected %d events, got %d", len(tt.wantEvents), len(gotEvents))
 				}
 
@@ -161,16 +220,20 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 
 func insertEvents(t *testing.T, db *sql.DB, strat string, events []*eventstore.Event) {
 	t.Helper()
+	t.Log("inserting", len(events), "test events using strategy", strat)
 	switch strat {
-	default:
+	case testStrategyDefault:
 		for i, e := range events {
 			if _, err := db.ExecContext(t.Context(), `
-			INSERT INTO event (event_id, event_type, stream_id, stream_type, stream_offset, timestamp, data)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, e.ID.Value(), e.ID.TypeName(), e.StreamID.Value(), e.StreamID.TypeName(), e.StreamVersion, e.Timestamp, e.Data); err != nil {
+				INSERT INTO event (event_id, event_type, stream_id, stream_type, stream_offset, timestamp, data)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`, e.ID.Value(), e.ID.TypeName(), e.StreamID.Value(), e.StreamID.TypeName(), e.StreamVersion, e.Timestamp, e.Data); err != nil {
 				t.Fatalf("failed to insert test event %d of %d: %v", i+1, len(events), err)
 			}
+			t.Log("inserted event", e.ID.String(), "into stream", e.StreamID.String(), "at version", e.StreamVersion)
 		}
+	default:
+		t.Fatalf("can't insert events using unknown strategy %q", strat)
 	}
 }
 
