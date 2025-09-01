@@ -179,10 +179,10 @@ func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 // DefaultStrategyOption is a function option that configures a DefaultStrategy.
 type DefaultStrategyOption func(*DefaultStrategy)
 
-// WithTableName sets a custom table name for the table that stores events.
+// WithEventsTableName sets a custom table name for the table that stores events.
 //
 // The default is "event".
-func WithTableName(name string) DefaultStrategyOption {
+func WithEventsTableName(name string) DefaultStrategyOption {
 	return func(s *DefaultStrategy) {
 		s.eventsTableName = name
 	}
