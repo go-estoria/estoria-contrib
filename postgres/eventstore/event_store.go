@@ -16,24 +16,6 @@ const (
 	DefaultTableName string = "events"
 )
 
-// Database is an interface for starting transactions and performing queries.
-type Database interface {
-	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
-// Transaction is an interface for executing queries within a transactional context.
-// It abstracts *sql.Tx by exposing prepare, query, and exec methods, plus commit/rollback.
-type Transaction interface {
-	Prepare(query string) (*sql.Stmt, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	Commit() error
-	Rollback() error
-}
-
 type Strategy interface {
 	AppendStreamExecArgs(event *eventstore.Event) []any
 	AppendStreamStatement(ids []typeid.UUID) (string, error)
@@ -44,7 +26,7 @@ type Strategy interface {
 
 // An EventStore stores and retrieves events using Postgres as the underlying storage.
 type EventStore struct {
-	db            Database
+	db            *sql.DB
 	strategy      Strategy
 	log           estoria.Logger
 	appendTxHooks []TransactionHook
@@ -69,10 +51,10 @@ func (i StreamInfo) String() string {
 }
 
 // TransactionHook is invoked during a write transaction and receives the transactional context.
-type TransactionHook func(tx Transaction, events []*eventstore.Event) error
+type TransactionHook func(tx *sql.Tx, events []*eventstore.Event) error
 
 // New creates a new event store using the given database connection.
-func New(db Database, opts ...EventStoreOption) (*EventStore, error) {
+func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is required")
 	}
