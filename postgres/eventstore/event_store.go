@@ -206,15 +206,3 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	return nil
 }
-
-// AddAppendHooks adds one or more hooks to be executed during the database transaction when appending events.
-//
-// Hooks are executed in the order they were added, after the events have been inserted. Each hook receives the
-// full set of events that have been inserted for the transaction, including their stream offsets.
-//
-// If an error is returned from any hook, the transaction will be aborted. Thus, it is not safe to perform
-// operations that cannot be rolled back within a hook, such as publishing messages to an external message bus
-// or making irreversible changes to external systems.
-func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
-	s.appendTxHooks = append(s.appendTxHooks, hooks...)
-}
