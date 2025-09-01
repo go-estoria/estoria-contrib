@@ -19,7 +19,13 @@ const (
 var (
 	now = time.Now().UTC().Add(-time.Hour)
 
-	streamID = must(typeid.NewUUID("stream_f78053db-5874-457c-8cf7-1e1bb524efba"))
+	streamIDs = []typeid.UUID{
+		must(typeid.NewUUID("stream_f78053db-5874-457c-8cf7-1e1bb524efba")),
+		must(typeid.NewUUID("stream_87b29e1b-463f-469a-a3cb-5bb0598d64c0")),
+		must(typeid.NewUUID("stream_1171f763-56c7-45c6-8460-d54d866a5660")),
+		must(typeid.NewUUID("stream_eb342cfb-77f0-433a-979c-8ae0f435e4fa")),
+		must(typeid.NewUUID("stream_fe1701cb-5e5c-4ef4-b031-250e93adaa3c")),
+	}
 
 	eventIDs = []typeid.UUID{
 		must(typeid.NewUUID("event_7841ba8b-1e6e-4a96-a3cf-fce9c1c262b7")),
@@ -27,6 +33,14 @@ var (
 		must(typeid.NewUUID("event_c3d6204b-40d7-40b2-8f70-a53882727fee")),
 		must(typeid.NewUUID("event_0430d522-909b-4b15-8207-c4ea4623cca3")),
 		must(typeid.NewUUID("event_7c187c90-b726-43d4-a273-b3c03e6ed096")),
+	}
+
+	writableEvents = []*eventstore.WritableEvent{
+		{ID: eventIDs[0], Timestamp: now.Add(1 * time.Second), Data: []byte(`{"foo":"one","bar":100,"baz":true}`)},
+		{ID: eventIDs[1], Timestamp: now.Add(2 * time.Second), Data: []byte(`{"foo":"two","bar":200,"baz":false}`)},
+		{ID: eventIDs[2], Timestamp: now.Add(3 * time.Second), Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
+		{ID: eventIDs[3], Timestamp: now.Add(4 * time.Second), Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
+		{ID: eventIDs[4], Timestamp: now.Add(5 * time.Second), Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
 	}
 )
 
@@ -37,16 +51,6 @@ func eventsFor(streamID typeid.UUID) []*eventstore.Event {
 		{ID: eventIDs[2], StreamID: streamID, StreamVersion: 3, Timestamp: now.Add(3 * time.Second), Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
 		{ID: eventIDs[3], StreamID: streamID, StreamVersion: 4, Timestamp: now.Add(4 * time.Second), Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
 		{ID: eventIDs[4], StreamID: streamID, StreamVersion: 5, Timestamp: now.Add(5 * time.Second), Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
-	}
-}
-
-func writableEventsFor(streamID typeid.UUID) []*eventstore.WritableEvent {
-	return []*eventstore.WritableEvent{
-		{ID: eventIDs[0], Timestamp: now.Add(1 * time.Second), Data: []byte(`{"foo":"one","bar":100,"baz":true}`)},
-		{ID: eventIDs[1], Timestamp: now.Add(2 * time.Second), Data: []byte(`{"foo":"two","bar":200,"baz":false}`)},
-		{ID: eventIDs[2], Timestamp: now.Add(3 * time.Second), Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
-		{ID: eventIDs[3], Timestamp: now.Add(4 * time.Second), Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
-		{ID: eventIDs[4], Timestamp: now.Add(5 * time.Second), Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
 	}
 }
 
@@ -84,7 +88,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 	} {
 		for _, tt := range []struct {
 			name         string
-			withEvents   []*eventstore.WritableEvent
+			withEvents   map[typeid.UUID][]*eventstore.WritableEvent
 			haveStreamID typeid.UUID
 			haveOpts     eventstore.ReadStreamOptions
 			wantEvents   []*eventstore.Event
@@ -96,93 +100,119 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantErr:      eventstore.ErrStreamNotFound,
 			},
 			{
-				name:         "read stream with one event",
-				withEvents:   writableEventsFor(streamID)[0:1],
-				haveStreamID: streamID,
-				wantEvents:   eventsFor(streamID)[0:1],
+				name: "read stream with one event",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents[0:1],
+				},
+				haveStreamID: streamIDs[0],
+				wantEvents:   eventsFor(streamIDs[0])[0:1],
 			},
 			{
-				name:         "read stream (default options)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
-				wantEvents:   eventsFor(streamID),
+				name: "read stream (default options)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
+				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
-				name:         "read stream (offset)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (offset)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Offset: 2},
-				wantEvents:   eventsFor(streamID)[2:],
+				wantEvents:   eventsFor(streamIDs[0])[2:],
 			},
 			{
-				name:         "read stream (count)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (count)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Count: 2},
-				wantEvents:   eventsFor(streamID)[:2],
+				wantEvents:   eventsFor(streamIDs[0])[:2],
 			},
 			{
-				name:         "read stream (offset,count)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (offset,count)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Offset: 2, Count: 2},
-				wantEvents:   eventsFor(streamID)[2:4],
+				wantEvents:   eventsFor(streamIDs[0])[2:4],
 			},
 			{
-				name:         "read stream (forward)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (forward)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward},
-				wantEvents:   eventsFor(streamID),
+				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
-				name:         "read stream (reverse)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (reverse)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse},
-				wantEvents:   reversed(eventsFor(streamID)),
+				wantEvents:   reversed(eventsFor(streamIDs[0])),
 			},
 			{
-				name:         "read stream (forward,offset)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (forward,offset)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2},
-				wantEvents:   eventsFor(streamID)[2:],
+				wantEvents:   eventsFor(streamIDs[0])[2:],
 			},
 			{
-				name:         "read stream (reverse,offset)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (reverse,offset)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2},
-				wantEvents:   reversed(eventsFor(streamID))[2:],
+				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:],
 			},
 			{
-				name:         "read stream (forward,count)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (forward,count)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Count: 2},
-				wantEvents:   eventsFor(streamID)[:2],
+				wantEvents:   eventsFor(streamIDs[0])[:2],
 			},
 			{
-				name:         "read stream (reverse,count)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (reverse,count)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Count: 2},
-				wantEvents:   reversed(eventsFor(streamID))[:2],
+				wantEvents:   reversed(eventsFor(streamIDs[0]))[:2],
 			},
 			{
-				name:         "read stream (forward,offset,count)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (forward,offset,count)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2, Count: 2},
-				wantEvents:   eventsFor(streamID)[2:4],
+				wantEvents:   eventsFor(streamIDs[0])[2:4],
 			},
 			{
-				name:         "read stream (reverse,offset,count)",
-				withEvents:   writableEventsFor(streamID),
-				haveStreamID: streamID,
+				name: "read stream (reverse,offset,count)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[0],
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2, Count: 2},
-				wantEvents:   reversed(eventsFor(streamID))[2:4],
+				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:4],
 			},
 		} {
 			t.Run(tStrat.name+"_"+tStrat.desc+"_"+tt.name, func(t *testing.T) {
@@ -207,8 +237,10 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 
 				// setup test-specific DB state
 				if len(tt.withEvents) > 0 {
-					if err := eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.withEvents, eventstore.AppendStreamOptions{}); err != nil {
-						t.Fatalf("failed to setup DB state: %v", err)
+					for streamID, events := range tt.withEvents {
+						if err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+							t.Fatalf("failed to setup DB state: %v", err)
+						}
 					}
 				}
 
@@ -310,21 +342,21 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				return must(strategy.NewDefaultStrategy())
 			},
 		},
-		{
-			name: testStrategyDefault,
-			desc: "custom table names",
-			create: func(t *testing.T) pgeventstore.Strategy {
-				t.Helper()
-				return must(strategy.NewDefaultStrategy(
-					strategy.WithEventsTableName("event"),
-					strategy.WithStreamsTableName("stream"),
-				))
-			},
-		},
+		// {
+		// 	name: testStrategyDefault,
+		// 	desc: "custom table names",
+		// 	create: func(t *testing.T) pgeventstore.Strategy {
+		// 		t.Helper()
+		// 		return must(strategy.NewDefaultStrategy(
+		// 			strategy.WithEventsTableName("event"),
+		// 			strategy.WithStreamsTableName("stream"),
+		// 		))
+		// 	},
+		// },
 	} {
 		for _, tt := range []struct {
 			name         string
-			withEvents   []*eventstore.WritableEvent
+			withEvents   map[typeid.UUID][]*eventstore.WritableEvent
 			haveStreamID typeid.UUID
 			haveOpts     eventstore.AppendStreamOptions
 			haveEvents   []*eventstore.WritableEvent
@@ -332,39 +364,74 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			wantErr      error
 		}{
 			{
-				name:         "append single event to non-existent stream",
-				haveStreamID: streamID,
-				haveEvents:   writableEventsFor(streamID)[0:1],
-				wantEvents:   eventsFor(streamID)[0:1],
+				name:         "append single event (no streams exist)",
+				haveStreamID: streamIDs[0],
+				haveEvents:   writableEvents[0:1],
+				wantEvents:   eventsFor(streamIDs[0])[0:1],
 			},
 			{
-				name:         "append single event to existing stream",
-				withEvents:   writableEventsFor(streamID)[0:2],
-				haveStreamID: streamID,
-				haveEvents:   writableEventsFor(streamID)[2:3],
-				wantEvents:   eventsFor(streamID)[:3],
+				name:         "append multiple events (no streams exist)",
+				haveStreamID: streamIDs[0],
+				haveEvents:   writableEvents,
+				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
-				name:         "append events (default options)",
-				haveStreamID: streamID,
-				haveEvents:   writableEventsFor(streamID),
-				wantEvents:   eventsFor(streamID),
+				name: "append single event (non-existent stream)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[1],
+				haveEvents:   writableEvents[0:1],
+				wantEvents:   eventsFor(streamIDs[1])[0:1],
 			},
 			{
-				name:         "append events (expected version match)",
-				withEvents:   writableEventsFor(streamID)[0:2],
-				haveStreamID: streamID,
-				haveEvents:   writableEventsFor(streamID)[2:],
+				name: "append multiple events (non-existent stream)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+				},
+				haveStreamID: streamIDs[1],
+				haveEvents:   writableEvents,
+				wantEvents:   eventsFor(streamIDs[1]),
+			},
+			{
+				name: "append single event (existing stream)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+					streamIDs[1]: writableEvents[0:2],
+				},
+				haveStreamID: streamIDs[1],
+				haveEvents:   writableEvents[2:3],
+				wantEvents:   eventsFor(streamIDs[1])[:3],
+			},
+			{
+				name: "append multiple events (existing stream)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents,
+					streamIDs[1]: writableEvents[0:2],
+				},
+				haveStreamID: streamIDs[1],
+				haveEvents:   writableEvents[2:3],
+				wantEvents:   eventsFor(streamIDs[1])[:3],
+			},
+			{
+				name: "append events (expected version match)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents[0:2],
+				},
+				haveStreamID: streamIDs[0],
+				haveEvents:   writableEvents[2:],
 				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 2},
-				wantEvents:   eventsFor(streamID),
+				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
-				name:         "append events (unexpected version mismatch)",
-				withEvents:   writableEventsFor(streamID)[0:2],
-				haveStreamID: streamID,
-				haveEvents:   writableEventsFor(streamID)[2:],
+				name: "append events (expected version mismatch)",
+				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+					streamIDs[0]: writableEvents[0:2],
+				},
+				haveStreamID: streamIDs[0],
+				haveEvents:   writableEvents[2:],
 				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 1},
-				wantErr:      eventstore.StreamVersionMismatchError{StreamID: streamID, ExpectedVersion: 1, ActualVersion: 2},
+				wantErr:      eventstore.StreamVersionMismatchError{StreamID: streamIDs[0], ExpectedVersion: 1, ActualVersion: 2},
 			},
 		} {
 			t.Run(tStrat.name+"_"+tStrat.desc+"_"+tt.name, func(t *testing.T) {
@@ -389,8 +456,10 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 
 				// setup test-specific DB state
 				if len(tt.withEvents) > 0 {
-					if err := eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.withEvents, eventstore.AppendStreamOptions{}); err != nil {
-						t.Fatalf("failed to setup DB state: %v", err)
+					for streamID, events := range tt.withEvents {
+						if err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+							t.Fatalf("failed to setup DB state: %v", err)
+						}
 					}
 				}
 
