@@ -100,12 +100,6 @@ func New(db Database, opts ...EventStoreOption) (*EventStore, error) {
 	return eventStore, nil
 }
 
-// AddTransactionalHook adds a hook to be executed within the transaction when appending events.
-// If an error is returned from any hook, the transaction will be aborted.
-func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
-	s.appendTxHooks = append(s.appendTxHooks, hooks...)
-}
-
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from Postgres stream",
@@ -210,4 +204,10 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 	}
 
 	return nil
+}
+
+// AddTransactionalHook adds a hook to be executed within the transaction when appending events.
+// If an error is returned from any hook, the transaction will be aborted.
+func (s *EventStore) AddTransactionalHooks(hooks ...TransactionHook) {
+	s.appendTxHooks = append(s.appendTxHooks, hooks...)
 }
