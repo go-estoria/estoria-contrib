@@ -1,7 +1,7 @@
 package eventstore_test
 
 import (
-	"database/sql"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -19,13 +19,7 @@ const (
 var (
 	now = time.Now().UTC().Add(-time.Hour)
 
-	streamIDs = []typeid.UUID{
-		must(typeid.NewUUID("stream_f78053db-5874-457c-8cf7-1e1bb524efba")),
-		must(typeid.NewUUID("stream_87b29e1b-463f-469a-a3cb-5bb0598d64c0")),
-		must(typeid.NewUUID("stream_1171f763-56c7-45c6-8460-d54d866a5660")),
-		must(typeid.NewUUID("stream_eb342cfb-77f0-433a-979c-8ae0f435e4fa")),
-		must(typeid.NewUUID("stream_fe1701cb-5e5c-4ef4-b031-250e93adaa3c")),
-	}
+	streamID = must(typeid.NewUUID("stream_f78053db-5874-457c-8cf7-1e1bb524efba"))
 
 	eventIDs = []typeid.UUID{
 		must(typeid.NewUUID("event_7841ba8b-1e6e-4a96-a3cf-fce9c1c262b7")),
@@ -43,6 +37,16 @@ func eventsFor(streamID typeid.UUID) []*eventstore.Event {
 		{ID: eventIDs[2], StreamID: streamID, StreamVersion: 3, Timestamp: now.Add(3 * time.Second), Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
 		{ID: eventIDs[3], StreamID: streamID, StreamVersion: 4, Timestamp: now.Add(4 * time.Second), Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
 		{ID: eventIDs[4], StreamID: streamID, StreamVersion: 5, Timestamp: now.Add(5 * time.Second), Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
+	}
+}
+
+func writableEventsFor(streamID typeid.UUID) []*eventstore.WritableEvent {
+	return []*eventstore.WritableEvent{
+		{ID: eventIDs[0], Timestamp: now.Add(1 * time.Second), Data: []byte(`{"foo":"one","bar":100,"baz":true}`)},
+		{ID: eventIDs[1], Timestamp: now.Add(2 * time.Second), Data: []byte(`{"foo":"two","bar":200,"baz":false}`)},
+		{ID: eventIDs[2], Timestamp: now.Add(3 * time.Second), Data: []byte(`{"foo":"three","bar":300,"baz":true}`)},
+		{ID: eventIDs[3], Timestamp: now.Add(4 * time.Second), Data: []byte(`{"foo":"four","bar":400,"baz":false}`)},
+		{ID: eventIDs[4], Timestamp: now.Add(5 * time.Second), Data: []byte(`{"foo":"five","bar":500,"baz":true}`)},
 	}
 }
 
@@ -80,7 +84,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 	} {
 		for _, tt := range []struct {
 			name         string
-			withDBState  func(*testing.T, *sql.DB)
+			withEvents   []*eventstore.WritableEvent
 			haveStreamID typeid.UUID
 			haveOpts     eventstore.ReadStreamOptions
 			wantEvents   []*eventstore.Event
@@ -92,132 +96,93 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantErr:      eventstore.ErrStreamNotFound,
 			},
 			{
-				name: "read stream with one event",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0])[0:1])
-				},
-				haveStreamID: streamIDs[0],
-				wantEvents:   eventsFor(streamIDs[0])[0:1],
+				name:         "read stream with one event",
+				withEvents:   writableEventsFor(streamID)[0:1],
+				haveStreamID: streamID,
+				wantEvents:   eventsFor(streamID)[0:1],
 			},
 			{
-				name: "read stream (default options)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
-				wantEvents:   eventsFor(streamIDs[0]),
+				name:         "read stream (default options)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
+				wantEvents:   eventsFor(streamID),
 			},
 			{
-				name: "read stream (offset)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (offset)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Offset: 2},
-				wantEvents:   eventsFor(streamIDs[0])[2:],
+				wantEvents:   eventsFor(streamID)[2:],
 			},
 			{
-				name: "read stream (count)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (count)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Count: 2},
-				wantEvents:   eventsFor(streamIDs[0])[:2],
+				wantEvents:   eventsFor(streamID)[:2],
 			},
 			{
-				name: "read stream (offset,count)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (offset,count)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Offset: 2, Count: 2},
-				wantEvents:   eventsFor(streamIDs[0])[2:4],
+				wantEvents:   eventsFor(streamID)[2:4],
 			},
 			{
-				name: "read stream (forward)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (forward)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward},
-				wantEvents:   eventsFor(streamIDs[0]),
+				wantEvents:   eventsFor(streamID),
 			},
 			{
-				name: "read stream (reverse)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (reverse)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse},
-				wantEvents:   reversed(eventsFor(streamIDs[0])),
+				wantEvents:   reversed(eventsFor(streamID)),
 			},
 			{
-				name: "read stream (forward,offset)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (forward,offset)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2},
-				wantEvents:   eventsFor(streamIDs[0])[2:],
+				wantEvents:   eventsFor(streamID)[2:],
 			},
 			{
-				name: "read stream (reverse,offset)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (reverse,offset)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2},
-				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:],
+				wantEvents:   reversed(eventsFor(streamID))[2:],
 			},
 			{
-				name: "read stream (forward,count)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (forward,count)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Count: 2},
-				wantEvents:   eventsFor(streamIDs[0])[:2],
+				wantEvents:   eventsFor(streamID)[:2],
 			},
 			{
-				name: "read stream (reverse,count)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (reverse,count)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Count: 2},
-				wantEvents:   reversed(eventsFor(streamIDs[0]))[:2],
+				wantEvents:   reversed(eventsFor(streamID))[:2],
 			},
 			{
-				name: "read stream (forward,offset,count)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (forward,offset,count)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2, Count: 2},
-				wantEvents:   eventsFor(streamIDs[0])[2:4],
+				wantEvents:   eventsFor(streamID)[2:4],
 			},
 			{
-				name: "read stream (reverse,offset,count)",
-				withDBState: func(t *testing.T, db *sql.DB) {
-					t.Helper()
-					insertEvents(t, db, tStrat.name, eventsFor(streamIDs[0]))
-				},
-				haveStreamID: streamIDs[0],
+				name:         "read stream (reverse,offset,count)",
+				withEvents:   writableEventsFor(streamID),
+				haveStreamID: streamID,
 				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2, Count: 2},
-				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:4],
+				wantEvents:   reversed(eventsFor(streamID))[2:4],
 			},
 		} {
 			t.Run(tStrat.name+"_"+tStrat.desc+"_"+tt.name, func(t *testing.T) {
@@ -235,14 +200,16 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 					t.Fatalf("failed to create DB schema: %v", err)
 				}
 
-				// setup test-specific DB state
-				if tt.withDBState != nil {
-					tt.withDBState(t, db)
-				}
-
 				eventStore, err := pgeventstore.New(db, pgeventstore.WithStrategy(s))
 				if err != nil {
 					t.Fatalf("failed to create Postgres event store: %v", err)
+				}
+
+				// setup test-specific DB state
+				if len(tt.withEvents) > 0 {
+					if err := eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.withEvents, eventstore.AppendStreamOptions{}); err != nil {
+						t.Fatalf("failed to setup DB state: %v", err)
+					}
 				}
 
 				eventsIter, err := eventStore.ReadStream(t.Context(), tt.haveStreamID, tt.haveOpts)
@@ -308,23 +275,6 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 	}
 }
 
-func insertEvents(t *testing.T, db *sql.DB, strat string, events []*eventstore.Event) {
-	t.Helper()
-	switch strat {
-	case testStrategyDefault:
-		for i, e := range events {
-			if _, err := db.ExecContext(t.Context(), `
-				INSERT INTO event (event_id, event_type, stream_id, stream_type, stream_offset, timestamp, data)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)
-			`, e.ID.Value(), e.ID.TypeName(), e.StreamID.Value(), e.StreamID.TypeName(), e.StreamVersion, e.Timestamp, e.Data); err != nil {
-				t.Fatalf("failed to insert test event %d of %d: %v", i+1, len(events), err)
-			}
-		}
-	default:
-		t.Fatalf("can't insert events using unknown strategy %q", strat)
-	}
-}
-
 func must[T any](val T, err error) T {
 	if err != nil {
 		panic("unexpected error: " + err.Error())
@@ -337,4 +287,176 @@ func reversed[T any](s []T) []T {
 	copy(r, s)
 	slices.Reverse(r)
 	return r
+}
+
+// TestEventStore_Integration_AppendStream tests appending events to a stream
+func TestEventStore_Integration_AppendStream(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	for _, tStrat := range []struct {
+		name   string
+		desc   string
+		create func(*testing.T) pgeventstore.Strategy
+	}{
+		{
+			name: testStrategyDefault,
+			desc: "default options",
+			create: func(*testing.T) pgeventstore.Strategy {
+				t.Helper()
+				return must(strategy.NewDefaultStrategy())
+			},
+		},
+		{
+			name: testStrategyDefault,
+			desc: "custom table names",
+			create: func(t *testing.T) pgeventstore.Strategy {
+				t.Helper()
+				return must(strategy.NewDefaultStrategy(
+					strategy.WithEventsTableName("event"),
+					strategy.WithStreamsTableName("stream"),
+				))
+			},
+		},
+	} {
+		for _, tt := range []struct {
+			name         string
+			withEvents   []*eventstore.WritableEvent
+			haveStreamID typeid.UUID
+			haveOpts     eventstore.AppendStreamOptions
+			haveEvents   []*eventstore.WritableEvent
+			wantEvents   []*eventstore.Event
+			wantErr      error
+		}{
+			{
+				name:         "append single event to non-existent stream",
+				haveStreamID: streamID,
+				haveEvents:   writableEventsFor(streamID)[0:1],
+				wantEvents:   eventsFor(streamID)[0:1],
+			},
+			{
+				name:         "append single event to existing stream",
+				withEvents:   writableEventsFor(streamID)[0:2],
+				haveStreamID: streamID,
+				haveEvents:   writableEventsFor(streamID)[2:3],
+				wantEvents:   eventsFor(streamID)[:3],
+			},
+			{
+				name:         "append events (default options)",
+				haveStreamID: streamID,
+				haveEvents:   writableEventsFor(streamID),
+				wantEvents:   eventsFor(streamID),
+			},
+			{
+				name:         "append events (expected version match)",
+				withEvents:   writableEventsFor(streamID)[0:2],
+				haveStreamID: streamID,
+				haveEvents:   writableEventsFor(streamID)[2:],
+				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 2},
+				wantEvents:   eventsFor(streamID),
+			},
+			{
+				name:         "append events (unexpected version mismatch)",
+				withEvents:   writableEventsFor(streamID)[0:2],
+				haveStreamID: streamID,
+				haveEvents:   writableEventsFor(streamID)[2:],
+				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 1},
+				wantErr:      eventstore.StreamVersionMismatchError{StreamID: streamID, ExpectedVersion: 1, ActualVersion: 2},
+			},
+		} {
+			t.Run(tStrat.name+"_"+tStrat.desc+"_"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				// spin up the Postgres container
+				db, err := createPostgresContainer(t, t.Context())
+				if err != nil {
+					t.Fatalf("failed to create Postgres container: %v", err)
+				}
+
+				// create the strategy and initialize the DB schema
+				s := tStrat.create(t)
+				if _, err := db.ExecContext(t.Context(), s.Schema()); err != nil {
+					t.Fatalf("failed to create DB schema: %v", err)
+				}
+
+				eventStore, err := pgeventstore.New(db, pgeventstore.WithStrategy(s))
+				if err != nil {
+					t.Fatalf("failed to create Postgres event store: %v", err)
+				}
+
+				// setup test-specific DB state
+				if len(tt.withEvents) > 0 {
+					if err := eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.withEvents, eventstore.AppendStreamOptions{}); err != nil {
+						t.Fatalf("failed to setup DB state: %v", err)
+					}
+				}
+
+				err = eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.haveEvents, tt.haveOpts)
+				if err != nil {
+					if tt.wantErr == nil {
+						t.Fatalf("unexpected error reading stream: %v", err)
+					}
+					if !errors.Is(err, tt.wantErr) {
+						t.Fatalf("expected error %q, got %q", tt.wantErr.Error(), err.Error())
+					}
+					return
+				}
+
+				if tt.wantErr != nil {
+					t.Fatalf("expected error %q, got nil", tt.wantErr.Error())
+				}
+
+				iter, err := eventStore.ReadStream(t.Context(), tt.haveStreamID, eventstore.ReadStreamOptions{})
+				if err != nil {
+					t.Fatalf("unexpected error reading stream: %v", err)
+				}
+
+				var gotEvents []*eventstore.Event
+				for {
+					ev, err := iter.Next(t.Context())
+					if err != nil {
+						if err == eventstore.ErrEndOfEventStream {
+							break
+						}
+						t.Fatalf("error iterating events: %v", err)
+					}
+					if ev == nil {
+						t.Fatalf("expected event, got nil")
+					}
+					gotEvents = append(gotEvents, ev)
+				}
+
+				if len(gotEvents) != len(tt.wantEvents) {
+					for _, e := range tt.wantEvents {
+						t.Logf("want event: ID=%s StreamID=%s StreamVersion=%d Data=%s", e.ID.String(), e.StreamID.String(), e.StreamVersion, string(e.Data))
+					}
+					for _, e := range gotEvents {
+						t.Logf("got event: ID=%s StreamID=%s StreamVersion=%d Data=%s", e.ID.String(), e.StreamID.String(), e.StreamVersion, string(e.Data))
+					}
+					t.Fatalf("expected %d events, got %d", len(tt.wantEvents), len(gotEvents))
+				}
+
+				for i := range gotEvents {
+					if gotEvents[i].ID.TypeName() != tt.wantEvents[i].ID.TypeName() {
+						t.Errorf("event %d: expected type %q, got %q", i, tt.wantEvents[i].ID.TypeName(), gotEvents[i].ID.TypeName())
+					}
+					if gotEvents[i].ID.Value() != tt.wantEvents[i].ID.Value() {
+						t.Errorf("event %d: expected ID %q, got %q", i, tt.wantEvents[i].ID.Value(), gotEvents[i].ID.Value())
+					}
+					if gotEvents[i].StreamID != tt.wantEvents[i].StreamID {
+						t.Errorf("event %d: expected StreamID %q, got %q", i, tt.wantEvents[i].StreamID, gotEvents[i].StreamID)
+					}
+					if gotEvents[i].StreamVersion != tt.wantEvents[i].StreamVersion {
+						t.Errorf("event %d: expected StreamVersion %d, got %d", i, tt.wantEvents[i].StreamVersion, gotEvents[i].StreamVersion)
+					}
+					if string(gotEvents[i].Data) != string(tt.wantEvents[i].Data) {
+						t.Errorf("event %d: expected Data %q, got %q", i, string(tt.wantEvents[i].Data), string(gotEvents[i].Data))
+					}
+				}
+			})
+		}
+	}
 }

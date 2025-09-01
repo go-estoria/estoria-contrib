@@ -133,7 +133,11 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	currentOffset := newMaxOffset - int64(len(events))
 	if opts.ExpectVersion > 0 && currentOffset != opts.ExpectVersion {
-		return fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, currentOffset)
+		return eventstore.StreamVersionMismatchError{
+			StreamID:        streamID,
+			ExpectedVersion: opts.ExpectVersion,
+			ActualVersion:   currentOffset,
+		}
 	}
 
 	ids := make([]typeid.UUID, len(events))
