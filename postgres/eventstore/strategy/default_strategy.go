@@ -10,6 +10,7 @@ import (
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
+	"github.com/lib/pq"
 )
 
 const (
@@ -74,7 +75,7 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.
 			timestamp,
 			stream_offset,
 			data
-		FROM "%s"
+		FROM %s
 		WHERE
 			stream_type = $1
 			AND
@@ -83,7 +84,7 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.
 			stream_offset %s
 		%s
 		%s
-	`, s.eventsTableName, direction, offsetClause, limitClause),
+	`, pq.QuoteIdentifier(s.eventsTableName), direction, offsetClause, limitClause),
 		[]any{
 			streamID.TypeName(),
 			streamID.Value(),
@@ -121,21 +122,21 @@ func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error
 // It uses the provided transactional context to ensure atomicity.
 func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error) {
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO "%s" (
+		INSERT INTO %s (
 			stream_type,
 			stream_id,
 			last_offset
 		)
 		VALUES ($1, $2, 0)
 		ON CONFLICT (stream_type, stream_id) DO NOTHING`,
-		s.streamsTableName,
+		pq.QuoteIdentifier(s.streamsTableName),
 	), streamID.TypeName(), streamID.Value()); err != nil {
 		return 0, fmt.Errorf("upserting stream metadata: %w", err)
 	}
 
 	var newOffset int64
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		UPDATE "%s"
+		UPDATE %s
 		SET
 			last_offset = last_offset + $3
 		WHERE
@@ -143,7 +144,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 			AND
 			stream_id = $2
 		RETURNING last_offset`,
-		s.streamsTableName,
+		pq.QuoteIdentifier(s.streamsTableName),
 	), streamID.TypeName(), streamID.Value(), numEvents).Scan(&newOffset); err != nil {
 		return 0, fmt.Errorf("bumping last_offset: %w", err)
 	}
@@ -153,7 +154,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
 func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 	return fmt.Sprintf(`
-		INSERT INTO "%s" (
+		INSERT INTO %s (
 			event_id,
 			stream_type,
 			stream_id,
@@ -163,7 +164,7 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 			data
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, s.eventsTableName), nil
+	`, pq.QuoteIdentifier(s.eventsTableName)), nil
 }
 
 // AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
