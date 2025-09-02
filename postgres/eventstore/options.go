@@ -53,9 +53,9 @@ func WithAppendTransactionHooks(hooks ...TransactionHook) EventStoreOption {
 }
 
 // WithTxOptions sets optional transaction options to use for write transactions.
-func WithTxOptions(opts sql.TxOptions) EventStoreOption {
+func WithTxOptions(opts *sql.TxOptions) EventStoreOption {
 	return func(s *EventStore) error {
-		s.txOpts = &opts
+		s.txOpts = opts
 		return nil
 	}
 }
