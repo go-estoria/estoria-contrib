@@ -1,6 +1,7 @@
 package eventstore_test
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"time"
@@ -289,7 +290,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 					if gotEvents[i].StreamVersion != tt.wantEvents[i].StreamVersion {
 						t.Errorf("event %d: expected StreamVersion %d, got %d", i, tt.wantEvents[i].StreamVersion, gotEvents[i].StreamVersion)
 					}
-					if string(gotEvents[i].Data) != string(tt.wantEvents[i].Data) {
+					if !bytes.Equal(gotEvents[i].Data, tt.wantEvents[i].Data) {
 						t.Errorf("event %d: expected Data %q, got %q", i, string(tt.wantEvents[i].Data), string(gotEvents[i].Data))
 					}
 				}
@@ -498,7 +499,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 					if gotEvents[i].StreamVersion != tt.wantEvents[i].StreamVersion {
 						t.Errorf("event %d: expected StreamVersion %d, got %d", i, tt.wantEvents[i].StreamVersion, gotEvents[i].StreamVersion)
 					}
-					if string(gotEvents[i].Data) != string(tt.wantEvents[i].Data) {
+					if !bytes.Equal(gotEvents[i].Data, tt.wantEvents[i].Data) {
 						t.Errorf("event %d: expected Data %q, got %q", i, string(tt.wantEvents[i].Data), string(gotEvents[i].Data))
 					}
 				}
