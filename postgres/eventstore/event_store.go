@@ -13,14 +13,27 @@ import (
 )
 
 // Strategy is an interface for defining lower-level query and append mechanics.
+//
+// Strategies define the specific SQL schema and behavior to use when storing and retrieving events
+// from the database. Different strategies may be used to support different database schemas or
+// optimizations, such as per-stream event tables or high-throughput append strategies.
 type Strategy interface {
+	// ReadStreamQuery builds a query for reading events from a stream.
 	ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error)
+
+	// ScanEventRow scans a single event row from the provided sql.Rows.
 	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
 
+	// NextHighwaterMark returns the next highwater mark (i.e. the next highest stream version).
 	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
+
+	// AppendStreamStatement returns a SQL statement for appending events to a stream.
 	AppendStreamStatement() (string, error)
+
+	// AppendStreamExecArgs returns the arguments to pass when executing an append statement for an individual event.
 	AppendStreamExecArgs(event *eventstore.Event) []any
 
+	// Schema returns the SQL schema used by a strategy.
 	Schema() string
 }
 

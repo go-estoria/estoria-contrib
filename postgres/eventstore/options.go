@@ -7,6 +7,7 @@ import (
 	"github.com/go-estoria/estoria"
 )
 
+// EventStoreOption is a functional option for configuring an EventStore.
 type EventStoreOption func(*EventStore) error
 
 // WithLogger sets the logger to use for the event store.

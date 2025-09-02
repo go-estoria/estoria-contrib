@@ -17,8 +17,11 @@ const (
 	defaultStreamsTableName = "stream"
 )
 
-// DefaultStrategy is a strategy for storing all events in a single database table,
-// with a separate table for stream metadata.
+// DefaultStrategy is a strategy that stores all events in a single database table,
+// with a separate table for storing stream metadata.
+//
+// By default, the events table is named "event" and the streams table is named "stream".
+// These can be overridden by passing options to NewDefaultStrategy.
 type DefaultStrategy struct {
 	eventsTableName  string
 	streamsTableName string
