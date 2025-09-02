@@ -229,12 +229,12 @@ type StreamLister interface {
 //
 // Note that not all strategies may support listing streams, in which case an error will be returned.
 func (s *EventStore) ListStreams() ([]strategy.StreamMetadata, error) {
-	streamLister, ok := s.strategy.(StreamLister)
+	lister, ok := s.strategy.(StreamLister)
 	if !ok {
 		return nil, fmt.Errorf("strategy does not support listing streams")
 	}
 
-	return streamLister.ListStreams(s.db)
+	return lister.ListStreams(s.db)
 }
 
 // AllReader is an interface for strategies that support reading all events across all streams.
@@ -246,12 +246,12 @@ type AllReader interface {
 //
 // Note that not all strategies may support reading all events, in which case an error will be returned.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
-	allReader, ok := s.strategy.(AllReader)
+	reader, ok := s.strategy.(AllReader)
 	if !ok {
 		return nil, fmt.Errorf("strategy does not support reading all events")
 	}
 
-	rows, err := allReader.ReadAll(ctx, s.db, opts)
+	rows, err := reader.ReadAll(ctx, s.db, opts)
 	if err != nil {
 		return nil, fmt.Errorf("reading all events: %w", err)
 	}
