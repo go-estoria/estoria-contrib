@@ -229,6 +229,86 @@ func (s *DefaultStrategy) Schema() string {
 	`, s.eventsTableName, s.streamsTableName)
 }
 
+// ListStreams returns metadata for all streams in the event store.
+func (s *DefaultStrategy) ListStreams(db *sql.DB) ([]StreamMetadata, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			stream_type,
+			stream_id,
+			last_offset
+		FROM %s
+	`, pq.QuoteIdentifier(s.streamsTableName))
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("querying streams: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var streams []StreamMetadata
+	for rows.Next() {
+		var (
+			streamType string
+			streamID   uuid.UUID
+			lastOffset int64
+		)
+		if err := rows.Scan(&streamType, &streamID, &lastOffset); err != nil {
+			return nil, fmt.Errorf("scanning stream row: %w", err)
+		}
+
+		streams = append(streams, StreamMetadata{
+			StreamID:   typeid.FromUUID(streamType, streamID),
+			LastOffset: lastOffset,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating stream rows: %w", err)
+	}
+
+	return streams, nil
+}
+
+// ReadAll returns a SQL rows result set for reading all events in the event store.
+func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventstore.ReadStreamOptions) (*sql.Rows, error) {
+	direction := "ASC"
+	if opts.Direction == eventstore.Reverse {
+		direction = "DESC"
+	}
+
+	offsetClause := ""
+	if opts.Offset > 0 {
+		offsetClause = fmt.Sprintf("OFFSET %d", opts.Offset)
+	}
+
+	limitClause := ""
+	if opts.Count > 0 {
+		limitClause = fmt.Sprintf("LIMIT %d", opts.Count)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			stream_id,
+			stream_type,
+			event_id,
+			event_type,
+			timestamp,
+			stream_offset,
+			data
+		FROM %s
+		ORDER BY
+			id %s
+		%s
+		%s
+	`, pq.QuoteIdentifier(s.eventsTableName), direction, offsetClause, limitClause)
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("querying all events: %w", err)
+	}
+
+	return rows, nil
+}
+
 // validateTableName validates that the given table name is a valid SQL identifier.
 func validateTableName(name string) error {
 	if ok, err := regexp.Match(`^[A-Za-z_][A-Za-z0-9_$]{0,62}$`, []byte(name)); err != nil {

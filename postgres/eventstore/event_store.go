@@ -219,3 +219,61 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	return nil
 }
+
+// StreamLister is an interface for strategies that support listing streams.
+type StreamLister interface {
+	ListStreams(*sql.DB) ([]strategy.StreamMetadata, error)
+}
+
+// ListStreams returns info for all streams in the event store.
+//
+// Note that not all strategies may support listing streams, in which case an error will be returned.
+func (s *EventStore) ListStreams() ([]strategy.StreamMetadata, error) {
+	streamLister, ok := s.strategy.(StreamLister)
+	if !ok {
+		return nil, fmt.Errorf("strategy does not support listing streams")
+	}
+
+	return streamLister.ListStreams(s.db)
+}
+
+// AllReader is an interface for strategies that support reading all events across all streams.
+type AllReader interface {
+	ReadAll(context.Context, *sql.DB, eventstore.ReadStreamOptions) (*sql.Rows, error)
+}
+
+// ReadAll returns an iterator for reading all events in the event store, across all streams.
+//
+// Note that not all strategies may support reading all events, in which case an error will be returned.
+func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
+	allReader, ok := s.strategy.(AllReader)
+	if !ok {
+		return nil, fmt.Errorf("strategy does not support reading all events")
+	}
+
+	rows, err := allReader.ReadAll(ctx, s.db, opts)
+	if err != nil {
+		return nil, fmt.Errorf("reading all events: %w", err)
+	}
+
+	// no rows means there are no events
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("preparing all events results: %w", err)
+		}
+
+		return nil, eventstore.ErrStreamNotFound
+	}
+
+	// calling .Next() advanced the cursor, so scan the first row now
+	first, err := s.strategy.ScanEventRow(rows)
+	if err != nil {
+		return nil, fmt.Errorf("scanning event row: %w", err)
+	}
+
+	return &streamIterator{
+		strategy: s.strategy,
+		rows:     rows,
+		first:    first,
+	}, nil
+}
