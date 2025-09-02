@@ -280,6 +280,71 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 	}
 }
 
+func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
+	for _, tt := range []struct {
+		name             string
+		withStrategyOpts []strategy.DefaultStrategyOption
+		wantStmt         string
+		wantErr          error
+	}{
+		{
+			name: "default table name",
+			wantStmt: `
+		INSERT INTO "event" (
+			event_id,
+			stream_type,
+			stream_id,
+			event_type,
+			timestamp,
+			stream_offset,
+			data
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`,
+		},
+		{
+			name: "overriden table name",
+			withStrategyOpts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("my_events"),
+			},
+			wantStmt: `
+		INSERT INTO "my_events" (
+			event_id,
+			stream_type,
+			stream_id,
+			event_type,
+			timestamp,
+			stream_offset,
+			data
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			strat, err := strategy.NewDefaultStrategy(tt.withStrategyOpts...)
+			if err != nil {
+				t.Fatalf("creating strategy: %v", err)
+			}
+
+			gotStmt, err := strat.AppendStreamStatement()
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("expected error %v, got %v", tt.wantErr, err)
+				}
+				return
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if strings.TrimSpace(gotStmt) != strings.TrimSpace(tt.wantStmt) {
+				t.Errorf("expected statement:\n-----\n%s\n-----\ngot:\n-----\n%s\n-----\n", tt.wantStmt, gotStmt)
+			}
+		})
+	}
+}
+
 func must[T any](val T, err error) T {
 	if err != nil {
 		panic("unexpected error: " + err.Error())
