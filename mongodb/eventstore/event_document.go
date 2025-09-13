@@ -42,9 +42,9 @@ type DefaultMarshaler struct{}
 func (DefaultMarshaler) MarshalDocument(event *Event) (any, error) {
 	return EventDocument{
 		StreamType:   event.StreamID.Type,
-		StreamID:     event.StreamID.ID.String(),
+		StreamID:     event.StreamID.UUID.String(),
 		EventType:    event.ID.Type,
-		EventID:      event.ID.ID.String(),
+		EventID:      event.ID.UUID.String(),
 		Offset:       event.StreamVersion,
 		GlobalOffset: event.GlobalOffset,
 		Timestamp:    event.Timestamp,

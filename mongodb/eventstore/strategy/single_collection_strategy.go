@@ -78,7 +78,7 @@ func (s *SingleCollectionStrategy) GetStreamCursor(
 ) (*mongo.Cursor, error) {
 	cursor, err := s.collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.ID},
+		{Key: "stream_id", Value: streamID.UUID},
 	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
@@ -128,7 +128,7 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamI
 	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.ID},
+		{Key: "stream_id", Value: streamID.UUID},
 	}, opts)
 	if result.Err() != nil {
 		if result.Err() == mongo.ErrNoDocuments {

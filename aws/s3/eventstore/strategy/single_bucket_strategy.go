@@ -25,7 +25,7 @@ func (f BucketKeyResolverFunc) ResolveKey(aggregateID typeid.ID, version int64) 
 }
 
 func DefaultBuckeyKeyResolver(aggregateID typeid.ID, version int64) string {
-	return fmt.Sprintf("%s/%s/%d.json", aggregateID.Type, aggregateID.ID, version)
+	return fmt.Sprintf("%s/%s/%d.json", aggregateID.Type, aggregateID.UUID, version)
 }
 
 type S3 interface {

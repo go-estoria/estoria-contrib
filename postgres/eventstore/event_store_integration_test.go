@@ -278,7 +278,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				}
 
 				for i := range gotEvents {
-					if gotEvents[i].ID.ID.IsNil() {
+					if gotEvents[i].ID.UUID.IsNil() {
 						t.Errorf("event %d: ID is empty", i)
 					}
 					if gotEvents[i].ID.Type != tt.wantEvents[i].ID.Type {
@@ -487,7 +487,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				}
 
 				for i := range gotEvents {
-					if gotEvents[i].ID.ID.IsNil() {
+					if gotEvents[i].ID.UUID.IsNil() {
 						t.Errorf("event %d: ID is empty", i)
 					}
 					if gotEvents[i].ID.Type != tt.wantEvents[i].ID.Type {

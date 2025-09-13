@@ -344,10 +344,3 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 		})
 	}
 }
-
-func must[T any](val T, err error) T {
-	if err != nil {
-		panic("unexpected error: " + err.Error())
-	}
-	return val
-}

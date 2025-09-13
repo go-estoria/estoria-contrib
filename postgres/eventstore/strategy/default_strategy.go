@@ -87,7 +87,7 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.Re
 	`, pq.QuoteIdentifier(s.eventsTableName), direction, offsetClause, limitClause),
 		[]any{
 			streamID.Type,
-			streamID.ID,
+			streamID.UUID,
 		}, nil
 }
 
@@ -130,7 +130,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 		VALUES ($1, $2, 0)
 		ON CONFLICT (stream_type, stream_id) DO NOTHING`,
 		pq.QuoteIdentifier(s.streamsTableName),
-	), streamID.Type, streamID.ID); err != nil {
+	), streamID.Type, streamID.UUID); err != nil {
 		return 0, fmt.Errorf("upserting stream metadata: %w", err)
 	}
 
@@ -145,7 +145,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 			stream_id = $2
 		RETURNING last_offset`,
 		pq.QuoteIdentifier(s.streamsTableName),
-	), streamID.Type, streamID.ID, numEvents).Scan(&newOffset); err != nil {
+	), streamID.Type, streamID.UUID, numEvents).Scan(&newOffset); err != nil {
 		return 0, fmt.Errorf("bumping last_offset: %w", err)
 	}
 	return newOffset, nil
@@ -170,9 +170,9 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 // AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
 func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 	return []any{
-		event.ID.ID,
+		event.ID.UUID,
 		event.StreamID.Type,
-		event.StreamID.ID,
+		event.StreamID.UUID,
 		event.ID.Type,
 		event.Timestamp,
 		event.StreamVersion,

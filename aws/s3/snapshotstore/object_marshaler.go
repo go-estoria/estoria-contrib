@@ -29,7 +29,7 @@ type JSONObjectMarshaler struct{}
 
 func (m JSONObjectMarshaler) MarshalObject(snapshot *snapshotstore.AggregateSnapshot) ([]byte, error) {
 	return json.Marshal(JSONObject{
-		AggregateID:   snapshot.AggregateID.ID,
+		AggregateID:   snapshot.AggregateID.UUID,
 		AggregateType: snapshot.AggregateID.Type,
 		Version:       snapshot.AggregateVersion,
 		Timestamp:     snapshot.Timestamp,

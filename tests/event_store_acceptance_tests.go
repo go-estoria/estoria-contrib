@@ -40,7 +40,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	}
 
 	for i, readEvent := range readEvents {
-		if readEvent.ID.ID.IsNil() {
+		if readEvent.ID.UUID.IsNil() {
 			return fmt.Errorf("event ID is empty")
 		}
 

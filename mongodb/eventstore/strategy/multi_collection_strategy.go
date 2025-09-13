@@ -146,7 +146,7 @@ func (s *MultiCollectionStrategy) GetStreamCursor(
 	collection := s.database.Collection(s.selector.CollectionName(streamID))
 	cursor, err := collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.ID},
+		{Key: "stream_id", Value: streamID.UUID},
 	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
@@ -202,7 +202,7 @@ func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID
 	offsets := Offsets{}
 	if err := collection.FindOne(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.ID.String()},
+		{Key: "stream_id", Value: streamID.UUID.String()},
 	}, opts).Decode(&offsets); err != nil {
 		if err == mongo.ErrNoDocuments {
 			s.log.Debug("stream not found", "stream_id", streamID)

@@ -31,9 +31,9 @@ type JSONObjectMarshaler struct{}
 
 func (m JSONObjectMarshaler) MarshalObject(event *eventstore.Event) ([]byte, error) {
 	return json.Marshal(JSONObject{
-		StreamID:   event.StreamID.ID,
+		StreamID:   event.StreamID.UUID,
 		StreamType: event.StreamID.Type,
-		EventID:    event.ID.ID,
+		EventID:    event.ID.UUID,
 		EventType:  event.ID.Type,
 		Version:    event.StreamVersion,
 		Timestamp:  event.Timestamp,
