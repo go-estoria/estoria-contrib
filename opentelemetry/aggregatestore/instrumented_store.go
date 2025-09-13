@@ -94,7 +94,7 @@ func (s *InstrumentedStore[E]) New(id uuid.UUID) *aggregatestore.Aggregate[E] {
 }
 
 // Load loads an aggregate by ID while capturing telemetry.
-func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[E], e error) {
+func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[E], e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Load", trace.WithAttributes(
 		attribute.String("aggregate.uuid", id.String()),
 		attribute.Int64("load_options.to_version", opts.ToVersion)),
@@ -114,7 +114,7 @@ func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts aggr
 }
 
 // Hydrate hydrates an aggregate while capturing telemetry.
-func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts aggregatestore.HydrateOptions) (e error) {
+func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts *aggregatestore.HydrateOptions) (e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Hydrate", trace.WithAttributes(
 		attribute.String("aggregate.id", aggregate.ID().String()),
 		attribute.Int64("aggregate.version", aggregate.Version()),
@@ -134,7 +134,7 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 }
 
 // Save saves an aggregate while capturing telemetry.
-func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts aggregatestore.SaveOptions) (e error) {
+func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts *aggregatestore.SaveOptions) (e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Save", trace.WithAttributes(
 		attribute.String("aggregate.id", aggregate.ID().String()),
 		attribute.Int64("aggregate.version", aggregate.Version()),
