@@ -78,7 +78,7 @@ func (s *SingleCollectionStrategy) GetStreamCursor(
 ) (*mongo.Cursor, error) {
 	cursor, err := s.collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.UUID},
+		{Key: "stream_id", Value: streamID.UUID.String()},
 	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)

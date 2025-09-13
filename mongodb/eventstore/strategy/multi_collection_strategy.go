@@ -146,7 +146,7 @@ func (s *MultiCollectionStrategy) GetStreamCursor(
 	collection := s.database.Collection(s.selector.CollectionName(streamID))
 	cursor, err := collection.Find(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.UUID},
+		{Key: "stream_id", Value: streamID.UUID.String()},
 	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
