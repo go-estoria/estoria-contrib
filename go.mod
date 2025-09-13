@@ -13,11 +13,10 @@ require (
 	github.com/coocood/freecache v1.2.4
 	github.com/go-estoria/estoria v0.1.6
 	github.com/gofrs/uuid v4.4.0+incompatible
-	github.com/gofrs/uuid/v5 v5.2.0
+	github.com/gofrs/uuid/v5 v5.3.2
 	github.com/lib/pq v1.10.9
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/valkey-io/valkey-go v1.0.52
-	go.jetify.com/typeid v1.2.0
 	go.mongodb.org/mongo-driver/v2 v2.0.0
 	go.opentelemetry.io/otel v1.33.0
 	go.opentelemetry.io/otel/metric v1.33.0
@@ -46,9 +45,11 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
+	golang.org/x/tools v0.26.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
@@ -129,8 +130,8 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/mod v0.20.0 // indirect
-	golang.org/x/net v0.28.0 // indirect
+	golang.org/x/mod v0.21.0 // indirect
+	golang.org/x/net v0.30.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
