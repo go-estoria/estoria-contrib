@@ -50,7 +50,7 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
 // The query must be designed to expect exactly two parameters: the stream type and the stream ID.
-func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error) {
+func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.ReadStreamOptions) (string, []any, error) {
 	direction := "ASC"
 	if opts.Direction == eventstore.Reverse {
 		direction = "DESC"
@@ -86,8 +86,8 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.UUID, opts eventstore.
 		%s
 	`, pq.QuoteIdentifier(s.eventsTableName), direction, offsetClause, limitClause),
 		[]any{
-			streamID.TypeName(),
-			streamID.Value(),
+			streamID.Type,
+			streamID.ID,
 		}, nil
 }
 
@@ -112,15 +112,15 @@ func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error
 		return nil, fmt.Errorf("scanning event row: %w", err)
 	}
 
-	e.ID = typeid.FromUUID(eventType, eventID)
-	e.StreamID = typeid.FromUUID(streamType, streamID)
+	e.ID = typeid.New(eventType, eventID)
+	e.StreamID = typeid.New(streamType, streamID)
 
 	return &e, nil
 }
 
 // NextHighwaterMark reserves and returns the next highwater mark (stream offset) for the given stream ID.
 // It uses the provided transactional context to ensure atomicity.
-func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error) {
+func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.ID, numEvents int) (int64, error) {
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (
 			stream_type,
@@ -130,7 +130,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 		VALUES ($1, $2, 0)
 		ON CONFLICT (stream_type, stream_id) DO NOTHING`,
 		pq.QuoteIdentifier(s.streamsTableName),
-	), streamID.TypeName(), streamID.Value()); err != nil {
+	), streamID.Type, streamID.ID); err != nil {
 		return 0, fmt.Errorf("upserting stream metadata: %w", err)
 	}
 
@@ -145,7 +145,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 			stream_id = $2
 		RETURNING last_offset`,
 		pq.QuoteIdentifier(s.streamsTableName),
-	), streamID.TypeName(), streamID.Value(), numEvents).Scan(&newOffset); err != nil {
+	), streamID.Type, streamID.ID, numEvents).Scan(&newOffset); err != nil {
 		return 0, fmt.Errorf("bumping last_offset: %w", err)
 	}
 	return newOffset, nil
@@ -170,10 +170,10 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 // AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
 func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 	return []any{
-		event.ID.Value(),
-		event.StreamID.TypeName(),
-		event.StreamID.Value(),
-		event.ID.TypeName(),
+		event.ID.ID,
+		event.StreamID.Type,
+		event.StreamID.ID,
+		event.ID.Type,
 		event.Timestamp,
 		event.StreamVersion,
 		event.Data,
@@ -257,7 +257,7 @@ func (s *DefaultStrategy) ListStreams(db *sql.DB) ([]StreamMetadata, error) {
 		}
 
 		streams = append(streams, StreamMetadata{
-			StreamID:   typeid.FromUUID(streamType, streamID),
+			StreamID:   typeid.New(streamType, streamID),
 			LastOffset: lastOffset,
 		})
 	}

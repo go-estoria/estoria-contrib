@@ -26,16 +26,16 @@ type S3 interface {
 	PutObject(ctx context.Context, input *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 }
 
-type BucketResolver func(aggregateID typeid.UUID) string
+type BucketResolver func(aggregateID typeid.ID) string
 
-func DefaultBucketResolver(typeid.UUID) string {
+func DefaultBucketResolver(typeid.ID) string {
 	return "snapshots"
 }
 
-type BucketKeyResolver func(aggregateID typeid.UUID, version int64) string
+type BucketKeyResolver func(aggregateID typeid.ID, version int64) string
 
-func DefaultBucketKeyResolver(aggregateID typeid.UUID, version int64) string {
-	return fmt.Sprintf("%s/%s/%d.json", aggregateID.TypeName(), aggregateID.Value(), version)
+func DefaultBucketKeyResolver(aggregateID typeid.ID, version int64) string {
+	return fmt.Sprintf("%s/%s/%d.json", aggregateID.Type, aggregateID.ID, version)
 }
 
 type SnapshotStore struct {
@@ -56,7 +56,7 @@ func New(s3Client S3) *SnapshotStore {
 	}
 }
 
-func (s *SnapshotStore) ReadSnapshot(ctx context.Context, aggregateID typeid.UUID, opts snapshotstore.ReadSnapshotOptions) (*snapshotstore.AggregateSnapshot, error) {
+func (s *SnapshotStore) ReadSnapshot(ctx context.Context, aggregateID typeid.ID, opts snapshotstore.ReadSnapshotOptions) (*snapshotstore.AggregateSnapshot, error) {
 	estoria.GetLogger().Debug("finding snapshot", "aggregate_id", aggregateID)
 
 	bucket := s.resolveBucket(aggregateID)

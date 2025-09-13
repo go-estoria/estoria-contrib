@@ -73,12 +73,12 @@ func (s *SingleCollectionStrategy) GetAllCursor(
 // GetStreamCursor returns an iterator over events in the specified stream, ordered by stream offset.
 func (s *SingleCollectionStrategy) GetStreamCursor(
 	ctx context.Context,
-	streamID typeid.UUID,
+	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (*mongo.Cursor, error) {
 	cursor, err := s.collection.Find(ctx, bson.D{
-		{Key: "stream_type", Value: streamID.TypeName()},
-		{Key: "stream_id", Value: streamID.Value()},
+		{Key: "stream_type", Value: streamID.Type},
+		{Key: "stream_id", Value: streamID.ID},
 	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
@@ -92,7 +92,7 @@ func (s *SingleCollectionStrategy) GetStreamCursor(
 // the current offset of the stream, and the global offset.
 func (s *SingleCollectionStrategy) ExecuteInsertTransaction(
 	ctx context.Context,
-	streamID typeid.UUID,
+	streamID typeid.ID,
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
 	session, err := s.mongo.StartSession(s.sessOpts)
@@ -123,12 +123,12 @@ func (s *SingleCollectionStrategy) ExecuteInsertTransaction(
 }
 
 // Finds the highest offset for the given stream.
-func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
+func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.ID) (int64, error) {
 	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
-		{Key: "stream_type", Value: streamID.TypeName()},
-		{Key: "stream_id", Value: streamID.Value()},
+		{Key: "stream_type", Value: streamID.Type},
+		{Key: "stream_id", Value: streamID.ID},
 	}, opts)
 	if result.Err() != nil {
 		if result.Err() == mongo.ErrNoDocuments {

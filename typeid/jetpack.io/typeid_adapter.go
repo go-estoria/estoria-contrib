@@ -28,20 +28,20 @@ func (t typeID) UUID() uuid.UUID {
 
 type TypeIDParser struct{}
 
-func (p TypeIDParser) New(typ string) (etypeid.UUID, error) {
+func (p TypeIDParser) New(typ string) (etypeid.ID, error) {
 	tid, err := typeid.From(typ, "")
 	if err != nil {
-		return etypeid.UUID{}, err
+		return etypeid.ID{}, err
 	}
 
-	return etypeid.FromUUID(typ, uuid.UUID(tid.UUIDBytes())), nil
+	return etypeid.New(typ, uuid.UUID(tid.UUIDBytes())), nil
 }
 
-func (p TypeIDParser) ParseString(s string) (etypeid.UUID, error) {
+func (p TypeIDParser) ParseString(s string) (etypeid.ID, error) {
 	tid, err := typeid.FromString(s)
 	if err != nil {
-		return etypeid.UUID{}, err
+		return etypeid.ID{}, err
 	}
 
-	return etypeid.FromUUID(tid.Prefix(), uuid.UUID(tid.UUIDBytes())), nil
+	return etypeid.New(tid.Prefix(), uuid.UUID(tid.UUIDBytes())), nil
 }

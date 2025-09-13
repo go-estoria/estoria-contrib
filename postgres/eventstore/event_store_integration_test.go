@@ -19,12 +19,12 @@ const (
 var (
 	now = time.Now().UTC().Add(-time.Hour)
 
-	streamIDs = []typeid.UUID{
-		must(typeid.NewUUID("stream_f78053db-5874-457c-8cf7-1e1bb524efba")),
-		must(typeid.NewUUID("stream_87b29e1b-463f-469a-a3cb-5bb0598d64c0")),
-		must(typeid.NewUUID("stream_1171f763-56c7-45c6-8460-d54d866a5660")),
-		must(typeid.NewUUID("stream_eb342cfb-77f0-433a-979c-8ae0f435e4fa")),
-		must(typeid.NewUUID("stream_fe1701cb-5e5c-4ef4-b031-250e93adaa3c")),
+	streamIDs = []typeid.ID{
+		typeid.NewV4("stream_f78053db-5874-457c-8cf7-1e1bb524efba"),
+		typeid.NewV4("stream_87b29e1b-463f-469a-a3cb-5bb0598d64c0"),
+		typeid.NewV4("stream_1171f763-56c7-45c6-8460-d54d866a5660"),
+		typeid.NewV4("stream_eb342cfb-77f0-433a-979c-8ae0f435e4fa"),
+		typeid.NewV4("stream_fe1701cb-5e5c-4ef4-b031-250e93adaa3c"),
 	}
 
 	writableEvents = []*eventstore.WritableEvent{
@@ -36,13 +36,13 @@ var (
 	}
 )
 
-func eventsFor(streamID typeid.UUID) []*eventstore.Event {
+func eventsFor(streamID typeid.ID) []*eventstore.Event {
 	return []*eventstore.Event{
-		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 1, Timestamp: now.Add(1 * time.Second), Data: writableEvents[0].Data},
-		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 2, Timestamp: now.Add(2 * time.Second), Data: writableEvents[1].Data},
-		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 3, Timestamp: now.Add(3 * time.Second), Data: writableEvents[2].Data},
-		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 4, Timestamp: now.Add(4 * time.Second), Data: writableEvents[3].Data},
-		{ID: must(typeid.NewUUID("event")), StreamID: streamID, StreamVersion: 5, Timestamp: now.Add(5 * time.Second), Data: writableEvents[4].Data},
+		{ID: typeid.NewV4("event"), StreamID: streamID, StreamVersion: 1, Timestamp: now.Add(1 * time.Second), Data: writableEvents[0].Data},
+		{ID: typeid.NewV4("event"), StreamID: streamID, StreamVersion: 2, Timestamp: now.Add(2 * time.Second), Data: writableEvents[1].Data},
+		{ID: typeid.NewV4("event"), StreamID: streamID, StreamVersion: 3, Timestamp: now.Add(3 * time.Second), Data: writableEvents[2].Data},
+		{ID: typeid.NewV4("event"), StreamID: streamID, StreamVersion: 4, Timestamp: now.Add(4 * time.Second), Data: writableEvents[3].Data},
+		{ID: typeid.NewV4("event"), StreamID: streamID, StreamVersion: 5, Timestamp: now.Add(5 * time.Second), Data: writableEvents[4].Data},
 	}
 }
 
@@ -80,20 +80,20 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 	} {
 		for _, tt := range []struct {
 			name         string
-			withEvents   map[typeid.UUID][]*eventstore.WritableEvent
-			haveStreamID typeid.UUID
+			withEvents   map[typeid.ID][]*eventstore.WritableEvent
+			haveStreamID typeid.ID
 			haveOpts     eventstore.ReadStreamOptions
 			wantEvents   []*eventstore.Event
 			wantErr      error
 		}{
 			{
 				name:         "read non-existent stream",
-				haveStreamID: must(typeid.NewUUID("nonexistentstream")),
+				haveStreamID: typeid.NewV4("nonexistentstream"),
 				wantErr:      eventstore.ErrStreamNotFound,
 			},
 			{
 				name: "read stream with one event",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents[0:1],
 				},
 				haveStreamID: streamIDs[0],
@@ -101,7 +101,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (default options)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -109,7 +109,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (offset)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -118,7 +118,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (count)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -127,7 +127,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (offset,count)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -136,7 +136,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (forward)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -145,7 +145,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (reverse)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -154,7 +154,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (forward,offset)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -163,7 +163,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (reverse,offset)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -172,7 +172,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (forward,count)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -181,7 +181,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (reverse,count)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -190,7 +190,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (forward,offset,count)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -199,7 +199,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			{
 				name: "read stream (reverse,offset,count)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
@@ -278,11 +278,11 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				}
 
 				for i := range gotEvents {
-					if gotEvents[i].ID.IsEmpty() {
+					if gotEvents[i].ID.ID.IsNil() {
 						t.Errorf("event %d: ID is empty", i)
 					}
-					if gotEvents[i].ID.TypeName() != tt.wantEvents[i].ID.TypeName() {
-						t.Errorf("event %d: expected ID type %q, got %q", i, tt.wantEvents[i].ID.TypeName(), gotEvents[i].ID.TypeName())
+					if gotEvents[i].ID.Type != tt.wantEvents[i].ID.Type {
+						t.Errorf("event %d: expected ID type %q, got %q", i, tt.wantEvents[i].ID.Type, gotEvents[i].ID.Type)
 					}
 					if gotEvents[i].StreamID != tt.wantEvents[i].StreamID {
 						t.Errorf("event %d: expected StreamID %q, got %q", i, tt.wantEvents[i].StreamID, gotEvents[i].StreamID)
@@ -334,8 +334,8 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 	} {
 		for _, tt := range []struct {
 			name         string
-			withEvents   map[typeid.UUID][]*eventstore.WritableEvent
-			haveStreamID typeid.UUID
+			withEvents   map[typeid.ID][]*eventstore.WritableEvent
+			haveStreamID typeid.ID
 			haveOpts     eventstore.AppendStreamOptions
 			haveEvents   []*eventstore.WritableEvent
 			wantEvents   []*eventstore.Event
@@ -355,7 +355,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			},
 			{
 				name: "append single event (non-existent stream)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[1],
@@ -364,7 +364,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			},
 			{
 				name: "append multiple events (non-existent stream)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[1],
@@ -373,7 +373,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			},
 			{
 				name: "append single event (existing stream)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 					streamIDs[1]: writableEvents[0:2],
 				},
@@ -383,7 +383,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			},
 			{
 				name: "append multiple events (existing stream)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 					streamIDs[1]: writableEvents[0:2],
 				},
@@ -393,7 +393,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			},
 			{
 				name: "append events (expected version match)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents[0:2],
 				},
 				haveStreamID: streamIDs[0],
@@ -403,7 +403,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			},
 			{
 				name: "append events (expected version mismatch)",
-				withEvents: map[typeid.UUID][]*eventstore.WritableEvent{
+				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents[0:2],
 				},
 				haveStreamID: streamIDs[0],
@@ -487,11 +487,11 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				}
 
 				for i := range gotEvents {
-					if gotEvents[i].ID.IsEmpty() {
+					if gotEvents[i].ID.ID.IsNil() {
 						t.Errorf("event %d: ID is empty", i)
 					}
-					if gotEvents[i].ID.TypeName() != tt.wantEvents[i].ID.TypeName() {
-						t.Errorf("event %d: expected ID type %q, got %q", i, tt.wantEvents[i].ID.TypeName(), gotEvents[i].ID.TypeName())
+					if gotEvents[i].ID.Type != tt.wantEvents[i].ID.Type {
+						t.Errorf("event %d: expected ID type %q, got %q", i, tt.wantEvents[i].ID.Type, gotEvents[i].ID.Type)
 					}
 					if gotEvents[i].StreamID != tt.wantEvents[i].StreamID {
 						t.Errorf("event %d: expected StreamID %q, got %q", i, tt.wantEvents[i].StreamID, gotEvents[i].StreamID)

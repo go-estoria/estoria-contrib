@@ -88,7 +88,7 @@ func NewInstrumentedStore(inner snapshotstore.SnapshotStore, opts ...Instrumente
 var _ snapshotstore.SnapshotStore = (*InstrumentedStore)(nil)
 
 // Load loads an aggregate by ID while capturing telemetry.
-func (s *InstrumentedStore) ReadSnapshot(ctx context.Context, aggregateID typeid.UUID, opts snapshotstore.ReadSnapshotOptions) (_ *snapshotstore.AggregateSnapshot, e error) {
+func (s *InstrumentedStore) ReadSnapshot(ctx context.Context, aggregateID typeid.ID, opts snapshotstore.ReadSnapshotOptions) (_ *snapshotstore.AggregateSnapshot, e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".ReadSnapshot", trace.WithAttributes(
 		attribute.String("aggregate.id", aggregateID.String()),
 		attribute.Int64("options.max_version", opts.MaxVersion),

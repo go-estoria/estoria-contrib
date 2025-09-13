@@ -45,7 +45,7 @@ func TestEventStore_Integration_ListStreams(t *testing.T) {
 				},
 			},
 			wantStreams: []eventstore.StreamInfo{
-				{StreamID: typeid.FromUUID("streamtypeA", uuid.Must(uuid.FromString("f60c13d5-63de-4e33-873f-fddb0ccfdf81"))), Offset: 1, GlobalOffset: 1},
+				{StreamID: typeid.New("streamtypeA", uuid.Must(uuid.FromString("f60c13d5-63de-4e33-873f-fddb0ccfdf81"))), Offset: 1, GlobalOffset: 1},
 			},
 		},
 		{
@@ -58,9 +58,9 @@ func TestEventStore_Integration_ListStreams(t *testing.T) {
 				},
 			},
 			wantStreams: []eventstore.StreamInfo{
-				{StreamID: typeid.FromUUID("streamtypeA", uuid.Must(uuid.FromString("f60c13d5-63de-4e33-873f-fddb0ccfdf81"))), Offset: 1, GlobalOffset: 1},
-				{StreamID: typeid.FromUUID("streamtypeB", uuid.Must(uuid.FromString("163f58b0-7326-4b76-964e-43c1f05c0a9a"))), Offset: 1, GlobalOffset: 2},
-				{StreamID: typeid.FromUUID("streamtypeC", uuid.Must(uuid.FromString("09381358-2bd4-4bfa-8d18-65fc6a19583d"))), Offset: 1, GlobalOffset: 3},
+				{StreamID: typeid.New("streamtypeA", uuid.Must(uuid.FromString("f60c13d5-63de-4e33-873f-fddb0ccfdf81"))), Offset: 1, GlobalOffset: 1},
+				{StreamID: typeid.New("streamtypeB", uuid.Must(uuid.FromString("163f58b0-7326-4b76-964e-43c1f05c0a9a"))), Offset: 1, GlobalOffset: 2},
+				{StreamID: typeid.New("streamtypeC", uuid.Must(uuid.FromString("09381358-2bd4-4bfa-8d18-65fc6a19583d"))), Offset: 1, GlobalOffset: 3},
 			},
 		},
 		{

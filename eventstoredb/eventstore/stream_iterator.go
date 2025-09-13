@@ -5,16 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	uuidv5 "github.com/gofrs/uuid/v5"
+	"github.com/gofrs/uuid/v5"
 )
 
 type streamIterator struct {
-	streamID typeid.UUID
+	streamID typeid.ID
 	stream   *esdb.ReadStream
 }
 
@@ -45,19 +46,21 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 		return nil, fmt.Errorf("receiving event: %w", err)
 	}
 
-	streamID, err := typeid.ParseUUID(resolvedEvent.Event.StreamID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing stream ID: %w", err)
+	parts := strings.Split(resolvedEvent.Event.StreamID, "_")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid stream ID format: %s", resolvedEvent.Event.StreamID)
 	}
 
-	uidV5, err := uuidv5.FromBytes(resolvedEvent.Event.EventID.Bytes())
+	streamID := typeid.New(parts[0], uuid.Must(uuid.FromString(parts[1])))
+
+	uidV5, err := uuid.FromBytes(resolvedEvent.Event.EventID.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("converting UUID: %w", err)
 	}
 
 	return &eventstore.Event{
 		StreamID:  streamID,
-		ID:        typeid.FromUUID(resolvedEvent.Event.EventType, uidV5),
+		ID:        typeid.New(resolvedEvent.Event.EventType, uidV5),
 		Timestamp: resolvedEvent.Event.CreatedDate,
 		Data:      resolvedEvent.Event.Data,
 	}, nil

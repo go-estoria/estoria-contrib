@@ -64,36 +64,36 @@ import (
 
 // 	events := []*eventstore.Event{
 // 		{
-// 			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79001"))),
-// 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			ID:            typeid.New("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79001"))),
+// 			StreamID:      typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			StreamVersion: 1,
 // 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 01, 0, time.UTC),
 // 			Data:          []byte{},
 // 		},
 // 		{
-// 			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-// 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			ID:            typeid.New("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
+// 			StreamID:      typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			StreamVersion: 2,
 // 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 02, 0, time.UTC),
 // 			Data:          []byte{},
 // 		},
 // 		{
-// 			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-// 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			ID:            typeid.New("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
+// 			StreamID:      typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			StreamVersion: 3,
 // 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 03, 0, time.UTC),
 // 			Data:          []byte{},
 // 		},
 // 		{
-// 			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
-// 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			ID:            typeid.New("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79002"))),
+// 			StreamID:      typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			StreamVersion: 4,
 // 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 04, 0, time.UTC),
 // 			Data:          []byte{},
 // 		},
 // 		{
-// 			ID:            typeid.FromUUID("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
-// 			StreamID:      typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			ID:            typeid.New("mockeventtype", uuid.Must(uuid.FromString("b112c50d-0834-4b78-a9e7-009d80b79003"))),
+// 			StreamID:      typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			StreamVersion: 5,
 // 			Timestamp:     time.Date(2025, 11, 5, 12, 34, 05, 0, time.UTC),
 // 			Data:          []byte{},
@@ -102,19 +102,19 @@ import (
 
 // 	for _, tt := range []struct {
 // 		name         string
-// 		haveStreamID typeid.UUID
+// 		haveStreamID typeid.ID
 // 		haveOpts     eventstore.ReadStreamOptions
 // 		wantEvents   []*eventstore.Event
 // 		wantErr      error
 // 	}{
 // 		{
 // 			name:         "returns a default stream iterator",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			wantEvents:   []*eventstore.Event{events[0], events[1], events[2], events[3], events[4]},
 // 		},
 // 		{
 // 			name:         "returns a forward stream iterator",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Forward,
 // 			},
@@ -122,7 +122,7 @@ import (
 // 		},
 // 		{
 // 			name:         "returns a reverse stream iterator",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Reverse,
 // 			},
@@ -130,7 +130,7 @@ import (
 // 		},
 // 		{
 // 			name:         "returns a forward stream iterator with an offset",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Forward,
 // 				Offset:    2,
@@ -139,7 +139,7 @@ import (
 // 		},
 // 		{
 // 			name:         "returns a reverse stream iterator with an offset",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Reverse,
 // 				Offset:    2,
@@ -148,7 +148,7 @@ import (
 // 		},
 // 		{
 // 			name:         "returns a forward stream iterator with a count",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Forward,
 // 				Count:     2,
@@ -157,7 +157,7 @@ import (
 // 		},
 // 		{
 // 			name:         "returns a reverse stream iterator with a count",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Reverse,
 // 				Count:     2,
@@ -166,7 +166,7 @@ import (
 // 		},
 // 		{
 // 			name:         "returns a forward stream iterator with an offset and a count",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Forward,
 // 				Offset:    2,
@@ -176,7 +176,7 @@ import (
 // 		},
 // 		{
 // 			name:         "returns a reverse stream iterator with an offset and a count",
-// 			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+// 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 // 			haveOpts: eventstore.ReadStreamOptions{
 // 				Direction: eventstore.Reverse,
 // 				Offset:    2,
@@ -188,7 +188,7 @@ import (
 // 		t.Run(tt.name, func(t *testing.T) {
 // 			database := mongoClient.Database("estoria")
 
-// 			selector := strategy.CollectionSelectorFunc(func(streamID typeid.UUID) string {
+// 			selector := strategy.CollectionSelectorFunc(func(streamID typeid.ID) string {
 // 				return streamID.String()
 // 			})
 
@@ -262,7 +262,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 		},
 		{
 			name:     "static-collection",
-			selector: strategy.CollectionSelectorFunc(func(streamID typeid.UUID) string { return "collectionA" }),
+			selector: strategy.CollectionSelectorFunc(func(streamID typeid.ID) string { return "collectionA" }),
 		},
 	} {
 		// test cases
@@ -270,7 +270,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 			name                  string
 			haveSelector          strategy.CollectionSelector
 			haveExistingDocuments map[string][]bson.M
-			haveStreamID          typeid.UUID
+			haveStreamID          typeid.ID
 			haveDocuments         []bson.M
 			wantDocuments         map[string][]bson.M
 			wantErr               error
@@ -280,7 +280,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				haveExistingDocuments: map[string][]bson.M{
 					"$SELECTED": {},
 				},
-				haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+				haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 				haveDocuments: []bson.M{
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1"},
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2"},
@@ -303,7 +303,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 						{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
 					},
 				},
-				haveStreamID: typeid.FromUUID("mockstreamtypeB", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+				haveStreamID: typeid.New("mockstreamtypeB", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 				haveDocuments: []bson.M{
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata1"},
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata2"},
@@ -329,7 +329,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 						{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
 					},
 				},
-				haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("7de3ee60-1e2a-4169-a6a9-3ce2b298350e"))),
+				haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("7de3ee60-1e2a-4169-a6a9-3ce2b298350e"))),
 				haveDocuments: []bson.M{
 					{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata1"},
 					{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata2"},
@@ -355,7 +355,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 						{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
 					},
 				},
-				haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+				haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 				haveDocuments: []bson.M{
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata4"},
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata5"},
@@ -380,7 +380,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 						{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
 					},
 				},
-				haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+				haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 				haveDocuments: []bson.M{
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3"},
 				},
@@ -405,7 +405,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 						{"stream_id": "5f9abd8a-6c25-49b2-a7c6-f0eda89a9a5d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(4)},
 					},
 				},
-				haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+				haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 				haveDocuments: []bson.M{
 					{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2"},
 				},

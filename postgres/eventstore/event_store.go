@@ -19,13 +19,13 @@ import (
 // optimizations, such as per-stream event tables or high-throughput append strategies.
 type Strategy interface {
 	// ReadStreamQuery builds a query for reading events from a stream.
-	ReadStreamQuery(streamID typeid.UUID, opts eventstore.ReadStreamOptions) (string, []any, error)
+	ReadStreamQuery(streamID typeid.ID, opts eventstore.ReadStreamOptions) (string, []any, error)
 
 	// ScanEventRow scans a single event row from the provided sql.Rows.
 	ScanEventRow(rows *sql.Rows) (*eventstore.Event, error)
 
 	// NextHighwaterMark returns the next highwater mark (i.e. the next highest stream version).
-	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.UUID, numEvents int) (int64, error)
+	NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.ID, numEvents int) (int64, error)
 
 	// AppendStreamStatement returns a SQL statement for appending events to a stream.
 	AppendStreamStatement() (string, error)
@@ -99,7 +99,7 @@ func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from Postgres stream",
 		"stream_id", streamID.String(),
 		"offset", opts.Offset,
@@ -140,7 +140,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
 	tx, err := s.db.BeginTx(ctx, s.txOpts)
@@ -189,13 +189,8 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
-		eventID, err := typeid.NewUUID(we.Type)
-		if err != nil {
-			return fmt.Errorf("generating event ID: %w", err)
-		}
-
 		fullEvents[i] = &eventstore.Event{
-			ID:            eventID,
+			ID:            typeid.NewV4(we.Type),
 			StreamID:      streamID,
 			StreamVersion: currentOffset + int64(i) + 1,
 			Timestamp:     now,

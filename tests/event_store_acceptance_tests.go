@@ -11,10 +11,7 @@ import (
 func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	t.Helper()
 
-	streamID, err := typeid.NewUUID("streamtype")
-	if err != nil {
-		return fmt.Errorf("error creating streamID: %v", err)
-	}
+	streamID := typeid.NewV4("streamtype")
 
 	appendedEvents := []*eventstore.WritableEvent{}
 	for i := range 10 {
@@ -43,7 +40,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	}
 
 	for i, readEvent := range readEvents {
-		if readEvent.ID.IsEmpty() {
+		if readEvent.ID.ID.IsNil() {
 			return fmt.Errorf("event ID is empty")
 		}
 

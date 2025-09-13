@@ -41,10 +41,10 @@ type DefaultMarshaler struct{}
 // MarshalDocument encodes an event into a document.
 func (DefaultMarshaler) MarshalDocument(event *Event) (any, error) {
 	return EventDocument{
-		StreamType:   event.StreamID.TypeName(),
-		StreamID:     event.StreamID.UUID().String(),
-		EventType:    event.ID.TypeName(),
-		EventID:      event.ID.UUID().String(),
+		StreamType:   event.StreamID.Type,
+		StreamID:     event.StreamID.ID.String(),
+		EventType:    event.ID.Type,
+		EventID:      event.ID.ID.String(),
 		Offset:       event.StreamVersion,
 		GlobalOffset: event.GlobalOffset,
 		Timestamp:    event.Timestamp,
@@ -71,8 +71,8 @@ func (DefaultMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*Event, er
 
 	return &Event{
 		Event: eventstore.Event{
-			ID:            typeid.FromUUID(doc.EventType, eventID),
-			StreamID:      typeid.FromUUID(doc.StreamType, streamID),
+			ID:            typeid.New(doc.EventType, eventID),
+			StreamID:      typeid.New(doc.StreamType, streamID),
 			StreamVersion: doc.Offset,
 			Timestamp:     doc.Timestamp,
 			Data:          doc.EventData,

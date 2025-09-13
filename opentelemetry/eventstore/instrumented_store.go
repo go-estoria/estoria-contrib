@@ -88,7 +88,7 @@ func NewInstrumentedStore(inner eventstore.Store, opts ...InstrumentedStoreOptio
 var _ eventstore.Store = (*InstrumentedStore)(nil)
 
 // Load loads an aggregate by ID while capturing telemetry.
-func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.UUID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
+func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".ReadStream", trace.WithAttributes(
 		attribute.String("stream.id", id.String()),
 		attribute.Int64("options.offset", opts.Offset),
@@ -123,7 +123,7 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.UUID, opts
 }
 
 // Hydrate hydrates an aggregate while capturing telemetry.
-func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (e error) {
+func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Hydrate", trace.WithAttributes(
 		attribute.String("stream.id", id.String()),
 		attribute.Int64("events.length", int64(len(events))),

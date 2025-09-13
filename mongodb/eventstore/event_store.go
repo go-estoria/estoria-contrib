@@ -35,7 +35,7 @@ type (
 		// the current offset of the stream, and the global offset.
 		ExecuteInsertTransaction(
 			ctx context.Context,
-			streamID typeid.UUID,
+			streamID typeid.ID,
 			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
 		) (any, error)
 
@@ -48,7 +48,7 @@ type (
 		// GetStreamCursor returns a Mongo cursor for events in the specified stream, ordered by stream offset.
 		GetStreamCursor(
 			ctx context.Context,
-			streamID typeid.UUID,
+			streamID typeid.ID,
 			opts eventstore.ReadStreamOptions,
 		) (*mongo.Cursor, error)
 
@@ -79,7 +79,7 @@ var _ eventstore.StreamWriter = (*EventStore)(nil)
 // StreamInfo represents information about a single stream in the event store.
 type StreamInfo struct {
 	// StreamID is the typed ID of the stream.
-	StreamID typeid.UUID
+	StreamID typeid.ID
 
 	// Offset is the stream-specific offset of the most recent event in the stream.
 	// Thus, it also represents the number of events in the stream.
@@ -116,7 +116,7 @@ func (i *StreamInfo) UnmarshalBSON(b []byte) error {
 		}
 	}
 
-	i.StreamID = typeid.FromUUID(typ, id)
+	i.StreamID = typeid.New(typ, id)
 	return nil
 }
 
@@ -215,7 +215,7 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from MongoDB stream",
 		"stream_id", streamID.String(),
 		"offset", opts.Offset,
@@ -235,7 +235,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to MongoDB stream",
 		"stream_id", streamID.String(),
 		"events", len(events),
@@ -253,14 +253,9 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, eve
 			fullEvents := make([]*Event, len(events))
 			docs := make([]any, len(events))
 			for i, we := range events {
-				eventID, err := typeid.NewUUID(we.Type)
-				if err != nil {
-					return nil, fmt.Errorf("generating event ID: %w", err)
-				}
-
 				fullEvents[i] = &Event{
 					Event: eventstore.Event{
-						ID:            eventID,
+						ID:            typeid.NewV4(we.Type),
 						StreamID:      streamID,
 						StreamVersion: offset + int64(i) + 1,
 						Timestamp:     now,

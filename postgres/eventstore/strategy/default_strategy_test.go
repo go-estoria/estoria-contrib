@@ -258,7 +258,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 				t.Fatalf("creating strategy: %v", err)
 			}
 
-			gotQuery, gotArgs, err := strat.ReadStreamQuery(must(typeid.NewUUID("entity")), tt.haveReadStreamOpts)
+			gotQuery, gotArgs, err := strat.ReadStreamQuery(typeid.NewV4("entity"), tt.haveReadStreamOpts)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {

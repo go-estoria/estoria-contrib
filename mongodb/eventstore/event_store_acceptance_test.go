@@ -57,7 +57,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
 				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db,
-					strategy.CollectionSelectorFunc(func(typeid.UUID) string {
+					strategy.CollectionSelectorFunc(func(typeid.ID) string {
 						return "events"
 					}),
 				)

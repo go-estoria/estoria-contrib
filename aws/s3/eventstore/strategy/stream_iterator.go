@@ -15,7 +15,7 @@ import (
 )
 
 type streamIterator struct {
-	streamID       typeid.UUID
+	streamID       typeid.ID
 	bucket         string
 	paginator      *s3.ListObjectsV2Paginator
 	s3             ObjectGetter

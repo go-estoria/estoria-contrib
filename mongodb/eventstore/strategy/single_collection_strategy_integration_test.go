@@ -66,19 +66,19 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 
 	for _, tt := range []struct {
 		name         string
-		haveStreamID typeid.UUID
+		haveStreamID typeid.ID
 		haveOpts     eventstore.ReadStreamOptions
 		wantEvents   []bson.M
 		wantErr      error
 	}{
 		{
 			name:         "returns a default stream iterator",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			wantEvents:   []bson.M{docs[0], docs[1], docs[2], docs[3], docs[4]},
 		},
 		{
 			name:         "returns a forward stream iterator",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Forward,
 			},
@@ -86,7 +86,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 		{
 			name:         "returns a reverse stream iterator",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Reverse,
 			},
@@ -94,7 +94,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 		{
 			name:         "returns a forward stream iterator with an offset",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Forward,
 				Offset:    2,
@@ -103,7 +103,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 		{
 			name:         "returns a reverse stream iterator with an offset",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Reverse,
 				Offset:    2,
@@ -112,7 +112,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 		{
 			name:         "returns a forward stream iterator with a count",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Forward,
 				Count:     2,
@@ -121,7 +121,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 		{
 			name:         "returns a reverse stream iterator with a count",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Reverse,
 				Count:     2,
@@ -130,7 +130,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 		{
 			name:         "returns a forward stream iterator with an offset and a count",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Forward,
 				Offset:    2,
@@ -140,7 +140,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 		{
 			name:         "returns a reverse stream iterator with an offset and a count",
-			haveStreamID: typeid.FromUUID("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
+			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Reverse,
 				Offset:    2,
@@ -201,14 +201,14 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 	for _, tt := range []struct {
 		name                  string
 		haveExistingDocuments []bson.M
-		haveStreamID          typeid.UUID
+		haveStreamID          typeid.ID
 		haveDocuments         []bson.M
 		wantDocuments         []bson.M
 		wantErr               error
 	}{
 		{
 			name:         "inserts documents into an empty collection",
-			haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+			haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 			haveDocuments: []bson.M{
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata1"},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2"},
@@ -227,7 +227,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
 			},
-			haveStreamID: typeid.FromUUID("mockstreamtypeB", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+			haveStreamID: typeid.New("mockstreamtypeB", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 			haveDocuments: []bson.M{
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata1"},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeB", "data": "mockdata2"},
@@ -249,7 +249,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
 			},
-			haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("7de3ee60-1e2a-4169-a6a9-3ce2b298350e"))),
+			haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("7de3ee60-1e2a-4169-a6a9-3ce2b298350e"))),
 			haveDocuments: []bson.M{
 				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata1"},
 				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata2"},
@@ -271,7 +271,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata2", "offset": int64(2), "global_offset": int64(2)},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(3), "global_offset": int64(3)},
 			},
-			haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+			haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 			haveDocuments: []bson.M{
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata4"},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata5"},
@@ -294,7 +294,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				{"stream_id": "5f9abd8a-6c25-49b2-a7c6-f0eda89a9a5d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(1), "global_offset": int64(3)},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata4", "offset": int64(2), "global_offset": int64(4)},
 			},
-			haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
+			haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d"))),
 			haveDocuments: []bson.M{
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata5"},
 			},
@@ -314,7 +314,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				{"stream_id": "5f9abd8a-6c25-49b2-a7c6-f0eda89a9a5d", "stream_type": "mockstreamtypeA", "data": "mockdata3", "offset": int64(1), "global_offset": int64(3)},
 				{"stream_id": "b610ff0b-5bb0-4e8f-9d2b-9cfb9818065d", "stream_type": "mockstreamtypeA", "data": "mockdata4", "offset": int64(2), "global_offset": int64(4)},
 			},
-			haveStreamID: typeid.FromUUID("mockstreamtypeA", uuid.Must(uuid.FromString("7de3ee60-1e2a-4169-a6a9-3ce2b298350e"))),
+			haveStreamID: typeid.New("mockstreamtypeA", uuid.Must(uuid.FromString("7de3ee60-1e2a-4169-a6a9-3ce2b298350e"))),
 			haveDocuments: []bson.M{
 				{"stream_id": "7de3ee60-1e2a-4169-a6a9-3ce2b298350e", "stream_type": "mockstreamtypeA", "data": "mockdata5"},
 			},

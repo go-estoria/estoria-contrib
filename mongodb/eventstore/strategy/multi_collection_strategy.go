@@ -38,28 +38,28 @@ type MultiCollectionStrategy struct {
 // A CollectionSelector determines the collection name to use for a given stream ID
 // when reading and storing events in a MultiCollectionStrategy.
 type CollectionSelector interface {
-	CollectionName(streamID typeid.UUID) string
+	CollectionName(streamID typeid.ID) string
 }
 
 // A CollectionSelectorFunc is a function that returns a collection name for a given stream ID.
-type CollectionSelectorFunc func(streamID typeid.UUID) string
+type CollectionSelectorFunc func(streamID typeid.ID) string
 
 // CollectionName satisfies the CollectionSelector interface and returns the collection name
 // for the given stream ID by invoking the CollectionSelectorFunc.
-func (f CollectionSelectorFunc) CollectionName(streamID typeid.UUID) string {
+func (f CollectionSelectorFunc) CollectionName(streamID typeid.ID) string {
 	return f(streamID)
 }
 
 // CollectionPerStreamType returns a CollectionSelector that returns the stream type name as the collection name.
 func CollectionPerStreamType() CollectionSelector {
-	return CollectionSelectorFunc(func(streamID typeid.UUID) string {
-		return streamID.TypeName()
+	return CollectionSelectorFunc(func(streamID typeid.ID) string {
+		return streamID.Type
 	})
 }
 
 // CollectionPerStreamID returns a CollectionSelector that returns the stream ID as the collection name.
 func CollectionPerStreamID() CollectionSelector {
-	return CollectionSelectorFunc(func(streamID typeid.UUID) string {
+	return CollectionSelectorFunc(func(streamID typeid.ID) string {
 		return streamID.String()
 	})
 }
@@ -140,13 +140,13 @@ func (s *MultiCollectionStrategy) GetAllCursor(
 // GetStreamCursor returns an iterator over events in the specified stream, ordered by stream offset.
 func (s *MultiCollectionStrategy) GetStreamCursor(
 	ctx context.Context,
-	streamID typeid.UUID,
+	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (*mongo.Cursor, error) {
 	collection := s.database.Collection(s.selector.CollectionName(streamID))
 	cursor, err := collection.Find(ctx, bson.D{
-		{Key: "stream_type", Value: streamID.TypeName()},
-		{Key: "stream_id", Value: streamID.Value()},
+		{Key: "stream_type", Value: streamID.Type},
+		{Key: "stream_id", Value: streamID.ID},
 	}, findOptsFromReadStreamOptions(opts, "offset"))
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
@@ -160,7 +160,7 @@ func (s *MultiCollectionStrategy) GetStreamCursor(
 // the current offset of the stream, and the global offset.
 func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 	ctx context.Context,
-	streamID typeid.UUID,
+	streamID typeid.ID,
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
 	session, err := s.mongo.StartSession(s.sessOpts)
@@ -194,15 +194,15 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 }
 
 // Finds the highest offset for the given stream.
-func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.UUID) (int64, error) {
+func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.ID) (int64, error) {
 	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
 	collection := s.database.Collection(s.selector.CollectionName(streamID))
 
 	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	offsets := Offsets{}
 	if err := collection.FindOne(ctx, bson.D{
-		{Key: "stream_type", Value: streamID.TypeName()},
-		{Key: "stream_id", Value: streamID.UUID().String()},
+		{Key: "stream_type", Value: streamID.Type},
+		{Key: "stream_id", Value: streamID.ID.String()},
 	}, opts).Decode(&offsets); err != nil {
 		if err == mongo.ErrNoDocuments {
 			s.log.Debug("stream not found", "stream_id", streamID)
