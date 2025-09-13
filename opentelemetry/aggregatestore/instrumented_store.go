@@ -95,6 +95,10 @@ func (s *InstrumentedStore[E]) New(id uuid.UUID) *aggregatestore.Aggregate[E] {
 
 // Load loads an aggregate by ID while capturing telemetry.
 func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[E], e error) {
+	if opts == nil {
+		opts = &aggregatestore.LoadOptions{}
+	}
+
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Load", trace.WithAttributes(
 		attribute.String("aggregate.uuid", id.String()),
 		attribute.Int64("load_options.to_version", opts.ToVersion)),
