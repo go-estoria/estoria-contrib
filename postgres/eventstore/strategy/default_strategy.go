@@ -210,9 +210,9 @@ func (s *DefaultStrategy) Schema() string {
 			stream_type   varchar(255) NOT NULL,
 			event_id      uuid         NOT NULL,
 			event_type    varchar(255) NOT NULL,
-			timestamp     timestamptz  NOT NULL,
 			stream_offset bigint       NOT NULL,
-			data          bytea,
+			timestamp     timestamptz  NOT NULL,
+			data          jsonb,
 
 			UNIQUE (stream_id, stream_type, stream_offset),
 
