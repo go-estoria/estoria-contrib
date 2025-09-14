@@ -17,7 +17,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	for i := range 10 {
 		appendedEvents = append(appendedEvents, &eventstore.WritableEvent{
 			Type: "eventtype",
-			Data: fmt.Appendf(nil, "event data %d", i),
+			Data: fmt.Appendf(nil, "event data %d", i+1),
 		})
 	}
 
@@ -40,6 +40,8 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	}
 
 	for i, readEvent := range readEvents {
+		t.Logf("read event: ID=%s, StreamID=%s, StreamVersion=%d, Data=%s", readEvent.ID.String(), readEvent.StreamID, readEvent.StreamVersion, string(readEvent.Data))
+
 		if readEvent.ID.UUID.IsNil() {
 			return fmt.Errorf("event ID is empty")
 		}

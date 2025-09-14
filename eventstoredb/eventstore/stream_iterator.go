@@ -7,16 +7,16 @@ import (
 	"io"
 	"strings"
 
-	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
+	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
 )
 
 type streamIterator struct {
 	streamID typeid.ID
-	stream   *esdb.ReadStream
+	stream   *kurrentdb.ReadStream
 }
 
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
@@ -32,11 +32,11 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 			return nil, eventstore.ErrEndOfEventStream
 		}
 
-		var esdbErr *esdb.Error
+		var esdbErr *kurrentdb.Error
 		if errors.As(err, &esdbErr) {
 			estoria.DefaultLogger().Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
 			switch esdbErr.Code() {
-			case esdb.ErrorCodeConnectionClosed:
+			case kurrentdb.ErrorCodeConnectionClosed:
 				return nil, eventstore.ErrStreamIteratorClosed
 			}
 		} else {
@@ -53,16 +53,17 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 
 	streamID := typeid.New(parts[0], uuid.Must(uuid.FromString(parts[1])))
 
-	uidV5, err := uuid.FromBytes(resolvedEvent.Event.EventID.Bytes())
+	uidV5, err := uuid.FromBytes(resolvedEvent.Event.EventID[:])
 	if err != nil {
 		return nil, fmt.Errorf("converting UUID: %w", err)
 	}
 
 	return &eventstore.Event{
-		StreamID:  streamID,
-		ID:        typeid.New(resolvedEvent.Event.EventType, uidV5),
-		Timestamp: resolvedEvent.Event.CreatedDate,
-		Data:      resolvedEvent.Event.Data,
+		ID:            typeid.New(resolvedEvent.Event.EventType, uidV5),
+		StreamID:      streamID,
+		StreamVersion: int64(resolvedEvent.Event.EventNumber + 1),
+		Timestamp:     resolvedEvent.Event.CreatedDate,
+		Data:          resolvedEvent.Event.Data,
 	}, nil
 }
 

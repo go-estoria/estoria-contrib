@@ -4,32 +4,32 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/EventStore/EventStore-Client-Go/v3/esdb"
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	gofrsv1 "github.com/gofrs/uuid"
 	"github.com/gofrs/uuid/v5"
+	guuid "github.com/google/uuid"
+	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
 )
 
-type ESDBClient interface {
-	ReadStream(context context.Context, streamID string, opts esdb.ReadStreamOptions, count uint64) (*esdb.ReadStream, error)
-	AppendToStream(context context.Context, streamID string, opts esdb.AppendToStreamOptions, events ...esdb.EventData) (*esdb.WriteResult, error)
+type KurrentClient interface {
+	ReadStream(context context.Context, streamID string, opts kurrentdb.ReadStreamOptions, count uint64) (*kurrentdb.ReadStream, error)
+	AppendToStream(context context.Context, streamID string, opts kurrentdb.AppendToStreamOptions, events ...kurrentdb.EventData) (*kurrentdb.WriteResult, error)
 }
 
 type EventStore struct {
-	esdbClient ESDBClient
-	log        estoria.Logger
+	kurrentDB KurrentClient
+	log       estoria.Logger
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 // NewEventStore creates a new event store using the given ESDB client.
-func NewEventStore(esdbClient ESDBClient, opts ...EventStoreOption) (*EventStore, error) {
+func NewEventStore(kurrentDB KurrentClient, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
-		esdbClient: esdbClient,
-		log:        estoria.GetLogger().WithGroup("eventstore"),
+		kurrentDB: kurrentDB,
+		log:       estoria.GetLogger().WithGroup("eventstore"),
 	}
 
 	for _, opt := range opts {
@@ -42,13 +42,13 @@ func NewEventStore(esdbClient ESDBClient, opts ...EventStoreOption) (*EventStore
 }
 
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
-	readOpts := esdb.ReadStreamOptions{
-		Direction: esdb.Forwards,
-		From:      esdb.Start{},
+	readOpts := kurrentdb.ReadStreamOptions{
+		Direction: kurrentdb.Forwards,
+		From:      kurrentdb.Start{},
 	}
 
 	if opts.Offset > 0 {
-		readOpts.From = esdb.StreamRevision{Value: uint64(opts.Offset)}
+		readOpts.From = kurrentdb.StreamRevision{Value: uint64(opts.Offset - 1)}
 	}
 
 	count := uint64(opts.Count)
@@ -57,7 +57,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		count = 1_000_000
 	}
 
-	result, err := s.esdbClient.ReadStream(ctx, streamID.String(), readOpts, count)
+	result, err := s.kurrentDB.ReadStream(ctx, streamID.String(), readOpts, count)
 	if err != nil {
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
@@ -72,30 +72,28 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
-	appendOpts := esdb.AppendToStreamOptions{
-		ExpectedRevision: esdb.Any{},
-	}
+	appendOpts := kurrentdb.AppendToStreamOptions{}
 
 	if opts.ExpectVersion > 0 {
-		appendOpts.ExpectedRevision = esdb.StreamRevision{Value: uint64(opts.ExpectVersion) + 1}
+		appendOpts.StreamState = kurrentdb.StreamRevision{Value: uint64(opts.ExpectVersion)}
 	}
 
-	streamEvents := make([]esdb.EventData, len(events))
+	streamEvents := make([]kurrentdb.EventData, len(events))
 	for i, e := range events {
 		eventID, err := uuid.NewV4()
 		if err != nil {
 			return fmt.Errorf("generating event ID: %w", err)
 		}
 
-		streamEvents[i] = esdb.EventData{
-			EventID:     gofrsv1.UUID(eventID),
-			ContentType: esdb.ContentTypeJson,
+		streamEvents[i] = kurrentdb.EventData{
+			EventID:     guuid.UUID(eventID),
+			ContentType: kurrentdb.ContentTypeJson,
 			EventType:   e.Type,
 			Data:        e.Data,
 		}
 	}
 
-	if _, err := s.esdbClient.AppendToStream(ctx, streamID.String(), esdb.AppendToStreamOptions{}, streamEvents...); err != nil {
+	if _, err := s.kurrentDB.AppendToStream(ctx, streamID.String(), appendOpts, streamEvents...); err != nil {
 		return fmt.Errorf("appending to stream: %w", err)
 	}
 
