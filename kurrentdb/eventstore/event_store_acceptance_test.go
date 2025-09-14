@@ -3,7 +3,7 @@ package eventstore_test
 import (
 	"testing"
 
-	"github.com/go-estoria/estoria-contrib/eventstoredb/eventstore"
+	"github.com/go-estoria/estoria-contrib/kurrentdb/eventstore"
 	"github.com/go-estoria/estoria-contrib/tests"
 )
 
