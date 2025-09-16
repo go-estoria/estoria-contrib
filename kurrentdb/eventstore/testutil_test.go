@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"slices"
 	"testing"
 
 	"github.com/docker/docker/api/types/container"
@@ -104,24 +106,38 @@ import (
 // 	return client, nil
 // }
 
-// func must[T any](val T, err error) T {
-// 	if err != nil {
-// 		panic("unexpected error: " + err.Error())
-// 	}
-// 	return val
-// }
+func must[T any](val T, err error) T {
+	if err != nil {
+		panic("unexpected error: " + err.Error())
+	}
+	return val
+}
 
-// func reversed[T any](s []T) []T {
-// 	r := make([]T, len(s))
-// 	copy(r, s)
-// 	slices.Reverse(r)
-// 	return r
-// }
+func reversed[T any](s []T) []T {
+	r := make([]T, len(s))
+	copy(r, s)
+	slices.Reverse(r)
+	return r
+}
+
+var kurrentSem = make(chan struct{}, 10) // limit concurrent KurrentDB containers
 
 func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Client, error) {
 	t.Helper()
 
-	port := nat.Port("2113/tcp")
+	t.Log("waiting for available KurrentDB slot...")
+	kurrentSem <- struct{}{}
+	t.Cleanup(func() { <-kurrentSem })
+
+	// random port to avoid collisions when running tests in parallel
+
+	portNum, err := getFreePort()
+	if err != nil {
+		return nil, fmt.Errorf("getting free port: %w", err)
+	}
+
+	portStr := fmt.Sprint(portNum)
+	port := nat.Port(portStr + "/tcp")
 
 	req := testcontainers.ContainerRequest{
 		Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:latest",
@@ -130,20 +146,16 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 			"KURRENTDB_CLUSTER_SIZE":               "1",
 			"KURRENTDB_RUN_PROJECTIONS":            "All",
 			"KURRENTDB_START_STANDARD_PROJECTIONS": "true",
-			"KURRENTDB_NODE_PORT":                  "2113",
+			"KURRENTDB_NODE_PORT":                  portStr,
 			"KURRENTDB_INSECURE":                   "true", // dev/test only
 			"KURRENTDB_ENABLE_ATOM_PUB_OVER_HTTP":  "true", // optional; only needed for the Admin UI/feeds
 		},
 		// Bind host 2113 -> container 2113 so the node's advertised 2113 is reachable
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.PortBindings = nat.PortMap{
-				port: []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: "2113"}},
+				port: []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: portStr}},
 			}
 		},
-		// WaitingFor: wait.
-		// 	ForHTTP("/health/live").
-		// 	WithPort(port).
-		// 	WithStartupTimeout(2 * time.Minute),
 		WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)"),
 	}
 
@@ -187,4 +199,19 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 
 	log.Printf("Kurrent is up: %s", dsn)
 	return client, nil
+}
+
+func getFreePort() (int, error) {
+	a, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+
+	l, err := net.ListenTCP("tcp", a)
+	if err != nil {
+		return 0, err
+	}
+
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
 }

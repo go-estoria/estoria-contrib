@@ -2,7 +2,10 @@ package eventstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
@@ -25,8 +28,8 @@ type EventStore struct {
 var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
-// NewEventStore creates a new event store using the given ESDB client.
-func NewEventStore(kurrentDB KurrentClient, opts ...EventStoreOption) (*EventStore, error) {
+// New creates a new event store using the given KurrentDB client.
+func New(kurrentDB KurrentClient, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
 		kurrentDB: kurrentDB,
 		log:       estoria.GetLogger().WithGroup("eventstore"),
@@ -47,8 +50,13 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		From:      kurrentdb.Start{},
 	}
 
+	if opts.Direction == eventstore.Reverse {
+		readOpts.Direction = kurrentdb.Backwards
+		readOpts.From = kurrentdb.End{}
+	}
+
 	if opts.Offset > 0 {
-		readOpts.From = kurrentdb.StreamRevision{Value: uint64(opts.Offset - 1)}
+		readOpts.From = kurrentdb.StreamRevision{Value: uint64(opts.Offset)}
 	}
 
 	count := uint64(opts.Count)
@@ -59,13 +67,28 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 
 	result, err := s.kurrentDB.ReadStream(ctx, streamID.String(), readOpts, count)
 	if err != nil {
+		slog.Error("READ STREAM ERROR", "error", err.Error())
+		if _, ok := kurrentdb.FromError(err); ok {
+			return nil, eventstore.ErrStreamNotFound
+		}
+
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
 
-	return &streamIterator{
+	slog.Info("READ STREAM", "stream", streamID.String())
+
+	iter := &streamIterator{
 		streamID: streamID,
 		stream:   result,
-	}, nil
+	}
+
+	if err := iter.Preload(); errors.Is(err, eventstore.ErrStreamNotFound) {
+		return nil, eventstore.ErrStreamNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("preloading first event: %w", err)
+	}
+
+	return iter, nil
 }
 
 // AppendStream saves the given events to the event store.
@@ -75,7 +98,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	appendOpts := kurrentdb.AppendToStreamOptions{}
 
 	if opts.ExpectVersion > 0 {
-		appendOpts.StreamState = kurrentdb.StreamRevision{Value: uint64(opts.ExpectVersion)}
+		appendOpts.StreamState = kurrentdb.StreamRevision{Value: uint64(opts.ExpectVersion - 1)}
 	}
 
 	streamEvents := make([]kurrentdb.EventData, len(events))
@@ -94,6 +117,35 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	if _, err := s.kurrentDB.AppendToStream(ctx, streamID.String(), appendOpts, streamEvents...); err != nil {
+		if kdbErr, ok := kurrentdb.FromError(err); !ok {
+			switch kdbErr.Code() {
+			case kurrentdb.ErrorCodeWrongExpectedVersion:
+				var expected, actual int
+				if _, scanErr := fmt.Fscanf(
+					strings.NewReader(kdbErr.Unwrap().Error()),
+					"wrong expected version: expecting '%d' but got '%d'",
+					&expected,
+					&actual,
+				); scanErr != nil {
+					slog.Error("append to stream: failed to parse version mismatch error",
+						"stream_id", streamID.String(),
+						"expected_version", opts.ExpectVersion,
+						"scan_error", scanErr,
+						"error", err,
+						"code", kdbErr.Code(),
+						"unwrap", kdbErr.Unwrap(),
+					)
+					return fmt.Errorf("appending to stream: %w", err)
+				}
+
+				return eventstore.StreamVersionMismatchError{
+					StreamID:        streamID,
+					ExpectedVersion: opts.ExpectVersion,
+					ActualVersion:   int64(actual + 1), // convert to 1-based
+				}
+			}
+		}
+
 		return fmt.Errorf("appending to stream: %w", err)
 	}
 

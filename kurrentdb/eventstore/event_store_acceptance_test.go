@@ -27,7 +27,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 				t.Fatalf("failed to create EventStoreDB container: %v", err)
 			}
 
-			eventStore, err := eventstore.NewEventStore(db)
+			eventStore, err := eventstore.New(db)
 			if err != nil {
 				t.Fatalf("tc setup: failed to create EventStore: %v", err)
 			}

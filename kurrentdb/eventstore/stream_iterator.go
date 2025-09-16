@@ -17,6 +17,17 @@ import (
 type streamIterator struct {
 	streamID typeid.ID
 	stream   *kurrentdb.ReadStream
+	first    *eventstore.Event
+}
+
+func (i *streamIterator) Preload() error {
+	event, err := i.scanEventRecord()
+	if err != nil {
+		return fmt.Errorf("scanning first event: %w", err)
+	}
+
+	i.first = event
+	return nil
 }
 
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
@@ -26,23 +37,35 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	default:
 	}
 
+	if i.first != nil {
+		event := i.first
+		i.first = nil
+		return event, nil
+	}
+
+	return i.scanEventRecord()
+}
+
+func (i *streamIterator) Close(_ context.Context) error {
+	i.stream.Close()
+	return nil
+}
+
+func (i *streamIterator) scanEventRecord() (*eventstore.Event, error) {
 	resolvedEvent, err := i.stream.Recv()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil, eventstore.ErrEndOfEventStream
-		}
-
-		var esdbErr *kurrentdb.Error
-		if errors.As(err, &esdbErr) {
-			estoria.DefaultLogger().Error("ESDB error", "code", esdbErr.Code(), "message", esdbErr.Err())
-			switch esdbErr.Code() {
+		} else if kdbErr, ok := kurrentdb.FromError(err); !ok {
+			switch kdbErr.Code() {
+			case kurrentdb.ErrorCodeResourceNotFound:
+				return nil, eventstore.ErrStreamNotFound
 			case kurrentdb.ErrorCodeConnectionClosed:
 				return nil, eventstore.ErrStreamIteratorClosed
 			}
-		} else {
-			estoria.DefaultLogger().Error("unknown error receiving event", "error", err)
 		}
 
+		estoria.DefaultLogger().Error("unknown error receiving event", "error", err)
 		return nil, fmt.Errorf("receiving event: %w", err)
 	}
 
@@ -65,9 +88,4 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 		Timestamp:     resolvedEvent.Event.CreatedDate,
 		Data:          resolvedEvent.Event.Data,
 	}, nil
-}
-
-func (i *streamIterator) Close(_ context.Context) error {
-	i.stream.Close()
-	return nil
 }
