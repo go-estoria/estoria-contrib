@@ -3,7 +3,9 @@ package eventstore_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -60,4 +62,16 @@ func reversed[T any](s []T) []T {
 	copy(r, s)
 	slices.Reverse(r)
 	return r
+}
+
+// jsonEq compares the JSON in two byte slices.
+func jsonEq(a, b []byte) (bool, error) {
+	var j, j2 interface{}
+	if err := json.Unmarshal(a, &j); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(b, &j2); err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(j2, j), nil
 }

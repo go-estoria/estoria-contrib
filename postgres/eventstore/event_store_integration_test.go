@@ -1,7 +1,6 @@
 package eventstore_test
 
 import (
-	"bytes"
 	"errors"
 	"testing"
 	"time"
@@ -290,7 +289,10 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 					if gotEvents[i].StreamVersion != tt.wantEvents[i].StreamVersion {
 						t.Errorf("event %d: expected StreamVersion %d, got %d", i, tt.wantEvents[i].StreamVersion, gotEvents[i].StreamVersion)
 					}
-					if !bytes.Equal(gotEvents[i].Data, tt.wantEvents[i].Data) {
+					// compare json data
+					if eq, err := jsonEq(gotEvents[i].Data, tt.wantEvents[i].Data); err != nil {
+						t.Errorf("event %d: error comparing JSON data: %v", i, err)
+					} else if !eq {
 						t.Errorf("event %d: expected Data %q, got %q", i, string(tt.wantEvents[i].Data), string(gotEvents[i].Data))
 					}
 				}
@@ -499,7 +501,10 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 					if gotEvents[i].StreamVersion != tt.wantEvents[i].StreamVersion {
 						t.Errorf("event %d: expected StreamVersion %d, got %d", i, tt.wantEvents[i].StreamVersion, gotEvents[i].StreamVersion)
 					}
-					if !bytes.Equal(gotEvents[i].Data, tt.wantEvents[i].Data) {
+					// compare json data
+					if eq, err := jsonEq(gotEvents[i].Data, tt.wantEvents[i].Data); err != nil {
+						t.Errorf("event %d: error comparing JSON data: %v", i, err)
+					} else if !eq {
 						t.Errorf("event %d: expected Data %q, got %q", i, string(tt.wantEvents[i].Data), string(gotEvents[i].Data))
 					}
 				}
