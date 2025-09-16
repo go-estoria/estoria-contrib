@@ -1,6 +1,7 @@
 .PHONY: itest itestv atest atestv
 
-ITEST_TIMEOUT ?= 120s
+ITEST_TIMEOUT ?= 60s
+ATEST_TIMEOUT ?= 30s
 
 # Run integration tests
 itest:
@@ -13,9 +14,9 @@ itestv:
 
 # Run acceptance tests
 atest:
-	go test -timeout $(ITEST_TIMEOUT) -failfast -run AcceptanceTest .
+	go test -timeout $(ATEST_TIMEOUT) -failfast -run AcceptanceTest .
 
 # Run acceptance tests in verbose mode
 atestv:
 	go clean -testcache
-	go test -timeout $(ITEST_TIMEOUT) -failfast -run AcceptanceTest -v .
+	go test -timeout $(ATEST_TIMEOUT) -failfast -run AcceptanceTest -v .
