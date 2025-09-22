@@ -16,16 +16,16 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
-type BucketKeyResolver func(aggregateID typeid.UUID, version int64) string
+type BucketKeyResolver func(aggregateID typeid.ID, version int64) string
 
-type BucketKeyResolverFunc func(aggregateID typeid.UUID, version int64) string
+type BucketKeyResolverFunc func(aggregateID typeid.ID, version int64) string
 
-func (f BucketKeyResolverFunc) ResolveKey(aggregateID typeid.UUID, version int64) string {
+func (f BucketKeyResolverFunc) ResolveKey(aggregateID typeid.ID, version int64) string {
 	return f(aggregateID, version)
 }
 
-func DefaultBuckeyKeyResolver(aggregateID typeid.UUID, version int64) string {
-	return fmt.Sprintf("%s/%s/%d.json", aggregateID.TypeName(), aggregateID.Value(), version)
+func DefaultBuckeyKeyResolver(aggregateID typeid.ID, version int64) string {
+	return fmt.Sprintf("%s/%s/%d.json", aggregateID.Type, aggregateID.UUID, version)
 }
 
 type S3 interface {
@@ -68,7 +68,7 @@ func NewSingleBucketStrategy(client *s3.Client, bucket string, opts ...SingleBuc
 
 func (s *SingleBucketStrategy) GetStreamIterator(
 	ctx context.Context,
-	streamID typeid.UUID,
+	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
 	dir, _ := path.Split(s.resolveKey(streamID, 0))
@@ -98,7 +98,7 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 
 func (s *SingleBucketStrategy) InsertStreamEvents(
 	ctx context.Context,
-	streamID typeid.UUID,
+	streamID typeid.ID,
 	events []*eventstore.WritableEvent,
 	opts eventstore.AppendStreamOptions,
 ) (*InsertStreamEventsResult, error) {
@@ -115,12 +115,8 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
-		if we.Timestamp.IsZero() {
-			we.Timestamp = now
-		}
-
 		fullEvents[i] = &eventstore.Event{
-			ID:            we.ID,
+			ID:            typeid.NewV4(we.Type),
 			StreamID:      streamID,
 			StreamVersion: latestVersion + int64(i) + 1,
 			Timestamp:     now,
@@ -148,7 +144,7 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 	}, nil
 }
 
-func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID typeid.UUID) (int64, error) {
+func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID typeid.ID) (int64, error) {
 	dir, _ := path.Split(s.resolveKey(streamID, 0))
 	results, err := s.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket:    &s.bucket,

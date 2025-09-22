@@ -3,14 +3,15 @@ package outbox
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-estoria/estoria/outbox"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type Iterator struct {
@@ -38,21 +39,25 @@ func (i *Iterator) Next(ctx context.Context) (outbox.Item, error) {
 
 		outboxDoc := changeStreamDoc.OutboxDocument
 
-		streamID, err := typeid.ParseUUID(outboxDoc.StreamID)
-		if err != nil {
-			return nil, fmt.Errorf("parsing stream ID: %w", err)
+		parts := strings.Split(outboxDoc.StreamID, "_")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("invalid stream ID format: %s", outboxDoc.StreamID)
 		}
 
-		eventID, err := typeid.ParseUUID(outboxDoc.EventID)
-		if err != nil {
-			return nil, fmt.Errorf("parsing event ID: %w", err)
+		streamID := typeid.New(parts[0], uuid.Must(uuid.FromString(parts[1])))
+
+		parts = strings.Split(outboxDoc.StreamID, "_")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("invalid stream ID format: %s", outboxDoc.StreamID)
 		}
+
+		eventID := typeid.New(parts[0], uuid.Must(uuid.FromString(parts[1])))
 
 		entry := outboxEntry{
-			timestamp: outboxDoc.Timestamp.Time(),
+			timestamp: outboxDoc.Timestamp,
 			streamID:  streamID,
 			eventID:   eventID,
-			eventData: outboxDoc.EventData.Data,
+			eventData: outboxDoc.EventData,
 		}
 
 		return entry, nil
@@ -81,8 +86,8 @@ type changeStreamDocument struct {
 type outboxEntry struct {
 	id        uuid.UUID
 	timestamp time.Time
-	streamID  typeid.UUID
-	eventID   typeid.UUID
+	streamID  typeid.ID
+	eventID   typeid.ID
 	handlers  map[string]*outbox.HandlerResult
 	eventData []byte
 }
@@ -95,11 +100,11 @@ func (e outboxEntry) Timestamp() time.Time {
 	return e.timestamp
 }
 
-func (e outboxEntry) StreamID() typeid.UUID {
+func (e outboxEntry) StreamID() typeid.ID {
 	return e.streamID
 }
 
-func (e outboxEntry) EventID() typeid.UUID {
+func (e outboxEntry) EventID() typeid.ID {
 	return e.eventID
 }
 

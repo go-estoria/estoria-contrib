@@ -17,8 +17,8 @@ type mockEntity struct {
 	Name string
 }
 
-func (e mockEntity) EntityID() typeid.UUID {
-	return typeid.FromUUID("mockentity", e.ID)
+func (e mockEntity) EntityID() typeid.ID {
+	return typeid.New("mockentity", e.ID)
 }
 
 func TestCache_GetAggregate(t *testing.T) {
@@ -28,7 +28,7 @@ func TestCache_GetAggregate(t *testing.T) {
 		name            string
 		haveRedis       func(*testing.T) *redis.Client
 		haveMarshaler   aggregatecache.SnapshotMarshaler[mockEntity]
-		haveAggregateID typeid.UUID
+		haveAggregateID typeid.ID
 		wantAggregate   *aggregatestore.Aggregate[mockEntity]
 		wantErr         error
 	}{
@@ -40,7 +40,7 @@ func TestCache_GetAggregate(t *testing.T) {
 				return client
 			},
 			haveMarshaler:   aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
-			haveAggregateID: typeid.FromUUID("type", uuid.Must(uuid.NewV4())),
+			haveAggregateID: typeid.New("type", uuid.Must(uuid.NewV4())),
 			wantAggregate:   nil,
 			wantErr:         nil,
 		},
@@ -66,7 +66,7 @@ func TestCache_GetAggregate(t *testing.T) {
 				return client
 			},
 			haveMarshaler:   aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
-			haveAggregateID: typeid.FromUUID("type", uuid.Must(uuid.FromString("9fbcfd12-fffa-4e43-8168-9e107db5c800"))),
+			haveAggregateID: typeid.New("type", uuid.Must(uuid.FromString("9fbcfd12-fffa-4e43-8168-9e107db5c800"))),
 			wantAggregate: func() *aggregatestore.Aggregate[mockEntity] {
 				return aggregatestore.NewAggregate(mockEntity{Name: "test"}, 1)
 			}(),

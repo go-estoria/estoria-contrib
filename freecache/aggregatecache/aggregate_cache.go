@@ -55,7 +55,7 @@ func New[E estoria.Entity](cache FreeCache, opts ...CacheOption[E]) *Cache[E] {
 	return aggregateCache
 }
 
-func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.UUID) (*aggregatestore.Aggregate[E], error) {
+func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.Aggregate[E], error) {
 	data, err := c.cache.Get([]byte(aggregateID.String()))
 	if errors.Is(err, freecache.ErrNotFound) {
 		return nil, nil

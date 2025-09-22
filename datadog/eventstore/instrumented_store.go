@@ -66,7 +66,7 @@ func NewInstrumentedStore(inner eventstore.Store, opts ...InstrumentedStoreOptio
 var _ eventstore.Store = (*InstrumentedStore)(nil)
 
 // Load loads an aggregate by ID while capturing telemetry.
-func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.UUID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
+func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".ReadStream")
 	span.SetTag("stream.id", id.String())
 	span.SetTag("options.offset", opts.Offset)
@@ -82,14 +82,15 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.UUID, opts
 	}
 
 	return &InstrumentedStreamIterator{
-		inner:      iterator,
-		meter:      s.meter,
-		nextMetric: s.metricNamespace + ".stream.next",
+		inner:          iterator,
+		meter:          s.meter,
+		nextMetric:     s.metricNamespace + ".stream.next",
+		traceNamespace: s.traceNamespace,
 	}, err
 }
 
 // Hydrate hydrates an aggregate while capturing telemetry.
-func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (e error) {
+func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".Hydrate")
 	span.SetTag("stream.id", id.String())
 	span.SetTag("events.length", int64(len(events)))
@@ -166,19 +167,12 @@ type InstrumentedStreamIterator struct {
 	inner      eventstore.StreamIterator
 	meter      statsd.ClientInterface
 	nextMetric string
-}
 
-func (i *InstrumentedStreamIterator) All(ctx context.Context) (_ []*eventstore.Event, e error) {
-	span, ctx := tracer.StartSpanFromContext(ctx, "eventstore.StreamIterator.All")
-	defer func() {
-		span.Finish(tracer.WithError(e))
-	}()
-
-	return i.inner.All(ctx)
+	traceNamespace string
 }
 
 func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Event, e error) {
-	span, ctx := tracer.StartSpanFromContext(ctx, "eventstore.StreamIterator.Next")
+	span, ctx := tracer.StartSpanFromContext(ctx, i.traceNamespace+".StreamIterator.Next")
 	defer func() {
 		i.meter.Incr(i.nextMetric, nil, 1)
 		if errors.Is(e, eventstore.ErrEndOfEventStream) {
@@ -192,7 +186,7 @@ func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Ev
 }
 
 func (i *InstrumentedStreamIterator) Close(ctx context.Context) (e error) {
-	span, ctx := tracer.StartSpanFromContext(ctx, "eventstore.StreamIterator.Close")
+	span, ctx := tracer.StartSpanFromContext(ctx, i.traceNamespace+".StreamIterator.Close")
 	defer func() {
 		span.Finish(tracer.WithError(e))
 	}()

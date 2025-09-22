@@ -29,8 +29,8 @@ type JSONObjectMarshaler struct{}
 
 func (m JSONObjectMarshaler) MarshalObject(snapshot *snapshotstore.AggregateSnapshot) ([]byte, error) {
 	return json.Marshal(JSONObject{
-		AggregateID:   snapshot.AggregateID.UUID(),
-		AggregateType: snapshot.AggregateID.TypeName(),
+		AggregateID:   snapshot.AggregateID.UUID,
+		AggregateType: snapshot.AggregateID.Type,
 		Version:       snapshot.AggregateVersion,
 		Timestamp:     snapshot.Timestamp,
 		Data:          base64.StdEncoding.EncodeToString(snapshot.Data),
@@ -50,7 +50,7 @@ func (m JSONObjectMarshaler) UnmarshalObject(src io.ReadCloser) (*snapshotstore.
 	}
 
 	return &snapshotstore.AggregateSnapshot{
-		AggregateID:      typeid.FromUUID(obj.AggregateType, obj.AggregateID),
+		AggregateID:      typeid.New(obj.AggregateType, obj.AggregateID),
 		AggregateVersion: obj.Version,
 		Timestamp:        obj.Timestamp,
 		Data:             data,

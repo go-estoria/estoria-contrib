@@ -50,7 +50,7 @@ func New[E estoria.Entity](client valkey.Client, opts ...CacheOption[E]) *Cache[
 	return aggregateCache
 }
 
-func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.UUID) (*aggregatestore.Aggregate[E], error) {
+func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.Aggregate[E], error) {
 	res := c.valkey.Do(ctx, c.valkey.B().Get().Key(aggregateID.String()).Build())
 	if err := res.Error(); errors.Is(err, valkey.Nil) {
 		return nil, nil

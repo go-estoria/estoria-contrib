@@ -9,7 +9,6 @@ import (
 	"github.com/go-estoria/estoria-contrib/aws/s3/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type EventStore struct {
@@ -22,18 +21,18 @@ var _ eventstore.StreamReader = (*EventStore)(nil)
 var _ eventstore.StreamWriter = (*EventStore)(nil)
 
 type TransactionHook interface {
-	HandleEvents(sessCtx mongo.SessionContext, events []*eventstore.Event) error
+	HandleEvents(sessCtx context.Context, events []*eventstore.Event) error
 }
 
 type Strategy interface {
 	GetStreamIterator(
 		ctx context.Context,
-		streamID typeid.UUID,
+		streamID typeid.ID,
 		opts eventstore.ReadStreamOptions,
 	) (eventstore.StreamIterator, error)
 	InsertStreamEvents(
 		ctx context.Context,
-		streamID typeid.UUID,
+		streamID typeid.ID,
 		events []*eventstore.WritableEvent,
 		opts eventstore.AppendStreamOptions,
 	) (*strategy.InsertStreamEventsResult, error)
@@ -66,7 +65,7 @@ func New(s3Client *s3.Client, opts ...EventStoreOption) (*EventStore, error) {
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.
-func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
+func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from S3 stream", "stream_id", streamID.String())
 
 	iter, err := s.strategy.GetStreamIterator(ctx, streamID, opts)
@@ -78,7 +77,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.UUID, opts 
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.UUID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
 	s.log.Debug("appending events to S3 stream", "stream_id", streamID.String(), "events", len(events))
 
 	if _, err := s.strategy.InsertStreamEvents(ctx, streamID, events, opts); err != nil {

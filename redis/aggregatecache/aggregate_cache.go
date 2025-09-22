@@ -51,7 +51,7 @@ func New[E estoria.Entity](client *redis.Client, opts ...CacheOption[E]) *Cache[
 	return aggregateCache
 }
 
-func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.UUID) (*aggregatestore.Aggregate[E], error) {
+func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.Aggregate[E], error) {
 	res := c.redis.Get(ctx, aggregateID.String())
 	if err := res.Err(); errors.Is(err, redis.Nil) {
 		return nil, nil
