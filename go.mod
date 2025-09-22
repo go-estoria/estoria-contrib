@@ -1,8 +1,6 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.25.0
-
-replace github.com/go-estoria/estoria => ../estoria
+go 1.25.1
 
 require (
 	github.com/DataDog/datadog-go/v5 v5.6.0
@@ -12,7 +10,7 @@ require (
 	github.com/coocood/freecache v1.2.4
 	github.com/docker/docker v27.1.1+incompatible
 	github.com/docker/go-connections v0.5.0
-	github.com/go-estoria/estoria v0.1.6
+	github.com/go-estoria/estoria v0.2.0
 	github.com/gofrs/uuid/v5 v5.3.2
 	github.com/google/uuid v1.6.0
 	github.com/kurrent-io/KurrentDB-Client-Go v1.0.1
