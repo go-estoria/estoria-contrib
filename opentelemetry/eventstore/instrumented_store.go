@@ -87,7 +87,7 @@ func NewInstrumentedStore(inner eventstore.Store, opts ...InstrumentedStoreOptio
 
 var _ eventstore.Store = (*InstrumentedStore)(nil)
 
-// Load loads an aggregate by ID while capturing telemetry.
+// ReadStream reads events from a stream while capturing telemetry.
 func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".ReadStream", trace.WithAttributes(
 		attribute.String("stream.id", id.String()),
@@ -106,12 +106,12 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts e
 
 	iterator, err := s.inner.ReadStream(ctx, id, opts)
 	if err != nil {
-		return iterator, nil
+		return nil, err
 	}
 
 	nextCounter, err := s.meter.Int64Counter(s.metricNamespace + ".stream.next")
 	if err != nil {
-		return iterator, nil
+		return nil, fmt.Errorf("creating stream next counter: %w", err)
 	}
 
 	return &InstrumentedStreamIterator{
@@ -122,9 +122,9 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts e
 	}, err
 }
 
-// Hydrate hydrates an aggregate while capturing telemetry.
+// AppendStream appends events to a stream while capturing telemetry.
 func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (e error) {
-	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Hydrate", trace.WithAttributes(
+	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".AppendStream", trace.WithAttributes(
 		attribute.String("stream.id", id.String()),
 		attribute.Int64("events.length", int64(len(events))),
 		attribute.Int64("options.expect_version", opts.ExpectVersion),
@@ -204,15 +204,15 @@ func WithMeterProvider(provider metric.MeterProvider) InstrumentedStoreOption {
 
 // WithMetricNamespace sets the namespace for the metrics emitted by the store.
 //
-// The default namespace is "aggregatestore". For example, if the namespace is
+// The default namespace is "eventstore". For example, if the namespace is
 // set to "customstore", the metrics will be emitted under the following names:
 //
-//   - customstore.load
-//   - customstore.hydrate
-//   - customstore.save
+//   - customstore.stream.read
+//   - customstore.stream.append
+//   - customstore.stream.next
 //
 // Overriding the default namespace is useful when you are layering multiple
-// aggregate stores and want to instrument each one while differentiating between
+// event stores and want to instrument each one while differentiating between
 // them in telemetry.
 func WithMetricNamespace(namespace string) InstrumentedStoreOption {
 	return func(s *InstrumentedStore) error {
@@ -223,15 +223,16 @@ func WithMetricNamespace(namespace string) InstrumentedStoreOption {
 
 // WithTraceNamespace sets the namespace for the traces emitted by the store.
 //
-// The default namespace is "aggregatestore". For example, if the namespace is
-// set to "customstore", the tracer will be emitted under the following names:
+// The default namespace is "eventstore". For example, if the namespace is
+// set to "customstore", the traces will be emitted under the following names:
 //
-//   - customstore.Load
-//   - customstore.Hydrate
-//   - customstore.Save
+//   - customstore.ReadStream
+//   - customstore.AppendStream
+//   - customstore.StreamIterator.Next
+//   - customstore.StreamIterator.Close
 //
 // Overriding the default namespace is useful when you are layering multiple
-// aggregate stores and want to instrument each one while differentiating between
+// event stores and want to instrument each one while differentiating between
 // them in telemetry.
 func WithTraceNamespace(namespace string) InstrumentedStoreOption {
 	return func(s *InstrumentedStore) error {
