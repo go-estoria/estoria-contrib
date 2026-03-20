@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,7 +25,7 @@ func (f BucketKeyResolverFunc) ResolveKey(aggregateID typeid.ID, version int64) 
 	return f(aggregateID, version)
 }
 
-func DefaultBuckeyKeyResolver(aggregateID typeid.ID, version int64) string {
+func DefaultBucketKeyResolver(aggregateID typeid.ID, version int64) string {
 	return fmt.Sprintf("%s/%s/%d.json", aggregateID.Type, aggregateID.UUID, version)
 }
 
@@ -52,7 +53,7 @@ func NewSingleBucketStrategy(client *s3.Client, bucket string, opts ...SingleBuc
 	strategy := &SingleBucketStrategy{
 		s3:         client,
 		bucket:     bucket,
-		resolveKey: DefaultBuckeyKeyResolver,
+		resolveKey: DefaultBucketKeyResolver,
 		marshaler:  JSONObjectMarshaler{},
 		log:        estoria.GetLogger().WithGroup("s3eventstore"),
 	}
@@ -171,7 +172,9 @@ func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID ty
 
 	var latestVersion int64
 	for _, obj := range results.Contents {
-		version, err := strconv.Atoi(*obj.Key)
+		_, file := path.Split(*obj.Key)
+		versionStr, _ := strings.CutSuffix(file, ".json")
+		version, err := strconv.Atoi(versionStr)
 		if err != nil {
 			return 0, fmt.Errorf("parsing version number: %w", err)
 		}
@@ -181,7 +184,7 @@ func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID ty
 		}
 	}
 
-	s.log.Debug("fonud latest version for stream", "stream_id", streamID, "version", latestVersion)
+	s.log.Debug("found latest version for stream", "stream_id", streamID, "version", latestVersion)
 	return latestVersion, nil
 }
 
