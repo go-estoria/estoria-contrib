@@ -10,6 +10,7 @@ import (
 	"github.com/go-estoria/estoria-contrib/postgres/eventstore/strategy"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/lib/pq"
 )
 
 // Strategy is an interface for defining lower-level query and append mechanics.
@@ -198,6 +199,9 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 		}
 
 		if _, err := stmt.ExecContext(ctx, s.strategy.AppendStreamExecArgs(fullEvents[i])...); err != nil {
+			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+				return ErrEventExists{EventID: fullEvents[i].ID}
+			}
 			return fmt.Errorf("executing statement: %w", err)
 		}
 	}

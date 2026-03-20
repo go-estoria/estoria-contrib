@@ -25,6 +25,14 @@ import (
 // The MultiCollectionStrategy is useful when the number of events in a single
 // collection becomes too large, and you want to partition events across multiple
 // collections.
+//
+// Known Limitations:
+//
+// Global Offset Concurrency: The global offset counter is computed outside the MongoDB
+// transaction in ExecuteInsertTransaction. This means concurrent writes to different streams
+// may compute the same global offset value, leading to duplicate offsets in the global event
+// sequence. Applications requiring strict global ordering should use SingleCollectionStrategy
+// instead, which computes the global offset atomically within a single-collection transaction.
 type MultiCollectionStrategy struct {
 	mongo    MongoSessionStarter
 	database MongoDatabase
