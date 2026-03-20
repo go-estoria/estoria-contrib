@@ -11,15 +11,15 @@ import (
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
-// An InstrumentedStore wraps an event store for OpenTelemetry instrumentation.
+// An InstrumentedStore wraps an event store for Datadog instrumentation.
 //
 // The store wraps and emits metrics and traces for the ReadStream and AppendStream methods.
-// The metrics are emitted using the OpenTelemetry metric API, and the traces are
-// emitted using the OpenTelemetry trace API.
+// The metrics are emitted using the Datadog StatsD client API, and the traces are
+// emitted using the Datadog tracer API.
 //
-// The store can be configured to enable or disable tracing and metrics, and
-// to use a custom tracer or meter provider. By default, the store uses the
-// global tracer and meter provider from the OpenTelemetry SDK.
+// The store can be configured to enable or disable metrics, and to use a custom
+// StatsD client. By default, the store creates a StatsD client connected to
+// localhost:8125.
 //
 // The store emits metrics under the "eventstore" namespace by default. The
 // namespace can be customized using the WithMetricNamespace option.
@@ -65,7 +65,7 @@ func NewInstrumentedStore(inner eventstore.Store, opts ...InstrumentedStoreOptio
 
 var _ eventstore.Store = (*InstrumentedStore)(nil)
 
-// Load loads an aggregate by ID while capturing telemetry.
+// ReadStream reads events from a stream while capturing telemetry.
 func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".ReadStream")
 	span.SetTag("stream.id", id.String())
@@ -78,7 +78,7 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts e
 
 	iterator, err := s.inner.ReadStream(ctx, id, opts)
 	if err != nil {
-		return iterator, nil
+		return nil, err
 	}
 
 	return &InstrumentedStreamIterator{
@@ -89,9 +89,9 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts e
 	}, err
 }
 
-// Hydrate hydrates an aggregate while capturing telemetry.
+// AppendStream appends events to a stream while capturing telemetry.
 func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (e error) {
-	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".Hydrate")
+	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".AppendStream")
 	span.SetTag("stream.id", id.String())
 	span.SetTag("events.length", int64(len(events)))
 	span.SetTag("options.expect_version", opts.ExpectVersion)
@@ -127,15 +127,15 @@ func WithMeterProvider(client statsd.ClientInterface) InstrumentedStoreOption {
 
 // WithMetricNamespace sets the namespace for the metrics emitted by the store.
 //
-// The default namespace is "aggregatestore". For example, if the namespace is
+// The default namespace is "eventstore". For example, if the namespace is
 // set to "customstore", the metrics will be emitted under the following names:
 //
-//   - customstore.load
-//   - customstore.hydrate
-//   - customstore.save
+//   - customstore.ReadStream
+//   - customstore.AppendStream
+//   - customstore.stream.next
 //
 // Overriding the default namespace is useful when you are layering multiple
-// aggregate stores and want to instrument each one while differentiating between
+// event stores and want to instrument each one while differentiating between
 // them in telemetry.
 func WithMetricNamespace(namespace string) InstrumentedStoreOption {
 	return func(s *InstrumentedStore) error {
@@ -146,15 +146,16 @@ func WithMetricNamespace(namespace string) InstrumentedStoreOption {
 
 // WithTraceNamespace sets the namespace for the traces emitted by the store.
 //
-// The default namespace is "aggregatestore". For example, if the namespace is
-// set to "customstore", the tracer will be emitted under the following names:
+// The default namespace is "eventstore". For example, if the namespace is
+// set to "customstore", the traces will be emitted under the following names:
 //
-//   - customstore.Load
-//   - customstore.Hydrate
-//   - customstore.Save
+//   - customstore.ReadStream
+//   - customstore.AppendStream
+//   - customstore.StreamIterator.Next
+//   - customstore.StreamIterator.Close
 //
 // Overriding the default namespace is useful when you are layering multiple
-// aggregate stores and want to instrument each one while differentiating between
+// event stores and want to instrument each one while differentiating between
 // them in telemetry.
 func WithTraceNamespace(namespace string) InstrumentedStoreOption {
 	return func(s *InstrumentedStore) error {
