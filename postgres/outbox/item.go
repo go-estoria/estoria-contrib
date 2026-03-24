@@ -26,6 +26,9 @@ type Item struct {
 	// Data is the serialized event data.
 	Data []byte
 
+	// Metadata is optional key-value metadata associated with the event.
+	Metadata map[string]string
+
 	// CreatedAt is when the outbox item was created.
 	CreatedAt time.Time
 

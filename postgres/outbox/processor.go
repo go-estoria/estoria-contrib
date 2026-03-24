@@ -3,12 +3,13 @@ package outbox
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/gofrs/uuid/v5"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
 	"github.com/lib/pq"
 )
 
@@ -42,7 +43,7 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 	}()
 
 	query := fmt.Sprintf(
-		`SELECT id, event_id, event_type, stream_id, stream_type, stream_version, timestamp, data, created_at, retry_count, last_error
+		`SELECT id, event_id, event_type, stream_id, stream_type, stream_version, timestamp, data, metadata, created_at, retry_count, last_error
 		FROM %s
 		WHERE processed_at IS NULL AND failed_at IS NULL
 		ORDER BY id ASC
@@ -54,6 +55,7 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 	var item Item
 	var eventUUID, streamUUID uuid.UUID
 	var eventType, streamType string
+	var metadataJSON []byte
 
 	row := tx.QueryRowContext(ctx, query)
 	if err := row.Scan(
@@ -65,6 +67,7 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 		&item.StreamVersion,
 		&item.Timestamp,
 		&item.Data,
+		&metadataJSON,
 		&item.CreatedAt,
 		&item.RetryCount,
 		&item.LastError,
@@ -77,6 +80,12 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 
 	item.EventID = typeid.New(eventType, eventUUID)
 	item.StreamID = typeid.New(streamType, streamUUID)
+
+	if metadataJSON != nil {
+		if err := json.Unmarshal(metadataJSON, &item.Metadata); err != nil {
+			return fmt.Errorf("unmarshaling outbox item metadata: %w", err)
+		}
+	}
 
 	if err := o.handler(ctx, &item); err != nil {
 		handlerErr := err

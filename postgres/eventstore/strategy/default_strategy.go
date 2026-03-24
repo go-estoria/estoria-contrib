@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -54,16 +55,27 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 }
 
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
-// The query must be designed to expect exactly two parameters: the stream type and the stream ID.
+// The base query takes two parameters: $1=stream_type, $2=stream_id.
+// When AfterVersion > 0, a third parameter $3 is added for the version boundary.
 func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.ReadStreamOptions) (string, []any, error) {
 	direction, ok := directionSQL[opts.Direction]
 	if !ok {
 		direction = "ASC"
 	}
 
-	offsetClause := ""
-	if opts.Offset > 0 {
-		offsetClause = fmt.Sprintf("OFFSET %d", opts.Offset)
+	args := []any{
+		streamID.Type,
+		streamID.UUID,
+	}
+
+	versionClause := ""
+	if opts.AfterVersion > 0 {
+		args = append(args, opts.AfterVersion)
+		if opts.Direction == eventstore.Reverse {
+			versionClause = "AND stream_offset <= $3"
+		} else {
+			versionClause = "AND stream_offset > $3"
+		}
 	}
 
 	limitClause := ""
@@ -73,39 +85,40 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.Re
 
 	return fmt.Sprintf(`
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM %s
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+			%s
 		ORDER BY
 			stream_offset %s
 		%s
-		%s
-	`, pq.QuoteIdentifier(s.eventsTableName), direction, offsetClause, limitClause),
-		[]any{
-			streamID.Type,
-			streamID.UUID,
-		}, nil
+	`, pq.QuoteIdentifier(s.eventsTableName), versionClause, direction, limitClause),
+		args, nil
 }
 
 // ScanEventRow scans a single event row from the given SQL rows and returns an event.
 func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error) {
 	var (
-		e          eventstore.Event
-		streamID   uuid.UUID
-		streamType string
-		eventID    uuid.UUID
-		eventType  string
+		e              eventstore.Event
+		globalPosition int64
+		streamID       uuid.UUID
+		streamType     string
+		eventID        uuid.UUID
+		eventType      string
+		metadata       []byte
 	)
 	if err := rows.Scan(
+		&globalPosition,
 		&streamID,
 		&streamType,
 		&eventID,
@@ -113,12 +126,20 @@ func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error
 		&e.Timestamp,
 		&e.StreamVersion,
 		&e.Data,
+		&metadata,
 	); err != nil {
 		return nil, fmt.Errorf("scanning event row: %w", err)
 	}
 
+	e.GlobalPosition = &globalPosition
 	e.ID = typeid.New(eventType, eventID)
 	e.StreamID = typeid.New(streamType, streamID)
+
+	if metadata != nil {
+		if err := json.Unmarshal(metadata, &e.Metadata); err != nil {
+			return nil, fmt.Errorf("unmarshaling event metadata: %w", err)
+		}
+	}
 
 	return &e, nil
 }
@@ -142,6 +163,7 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, str
 }
 
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
+// The statement uses RETURNING id to capture the generated global position.
 func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 	return fmt.Sprintf(`
 		INSERT INTO %s (
@@ -151,14 +173,21 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id
 	`, pq.QuoteIdentifier(s.eventsTableName)), nil
 }
 
 // AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
 func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
+	var metadataArg any
+	if event.Metadata != nil {
+		// json.Marshal cannot fail for map[string]string — all keys and values are valid JSON strings.
+		metadataArg, _ = json.Marshal(event.Metadata)
+	}
 	return []any{
 		event.ID.UUID,
 		event.StreamID.Type,
@@ -167,6 +196,7 @@ func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 		event.Timestamp,
 		event.StreamVersion,
 		event.Data,
+		metadataArg,
 	}
 }
 
@@ -211,6 +241,7 @@ func (s *DefaultStrategy) Schema() string {
 			stream_offset bigint       NOT NULL,
 			timestamp     timestamptz  NOT NULL,
 			data          jsonb,
+			metadata      jsonb,
 
 			CONSTRAINT event_stream_offset_unique UNIQUE (stream_id, stream_type, stream_offset),
 
@@ -267,15 +298,26 @@ func (s *DefaultStrategy) ListStreams(ctx context.Context, db *sql.DB) ([]Stream
 }
 
 // ReadAll returns a SQL rows result set for reading all events in the event store.
+//
+// Note: When AfterVersion > 0, it is interpreted as a global position (the auto-incrementing
+// id column) rather than a stream version. This allows callers to resume reading from a known
+// global checkpoint. This semantic differs from ReadStreamQuery where AfterVersion refers to
+// stream versions.
 func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventstore.ReadStreamOptions) (*sql.Rows, error) {
 	direction, ok := directionSQL[opts.Direction]
 	if !ok {
 		direction = "ASC"
 	}
 
-	offsetClause := ""
-	if opts.Offset > 0 {
-		offsetClause = fmt.Sprintf("OFFSET %d", opts.Offset)
+	var args []any
+	afterClause := ""
+	if opts.AfterVersion > 0 {
+		args = append(args, opts.AfterVersion)
+		if opts.Direction == eventstore.Reverse {
+			afterClause = "WHERE id <= $1"
+		} else {
+			afterClause = "WHERE id > $1"
+		}
 	}
 
 	limitClause := ""
@@ -285,21 +327,23 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventsto
 
 	query := fmt.Sprintf(`
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM %s
+		%s
 		ORDER BY
 			id %s
 		%s
-		%s
-	`, pq.QuoteIdentifier(s.eventsTableName), direction, offsetClause, limitClause)
+	`, pq.QuoteIdentifier(s.eventsTableName), afterClause, direction, limitClause)
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying all events: %w", err)
 	}

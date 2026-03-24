@@ -97,7 +97,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Forward,
-				Offset:    2,
+				AfterVersion: 2,
 			},
 			wantEvents: []bson.M{docs[2], docs[3], docs[4]},
 		},
@@ -106,7 +106,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Reverse,
-				Offset:    2,
+				AfterVersion: 2,
 			},
 			wantEvents: []bson.M{docs[2], docs[1], docs[0]},
 		},
@@ -133,7 +133,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Forward,
-				Offset:    2,
+				AfterVersion: 2,
 				Count:     2,
 			},
 			wantEvents: []bson.M{docs[2], docs[3]},
@@ -143,7 +143,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 			haveStreamID: typeid.New("mockstreamtype", uuid.Must(uuid.FromString("a422f08c-0981-49cd-8249-7a48e66a4e8c"))),
 			haveOpts: eventstore.ReadStreamOptions{
 				Direction: eventstore.Reverse,
-				Offset:    2,
+				AfterVersion: 2,
 				Count:     2,
 			},
 			wantEvents: []bson.M{docs[2], docs[1]},

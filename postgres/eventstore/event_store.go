@@ -109,7 +109,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 
 	s.log.Debug("reading events from Postgres stream",
 		"stream_id", streamID.String(),
-		"offset", opts.Offset,
+		"after_version", opts.AfterVersion,
 		"count", opts.Count,
 		"direction", opts.Direction,
 	)
@@ -181,16 +181,29 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 		}
 	}()
 
+	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
+		return fmt.Errorf("ExpectVersion and StreamMustNotExist are mutually exclusive")
+	}
+
 	newMaxOffset, err := s.strategy.NextHighwaterMark(ctx, tx, streamID, len(events))
 	if err != nil {
 		return fmt.Errorf("getting highest offset: %w", err)
 	}
 
 	currentOffset := newMaxOffset - int64(len(events))
-	if opts.ExpectVersion > 0 && currentOffset != opts.ExpectVersion {
+
+	if opts.StreamMustNotExist && currentOffset > 0 {
 		return eventstore.StreamVersionMismatchError{
 			StreamID:        streamID,
-			ExpectedVersion: opts.ExpectVersion,
+			ExpectedVersion: 0,
+			ActualVersion:   currentOffset,
+		}
+	}
+
+	if opts.ExpectVersion != nil && *opts.ExpectVersion != currentOffset {
+		return eventstore.StreamVersionMismatchError{
+			StreamID:        streamID,
+			ExpectedVersion: *opts.ExpectVersion,
 			ActualVersion:   currentOffset,
 		}
 	}
@@ -220,20 +233,27 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 			StreamVersion: currentOffset + int64(i) + 1,
 			Timestamp:     now,
 			Data:          we.Data,
+			Metadata:      we.Metadata,
 		}
 
-		if _, err := stmt.ExecContext(ctx, s.strategy.AppendStreamExecArgs(fullEvents[i])...); err != nil {
+		var globalPos int64
+		if err := stmt.QueryRowContext(ctx, s.strategy.AppendStreamExecArgs(fullEvents[i])...).Scan(&globalPos); err != nil {
 			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 				// The only unique constraint on the events table is (stream_id, stream_type, stream_offset).
 				// A violation here means a concurrent writer inserted at the same offset.
+				// When a concurrent write races with this one, we report currentOffset as both
+				// expected and actual: we don't know the true actual version from the DB, and
+				// reporting ExpectedVersion=0 when no explicit ExpectVersion was specified would
+				// be misleading.
 				return eventstore.StreamVersionMismatchError{
 					StreamID:        streamID,
-					ExpectedVersion: opts.ExpectVersion,
+					ExpectedVersion: currentOffset,
 					ActualVersion:   currentOffset,
 				}
 			}
 			return fmt.Errorf("executing statement: %w", err)
 		}
+		fullEvents[i].GlobalPosition = &globalPos
 	}
 
 	for _, hook := range s.appendTxHooks {
@@ -273,6 +293,10 @@ type AllReader interface {
 
 // ReadAll returns an iterator for reading all events in the event store, across all streams.
 //
+// Unlike ReadStream, which returns ErrStreamNotFound for a non-existent stream, ReadAll
+// returns an empty iterator when there are no events. This is intentional: "no events in the
+// store" is a valid state, whereas "stream not found" is an error condition.
+//
 // Note that not all strategies may support reading all events, in which case an error will be returned.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)
@@ -307,4 +331,12 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 		rows:     rows,
 		first:    first,
 	}, nil
+}
+
+// derefInt64 safely dereferences an *int64, returning 0 if the pointer is nil.
+func derefInt64(p *int64) int64 {
+	if p != nil {
+		return *p
+	}
+	return 0
 }

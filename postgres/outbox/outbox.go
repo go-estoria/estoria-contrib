@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -88,6 +89,7 @@ func (o *Outbox) Schema() string {
     stream_version  bigint       NOT NULL,
     timestamp       timestamptz  NOT NULL,
     data            jsonb,
+    metadata        jsonb,
     created_at      timestamptz  NOT NULL DEFAULT now(),
     processed_at    timestamptz,
     retry_count     integer      NOT NULL DEFAULT 0,
@@ -106,8 +108,8 @@ CREATE INDEX IF NOT EXISTS %s
 // returned and the caller's transaction will be rolled back.
 func (o *Outbox) HandleEvents(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error {
 	query := fmt.Sprintf(
-		`INSERT INTO %s (event_id, event_type, stream_id, stream_type, stream_version, timestamp, data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		`INSERT INTO %s (event_id, event_type, stream_id, stream_type, stream_version, timestamp, data, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		pq.QuoteIdentifier(o.tableName),
 	)
 
@@ -122,6 +124,11 @@ func (o *Outbox) HandleEvents(ctx context.Context, tx *sql.Tx, events []*eventst
 	}()
 
 	for _, event := range events {
+		var metadataArg any
+		if event.Metadata != nil {
+			// json.Marshal cannot fail for map[string]string — all keys and values are valid JSON strings.
+			metadataArg, _ = json.Marshal(event.Metadata)
+		}
 		if _, err := stmt.ExecContext(ctx,
 			event.ID.UUID,
 			event.ID.Type,
@@ -130,6 +137,7 @@ func (o *Outbox) HandleEvents(ctx context.Context, tx *sql.Tx, events []*eventst
 			event.StreamVersion,
 			event.Timestamp,
 			event.Data,
+			metadataArg,
 		); err != nil {
 			return fmt.Errorf("inserting outbox item for event %s: %w", event.ID.String(), err)
 		}

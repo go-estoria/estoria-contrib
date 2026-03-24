@@ -91,7 +91,7 @@ var _ eventstore.Store = (*InstrumentedStore)(nil)
 func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".ReadStream", trace.WithAttributes(
 		attribute.String("stream.id", id.String()),
-		attribute.Int64("options.offset", opts.Offset),
+		attribute.Int64("options.after_version", opts.AfterVersion),
 	))
 
 	defer func() {
@@ -127,8 +127,10 @@ func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, even
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".AppendStream", trace.WithAttributes(
 		attribute.String("stream.id", id.String()),
 		attribute.Int64("events.length", int64(len(events))),
-		attribute.Int64("options.expect_version", opts.ExpectVersion),
 	))
+	if opts.ExpectVersion != nil {
+		span.SetAttributes(attribute.Int64("options.expect_version", *opts.ExpectVersion))
+	}
 	defer func() {
 		span.RecordError(e)
 		if e != nil {
@@ -254,7 +256,7 @@ func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Ev
 	defer func() {
 		span.RecordError(e)
 		if e != nil && !errors.Is(e, eventstore.ErrEndOfEventStream) {
-			span.SetStatus(codes.Error, "error appending stream")
+			span.SetStatus(codes.Error, "error reading next event")
 		}
 		i.nextCounter.Add(ctx, 1)
 		span.End()

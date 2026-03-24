@@ -148,7 +148,7 @@ func TestInstrumentedStore_ReadStream_Success(t *testing.T) {
 	t.Parallel()
 
 	expectedID := typeid.NewV4("test")
-	expectedOpts := eventstore.ReadStreamOptions{Offset: 10, Count: 5}
+	expectedOpts := eventstore.ReadStreamOptions{AfterVersion: 10, Count: 5}
 	expectedIterator := &mockStreamIterator{}
 
 	inner := &mockEventStore{
@@ -156,8 +156,8 @@ func TestInstrumentedStore_ReadStream_Success(t *testing.T) {
 			if id != expectedID {
 				t.Errorf("expected id %v, got %v", expectedID, id)
 			}
-			if opts.Offset != expectedOpts.Offset {
-				t.Errorf("expected offset %d, got %d", expectedOpts.Offset, opts.Offset)
+			if opts.AfterVersion != expectedOpts.AfterVersion {
+				t.Errorf("expected after_version %d, got %d", expectedOpts.AfterVersion, opts.AfterVersion)
 			}
 			return expectedIterator, nil
 		},
@@ -232,7 +232,7 @@ func TestInstrumentedStore_AppendStream_Success(t *testing.T) {
 	expectedEvents := []*eventstore.WritableEvent{
 		{Type: "test.event", Data: []byte("{}")},
 	}
-	expectedOpts := eventstore.AppendStreamOptions{ExpectVersion: 5}
+	expectedOpts := eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(5)}
 
 	appendCalled := false
 	inner := &mockEventStore{
@@ -244,8 +244,8 @@ func TestInstrumentedStore_AppendStream_Success(t *testing.T) {
 			if len(events) != len(expectedEvents) {
 				t.Errorf("expected %d events, got %d", len(expectedEvents), len(events))
 			}
-			if opts.ExpectVersion != expectedOpts.ExpectVersion {
-				t.Errorf("expected version %d, got %d", expectedOpts.ExpectVersion, opts.ExpectVersion)
+			if opts.ExpectVersion == nil || expectedOpts.ExpectVersion == nil || *opts.ExpectVersion != *expectedOpts.ExpectVersion {
+				t.Errorf("expected version %v, got %v", expectedOpts.ExpectVersion, opts.ExpectVersion)
 			}
 			return nil
 		},

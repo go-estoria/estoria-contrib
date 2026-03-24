@@ -69,7 +69,7 @@ var _ eventstore.Store = (*InstrumentedStore)(nil)
 func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (_ eventstore.StreamIterator, e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".ReadStream")
 	span.SetTag("stream.id", id.String())
-	span.SetTag("options.offset", opts.Offset)
+	span.SetTag("options.after_version", opts.AfterVersion)
 
 	defer func() {
 		s.meter.Incr(s.metricNamespace+".ReadStream", nil, 1)
@@ -94,7 +94,9 @@ func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, even
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".AppendStream")
 	span.SetTag("stream.id", id.String())
 	span.SetTag("events.length", int64(len(events)))
-	span.SetTag("options.expect_version", opts.ExpectVersion)
+	if opts.ExpectVersion != nil {
+		span.SetTag("options.expect_version", *opts.ExpectVersion)
+	}
 
 	defer func() {
 		s.meter.Incr(s.metricNamespace+".AppendStream", nil, 1)

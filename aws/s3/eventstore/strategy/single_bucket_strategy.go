@@ -81,7 +81,7 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 
 	toVersion := int64(0)
 	if opts.Count > 0 {
-		toVersion = opts.Offset + opts.Count
+		toVersion = opts.AfterVersion + opts.Count
 	}
 
 	return &streamIterator{
@@ -89,8 +89,8 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 		bucket:         s.bucket,
 		paginator:      paginator,
 		s3:             s.s3,
-		fromVersion:    opts.Offset,
-		currentVersion: opts.Offset,
+		fromVersion:    opts.AfterVersion,
+		currentVersion: opts.AfterVersion,
 		toVersion:      toVersion,
 		marshaler:      s.marshaler,
 		log:            s.log,
@@ -108,20 +108,23 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 		return nil, fmt.Errorf("getting latest version: %w", err)
 	}
 
-	if opts.ExpectVersion > 0 && latestVersion != opts.ExpectVersion {
-		return nil, fmt.Errorf("expected version %d, but stream has version %d", opts.ExpectVersion, latestVersion)
+	if opts.ExpectVersion != nil && latestVersion != *opts.ExpectVersion {
+		return nil, fmt.Errorf("expected version %d, but stream has version %d", *opts.ExpectVersion, latestVersion)
 	}
 
 	now := time.Now()
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
+		// GlobalPosition is nil for S3-backed events because S3 does not provide
+		// a native auto-incrementing global sequence number.
 		fullEvents[i] = &eventstore.Event{
 			ID:            typeid.NewV4(we.Type),
 			StreamID:      streamID,
 			StreamVersion: latestVersion + int64(i) + 1,
 			Timestamp:     now,
 			Data:          we.Data,
+			Metadata:      we.Metadata,
 		}
 
 		data, err := s.marshaler.MarshalObject(fullEvents[i])

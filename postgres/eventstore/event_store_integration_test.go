@@ -108,12 +108,12 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
-				name: "read stream (offset)",
+				name: "read stream (after_version)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Offset: 2},
+				haveOpts:     eventstore.ReadStreamOptions{AfterVersion: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:],
 			},
 			{
@@ -126,12 +126,12 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   eventsFor(streamIDs[0])[:2],
 			},
 			{
-				name: "read stream (offset,count)",
+				name: "read stream (after_version,count)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Offset: 2, Count: 2},
+				haveOpts:     eventstore.ReadStreamOptions{AfterVersion: 2, Count: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:4],
 			},
 			{
@@ -153,22 +153,22 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   reversed(eventsFor(streamIDs[0])),
 			},
 			{
-				name: "read stream (forward,offset)",
+				name: "read stream (forward,after_version)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2},
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, AfterVersion: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:],
 			},
 			{
-				name: "read stream (reverse,offset)",
+				name: "read stream (reverse,after_version)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2},
-				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:],
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, AfterVersion: 2},
+				wantEvents:   reversed(eventsFor(streamIDs[0])[:2]),
 			},
 			{
 				name: "read stream (forward,count)",
@@ -189,22 +189,22 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   reversed(eventsFor(streamIDs[0]))[:2],
 			},
 			{
-				name: "read stream (forward,offset,count)",
+				name: "read stream (forward,after_version,count)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2, Count: 2},
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, AfterVersion: 2, Count: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:4],
 			},
 			{
-				name: "read stream (reverse,offset,count)",
+				name: "read stream (reverse,after_version,count)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2, Count: 2},
-				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:4],
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, AfterVersion: 2, Count: 2},
+				wantEvents:   reversed(eventsFor(streamIDs[0])[:2]),
 			},
 		} {
 			t.Run(tStrat.name+"_"+tStrat.desc+"_"+tt.name, func(t *testing.T) {
@@ -498,7 +498,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		}
 
 		// Append with a wrong expected version (1 instead of 2).
-		err := es.AppendStream(t.Context(), streamID, writableEvents[2:3], eventstore.AppendStreamOptions{ExpectVersion: 1})
+		err := es.AppendStream(t.Context(), streamID, writableEvents[2:3], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
 		if err == nil {
 			t.Fatal("AppendStream with wrong ExpectVersion returned nil error, expected StreamVersionMismatchError")
 		}
@@ -523,7 +523,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		}
 
 		// Attempt to append with a stale expected version (1 instead of 3); must fail.
-		err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: 1})
+		err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
 		if err == nil {
 			t.Fatal("AppendStream with wrong ExpectVersion returned nil error, expected an error")
 		}
@@ -533,7 +533,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		}
 
 		// Retry with the correct expected version; must succeed.
-		if err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: 3}); err != nil {
+		if err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(3)}); err != nil {
 			t.Fatalf("corrected AppendStream failed after previous mismatch: %v", err)
 		}
 
@@ -682,7 +682,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				},
 				haveStreamID: streamIDs[0],
 				haveEvents:   writableEvents[2:],
-				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 2},
+				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(2)},
 				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
@@ -692,7 +692,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				},
 				haveStreamID: streamIDs[0],
 				haveEvents:   writableEvents[2:],
-				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 1},
+				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)},
 				wantErr:      eventstore.StreamVersionMismatchError{StreamID: streamIDs[0], ExpectedVersion: 1, ActualVersion: 2},
 			},
 		} {

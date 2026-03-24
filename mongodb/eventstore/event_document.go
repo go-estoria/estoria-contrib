@@ -26,14 +26,15 @@ type Event struct {
 }
 
 type EventDocument struct {
-	StreamType   string    `bson:"stream_type"`
-	StreamID     string    `bson:"stream_id"`
-	EventType    string    `bson:"event_type"`
-	EventID      string    `bson:"event_id"`
-	Offset       int64     `bson:"offset"`
-	GlobalOffset int64     `bson:"global_offset"`
-	Timestamp    time.Time `bson:"timestamp"`
-	EventData    []byte    `bson:"event_data"`
+	StreamType   string            `bson:"stream_type"`
+	StreamID     string            `bson:"stream_id"`
+	EventType    string            `bson:"event_type"`
+	EventID      string            `bson:"event_id"`
+	Offset       int64             `bson:"offset"`
+	GlobalOffset int64             `bson:"global_offset"`
+	Timestamp    time.Time         `bson:"timestamp"`
+	EventData    []byte            `bson:"event_data"`
+	Metadata     map[string]string `bson:"metadata,omitempty"`
 }
 
 type DefaultMarshaler struct{}
@@ -49,6 +50,7 @@ func (DefaultMarshaler) MarshalDocument(event *Event) (any, error) {
 		GlobalOffset: event.GlobalOffset,
 		Timestamp:    event.Timestamp,
 		EventData:    event.Data,
+		Metadata:     event.Metadata,
 	}, nil
 }
 
@@ -69,13 +71,16 @@ func (DefaultMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*Event, er
 		return nil, fmt.Errorf("parsing event ID: %w", err)
 	}
 
+	gp := doc.GlobalOffset
 	return &Event{
 		Event: eventstore.Event{
-			ID:            typeid.New(doc.EventType, eventID),
-			StreamID:      typeid.New(doc.StreamType, streamID),
-			StreamVersion: doc.Offset,
-			Timestamp:     doc.Timestamp,
-			Data:          doc.EventData,
+			ID:             typeid.New(doc.EventType, eventID),
+			StreamID:       typeid.New(doc.StreamType, streamID),
+			StreamVersion:  doc.Offset,
+			GlobalPosition: &gp,
+			Timestamp:      doc.Timestamp,
+			Data:           doc.EventData,
+			Metadata:       doc.Metadata,
 		},
 		GlobalOffset: doc.GlobalOffset,
 	}, nil

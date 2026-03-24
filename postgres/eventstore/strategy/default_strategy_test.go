@@ -23,20 +23,23 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			name: "forward",
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+
 		ORDER BY
 			stream_offset ASC
+
 	`,
 			wantNumArgs: 2,
 		},
@@ -47,20 +50,23 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "my_events"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+
 		ORDER BY
 			stream_offset ASC
+
 	`,
 			wantNumArgs: 2,
 		},
@@ -71,74 +77,81 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+
 		ORDER BY
 			stream_offset DESC
+
 	`,
 			wantNumArgs: 2,
 		},
 		{
-			name: "forward,offset",
+			name: "forward,after_version",
 			haveReadStreamOpts: eventstore.ReadStreamOptions{
-				Direction: eventstore.Forward,
-				Offset:    10,
+				Direction:    eventstore.Forward,
+				AfterVersion: 10,
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+			AND stream_offset > $3
 		ORDER BY
 			stream_offset ASC
-		OFFSET 10
+
 	`,
-			wantNumArgs: 2,
+			wantNumArgs: 3,
 		},
 		{
-			name: "reverse,offset",
+			name: "reverse,after_version",
 			haveReadStreamOpts: eventstore.ReadStreamOptions{
-				Direction: eventstore.Reverse,
-				Offset:    10,
+				Direction:    eventstore.Reverse,
+				AfterVersion: 10,
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+			AND stream_offset <= $3
 		ORDER BY
 			stream_offset DESC
-		OFFSET 10
+
 	`,
-			wantNumArgs: 2,
+			wantNumArgs: 3,
 		},
 		{
 			name: "forward,count",
@@ -148,21 +161,22 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+
 		ORDER BY
 			stream_offset ASC
-		
 		LIMIT 10
 	`,
 			wantNumArgs: 2,
@@ -175,81 +189,83 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+
 		ORDER BY
 			stream_offset DESC
-		
 		LIMIT 10
 	`,
 			wantNumArgs: 2,
 		},
-
 		{
-			name: "forward,offset,count",
+			name: "forward,after_version,count",
 			haveReadStreamOpts: eventstore.ReadStreamOptions{
-				Direction: eventstore.Forward,
-				Offset:    10,
-				Count:     10,
+				Direction:    eventstore.Forward,
+				AfterVersion: 10,
+				Count:        10,
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+			AND stream_offset > $3
 		ORDER BY
 			stream_offset ASC
-		OFFSET 10
 		LIMIT 10
 	`,
-			wantNumArgs: 2,
+			wantNumArgs: 3,
 		},
 		{
-			name: "reverse,offset,count",
+			name: "reverse,after_version,count",
 			haveReadStreamOpts: eventstore.ReadStreamOptions{
-				Direction: eventstore.Reverse,
-				Offset:    10,
-				Count:     10,
+				Direction:    eventstore.Reverse,
+				AfterVersion: 10,
+				Count:        10,
 			},
 			wantQuery: `
 		SELECT
+			id,
 			stream_id,
 			stream_type,
 			event_id,
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		FROM "event"
 		WHERE
 			stream_type = $1
-			AND
-			stream_id = $2
+			AND stream_id = $2
+			AND stream_offset <= $3
 		ORDER BY
 			stream_offset DESC
-		OFFSET 10
 		LIMIT 10
 	`,
-			wantNumArgs: 2,
+			wantNumArgs: 3,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -297,9 +313,11 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id
 	`,
 		},
 		{
@@ -315,9 +333,11 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			event_type,
 			timestamp,
 			stream_offset,
-			data
+			data,
+			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id
 	`,
 		},
 	} {

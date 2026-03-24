@@ -349,8 +349,9 @@ func TestInsertStreamEvents(t *testing.T) {
 				UUID: uuid.Must(uuid.FromString("00000000-0000-0000-0000-000000000abc")),
 			}
 
-			opts := eventstore.AppendStreamOptions{
-				ExpectVersion: tt.expectVersion,
+			opts := eventstore.AppendStreamOptions{}
+			if tt.expectVersion > 0 {
+				opts.ExpectVersion = eventstore.VersionPtr(tt.expectVersion)
 			}
 
 			before := time.Now()
@@ -453,7 +454,7 @@ func TestGetStreamIterator(t *testing.T) {
 				UUID: uuid.Must(uuid.FromString("00000000-0000-0000-0000-000000000002")),
 			},
 			readOpts: eventstore.ReadStreamOptions{
-				Offset: 5,
+				AfterVersion: 5,
 			},
 			expectedFromVer:    5,
 			expectedCurrentVer: 5,
@@ -466,8 +467,8 @@ func TestGetStreamIterator(t *testing.T) {
 				UUID: uuid.Must(uuid.FromString("00000000-0000-0000-0000-000000000003")),
 			},
 			readOpts: eventstore.ReadStreamOptions{
-				Offset: 10,
-				Count:  20,
+				AfterVersion: 10,
+				Count:        20,
 			},
 			expectedFromVer:    10,
 			expectedCurrentVer: 10,
