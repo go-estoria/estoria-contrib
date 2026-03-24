@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-estoria/estoria"
@@ -13,6 +14,17 @@ import (
 )
 
 // ItemHandler is a function that processes a single outbox item.
+//
+// Handlers must be idempotent: due to the at-least-once delivery guarantee,
+// a handler may be called more than once for the same item if a failure occurs
+// after the handler succeeds but before the transaction commits.
+//
+// Handlers must be safe for concurrent use if ProcessNext or Run is called
+// from multiple goroutines.
+//
+// Handlers are called while holding a Postgres row-level lock on the outbox item.
+// To avoid connection pool exhaustion, handlers should complete within a bounded
+// time and should not perform unbounded I/O without a timeout.
 type ItemHandler func(ctx context.Context, item *Item) error
 
 // Outbox inserts events into an outbox table within the same database transaction as
@@ -22,7 +34,9 @@ type Outbox struct {
 	tableName    string
 	handler      ItemHandler
 	pollInterval time.Duration
+	maxRetries   int
 	log          estoria.Logger
+	running      atomic.Bool
 }
 
 var _ pgeventstore.TransactionHook = (*Outbox)(nil)
@@ -42,6 +56,7 @@ func New(db *sql.DB, handler ItemHandler, opts ...Option) (*Outbox, error) {
 		tableName:    "outbox",
 		handler:      handler,
 		pollInterval: 1 * time.Second,
+		maxRetries:   10,
 		log:          estoria.GetLogger().WithGroup("outbox"),
 	}
 
@@ -55,6 +70,12 @@ func New(db *sql.DB, handler ItemHandler, opts ...Option) (*Outbox, error) {
 }
 
 // Schema returns the SQL statements required to create the outbox table and its indexes.
+//
+// Note: processed and failed items are retained in the table indefinitely. In high-throughput
+// systems, periodic cleanup of old items is recommended:
+//
+//	DELETE FROM outbox WHERE processed_at < now() - interval '7 days';
+//	DELETE FROM outbox WHERE failed_at < now() - interval '30 days';
 func (o *Outbox) Schema() string {
 	quotedTable := pq.QuoteIdentifier(o.tableName)
 	quotedIndex := pq.QuoteIdentifier("idx_" + o.tableName + "_unprocessed")
@@ -68,12 +89,15 @@ func (o *Outbox) Schema() string {
     timestamp       timestamptz  NOT NULL,
     data            jsonb,
     created_at      timestamptz  NOT NULL DEFAULT now(),
-    processed_at    timestamptz
+    processed_at    timestamptz,
+    retry_count     integer      NOT NULL DEFAULT 0,
+    last_error      text,
+    failed_at       timestamptz
 );
 
 CREATE INDEX IF NOT EXISTS %s
     ON %s (id)
-    WHERE processed_at IS NULL;
+    WHERE processed_at IS NULL AND failed_at IS NULL;
 `, quotedTable, quotedIndex, quotedTable)
 }
 

@@ -3,6 +3,7 @@ package eventstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -40,11 +41,12 @@ type Strategy interface {
 
 // EventStore stores and retrieves events using Postgres as the underlying storage.
 type EventStore struct {
-	db            *sql.DB
-	strategy      Strategy
-	log           estoria.Logger
-	txOpts        *sql.TxOptions
-	appendTxHooks []TransactionHook
+	db                *sql.DB
+	strategy          Strategy
+	log               estoria.Logger
+	txOpts            *sql.TxOptions
+	appendTxHooks     []TransactionHook
+	maxEventDataBytes int
 }
 
 var _ eventstore.StreamReader = (*EventStore)(nil)
@@ -101,6 +103,10 @@ func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
+	if streamID.Type == "" {
+		return nil, fmt.Errorf("stream type is required")
+	}
+
 	s.log.Debug("reading events from Postgres stream",
 		"stream_id", streamID.String(),
 		"offset", opts.Offset,
@@ -121,15 +127,17 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 	// no rows means the stream doesn't exist
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("preparing stream events results: %w", err)
 		}
-
+		_ = rows.Close()
 		return nil, eventstore.ErrStreamNotFound
 	}
 
 	// calling .Next() advanced the cursor, so scan the first row now
 	first, err := s.strategy.ScanEventRow(rows)
 	if err != nil {
+		_ = rows.Close()
 		return nil, fmt.Errorf("scanning event row: %w", err)
 	}
 
@@ -141,7 +149,23 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (retErr error) {
+	if len(events) == 0 {
+		return nil
+	}
+
+	if streamID.Type == "" {
+		return fmt.Errorf("stream type is required")
+	}
+
+	if s.maxEventDataBytes > 0 {
+		for i, we := range events {
+			if len(we.Data) > s.maxEventDataBytes {
+				return fmt.Errorf("event %d data size %d exceeds maximum of %d bytes", i, len(we.Data), s.maxEventDataBytes)
+			}
+		}
+	}
+
 	s.log.Debug("appending events to Postgres stream", "stream_id", streamID.String(), "events", len(events))
 
 	tx, err := s.db.BeginTx(ctx, s.txOpts)
@@ -150,9 +174,9 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	defer func() {
-		if err != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", err)
+		if retErr != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+				s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", retErr)
 			}
 		}
 	}()
@@ -200,7 +224,13 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 		if _, err := stmt.ExecContext(ctx, s.strategy.AppendStreamExecArgs(fullEvents[i])...); err != nil {
 			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-				return ErrEventExists{EventID: fullEvents[i].ID}
+				// The only unique constraint on the events table is (stream_id, stream_type, stream_offset).
+				// A violation here means a concurrent writer inserted at the same offset.
+				return eventstore.StreamVersionMismatchError{
+					StreamID:        streamID,
+					ExpectedVersion: opts.ExpectVersion,
+					ActualVersion:   currentOffset,
+				}
 			}
 			return fmt.Errorf("executing statement: %w", err)
 		}
@@ -221,19 +251,19 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 // StreamLister is an interface for strategies that support listing streams.
 type StreamLister interface {
-	ListStreams(*sql.DB) ([]strategy.StreamMetadata, error)
+	ListStreams(ctx context.Context, db *sql.DB) ([]strategy.StreamMetadata, error)
 }
 
 // ListStreams returns info for all streams in the event store.
 //
 // Note that not all strategies may support listing streams, in which case an error will be returned.
-func (s *EventStore) ListStreams() ([]strategy.StreamMetadata, error) {
+func (s *EventStore) ListStreams(ctx context.Context) ([]strategy.StreamMetadata, error) {
 	lister, ok := s.strategy.(StreamLister)
 	if !ok {
 		return nil, fmt.Errorf("strategy does not support listing streams")
 	}
 
-	return lister.ListStreams(s.db)
+	return lister.ListStreams(ctx, s.db)
 }
 
 // AllReader is an interface for strategies that support reading all events across all streams.
@@ -255,18 +285,20 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 		return nil, fmt.Errorf("reading all events: %w", err)
 	}
 
-	// no rows means there are no events
+	// no rows means there are no events; return an empty iterator
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("preparing all events results: %w", err)
 		}
-
-		return nil, eventstore.ErrStreamNotFound
+		_ = rows.Close()
+		return emptyStreamIterator{}, nil
 	}
 
 	// calling .Next() advanced the cursor, so scan the first row now
 	first, err := s.strategy.ScanEventRow(rows)
 	if err != nil {
+		_ = rows.Close()
 		return nil, fmt.Errorf("scanning event row: %w", err)
 	}
 

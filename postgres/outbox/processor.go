@@ -17,9 +17,16 @@ var ErrNoItems = errors.New("no unprocessed outbox items")
 
 // ProcessNext claims and processes the next unprocessed outbox item. It uses
 // SELECT FOR UPDATE SKIP LOCKED so that concurrent processors never handle the
-// same item. If there are no unprocessed items, ErrNoItems is returned. If the
-// handler fails the transaction is rolled back and the item remains available
-// for a subsequent call.
+// same item. If there are no unprocessed items, ErrNoItems is returned.
+//
+// On handler failure, the item's retry count and last error are persisted within
+// the same transaction (which is then committed), so the failure is recorded even
+// though the item was not successfully processed. If the retry count reaches the
+// configured maximum, the item is permanently marked as failed and will no longer
+// be selected for processing.
+//
+// ProcessNext is safe to call concurrently; Postgres row-level locking ensures
+// each item is delivered to at most one caller at a time.
 func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 	tx, err := o.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -35,9 +42,9 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 	}()
 
 	query := fmt.Sprintf(
-		`SELECT id, event_id, event_type, stream_id, stream_type, stream_version, timestamp, data, created_at
+		`SELECT id, event_id, event_type, stream_id, stream_type, stream_version, timestamp, data, created_at, retry_count, last_error
 		FROM %s
-		WHERE processed_at IS NULL
+		WHERE processed_at IS NULL AND failed_at IS NULL
 		ORDER BY id ASC
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED`,
@@ -59,9 +66,10 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 		&item.Timestamp,
 		&item.Data,
 		&item.CreatedAt,
+		&item.RetryCount,
+		&item.LastError,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			_ = tx.Rollback()
 			return ErrNoItems
 		}
 		return fmt.Errorf("scanning outbox item: %w", err)
@@ -71,7 +79,46 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 	item.StreamID = typeid.New(streamType, streamUUID)
 
 	if err := o.handler(ctx, &item); err != nil {
-		return fmt.Errorf("handling outbox item %d: %w", item.ID, err)
+		handlerErr := err
+		newRetryCount := item.RetryCount + 1
+		errMsg := handlerErr.Error()
+
+		if o.maxRetries > 0 && newRetryCount > o.maxRetries {
+			// Permanently fail the item — it has exhausted its retry budget.
+			failQuery := fmt.Sprintf(
+				`UPDATE %s SET retry_count = $2, last_error = $3, failed_at = now() WHERE id = $1`,
+				pq.QuoteIdentifier(o.tableName),
+			)
+			if _, execErr := tx.ExecContext(ctx, failQuery, item.ID, newRetryCount, errMsg); execErr != nil {
+				o.log.Error("marking outbox item as failed", "error", execErr)
+				return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
+			}
+			o.log.Error("outbox item permanently failed",
+				"item_id", item.ID,
+				"retry_count", newRetryCount,
+				"max_retries", o.maxRetries,
+				"error", errMsg,
+			)
+		} else {
+			// Increment the retry count and record the error so the next poll picks it up.
+			retryQuery := fmt.Sprintf(
+				`UPDATE %s SET retry_count = $2, last_error = $3 WHERE id = $1`,
+				pq.QuoteIdentifier(o.tableName),
+			)
+			if _, execErr := tx.ExecContext(ctx, retryQuery, item.ID, newRetryCount, errMsg); execErr != nil {
+				o.log.Error("updating retry count", "error", execErr)
+				return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
+			}
+		}
+
+		// Commit the retry/fail update. The deferred rollback will see sql.ErrTxDone
+		// (which is filtered) because the transaction is already done after this commit.
+		if commitErr := tx.Commit(); commitErr != nil {
+			o.log.Error("committing retry update", "error", commitErr)
+			return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
+		}
+
+		return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
 	}
 
 	updateQuery := fmt.Sprintf(
@@ -94,7 +141,14 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 // calling ProcessNext repeatedly until ErrNoItems is returned. If the handler returns
 // an error, the failing item remains unprocessed and the processor waits for the next
 // tick before retrying. The loop runs until the context is canceled.
+//
+// Run returns an error if it is called while another Run is already active on the same Outbox.
 func (o *Outbox) Run(ctx context.Context) error {
+	if !o.running.CompareAndSwap(false, true) {
+		return fmt.Errorf("outbox processor is already running")
+	}
+	defer o.running.Store(false)
+
 	o.log.Info("outbox processor starting", "poll_interval", o.pollInterval)
 
 	ticker := time.NewTicker(o.pollInterval)

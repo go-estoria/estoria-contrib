@@ -60,3 +60,16 @@ func WithTxOptions(opts *sql.TxOptions) EventStoreOption {
 		return nil
 	}
 }
+
+// WithMaxEventDataBytes sets the maximum allowed size in bytes for individual event data payloads.
+// Events exceeding this limit will be rejected during AppendStream.
+// The default is 0 (no limit).
+func WithMaxEventDataBytes(n int) EventStoreOption {
+	return func(s *EventStore) error {
+		if n < 0 {
+			return errors.New("max event data bytes must be non-negative")
+		}
+		s.maxEventDataBytes = n
+		return nil
+	}
+}

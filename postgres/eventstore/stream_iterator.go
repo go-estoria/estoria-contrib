@@ -3,7 +3,6 @@ package eventstore
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/go-estoria/estoria/eventstore"
@@ -13,9 +12,16 @@ type streamIterator struct {
 	strategy Strategy
 	rows     *sql.Rows
 	first    *eventstore.Event
+	closed   bool
 }
 
+// Next returns the next event from the iterator.
+// ctx is accepted for interface compatibility but is not used by this implementation.
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
+	if i.closed {
+		return nil, eventstore.ErrStreamIteratorClosed
+	}
+
 	if i.first != nil {
 		event := i.first
 		i.first = nil
@@ -23,13 +29,10 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	}
 
 	if !i.rows.Next() {
+		if err := i.rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterating rows: %w", err)
+		}
 		return nil, eventstore.ErrEndOfEventStream
-	}
-
-	if err := i.rows.Err(); errors.Is(err, sql.ErrNoRows) {
-		return nil, eventstore.ErrEndOfEventStream
-	} else if err != nil {
-		return nil, fmt.Errorf("iterating rows: %w", err)
 	}
 
 	event, err := i.strategy.ScanEventRow(i.rows)
@@ -41,5 +44,17 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 }
 
 func (i *streamIterator) Close(_ context.Context) error {
+	i.closed = true
 	return i.rows.Close()
+}
+
+// emptyStreamIterator is a StreamIterator that immediately returns ErrEndOfEventStream.
+type emptyStreamIterator struct{}
+
+func (emptyStreamIterator) Next(_ context.Context) (*eventstore.Event, error) {
+	return nil, eventstore.ErrEndOfEventStream
+}
+
+func (emptyStreamIterator) Close(_ context.Context) error {
+	return nil
 }

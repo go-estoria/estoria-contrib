@@ -28,4 +28,13 @@ type Item struct {
 
 	// CreatedAt is when the outbox item was created.
 	CreatedAt time.Time
+
+	// RetryCount is the number of times processing this item has been attempted and failed.
+	RetryCount int
+
+	// LastError is the error message from the most recent failed processing attempt.
+	LastError *string
+
+	// FailedAt is set when the item has been permanently failed after exceeding the retry limit.
+	FailedAt *time.Time
 }

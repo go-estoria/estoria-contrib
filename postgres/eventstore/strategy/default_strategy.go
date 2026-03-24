@@ -18,6 +18,15 @@ const (
 	defaultStreamsTableName = "stream"
 )
 
+// tableNameRE is the pre-compiled regex used to validate SQL table identifiers.
+var tableNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
+
+// directionSQL maps read direction values to their SQL ORDER BY keywords.
+var directionSQL = map[eventstore.ReadStreamDirection]string{
+	eventstore.Forward: "ASC",
+	eventstore.Reverse: "DESC",
+}
+
 // DefaultStrategy is a strategy that stores all events in a single database table,
 // with a separate table for storing stream metadata.
 //
@@ -36,13 +45,9 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 	}
 
 	for _, opt := range opts {
-		opt(strategy)
-	}
-
-	if err := validateTableName(strategy.eventsTableName); err != nil {
-		return nil, fmt.Errorf("invalid events table name: %w", err)
-	} else if err := validateTableName(strategy.streamsTableName); err != nil {
-		return nil, fmt.Errorf("invalid streams table name: %w", err)
+		if err := opt(strategy); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
 	}
 
 	return strategy, nil
@@ -51,9 +56,9 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
 // The query must be designed to expect exactly two parameters: the stream type and the stream ID.
 func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.ReadStreamOptions) (string, []any, error) {
-	direction := "ASC"
-	if opts.Direction == eventstore.Reverse {
-		direction = "DESC"
+	direction, ok := directionSQL[opts.Direction]
+	if !ok {
+		direction = "ASC"
 	}
 
 	offsetClause := ""
@@ -121,32 +126,17 @@ func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error
 // NextHighwaterMark reserves and returns the next highwater mark (stream offset) for the given stream ID.
 // It uses the provided transactional context to ensure atomicity.
 func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.ID, numEvents int) (int64, error) {
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (
-			stream_type,
-			stream_id,
-			last_offset
-		)
-		VALUES ($1, $2, 0)
-		ON CONFLICT (stream_type, stream_id) DO NOTHING`,
-		pq.QuoteIdentifier(s.streamsTableName),
-	), streamID.Type, streamID.UUID); err != nil {
-		return 0, fmt.Errorf("upserting stream metadata: %w", err)
-	}
-
 	var newOffset int64
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		UPDATE %s
-		SET
-			last_offset = last_offset + $3
-		WHERE
-			stream_type = $1
-			AND
-			stream_id = $2
+		INSERT INTO %s (stream_type, stream_id, last_offset)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (stream_type, stream_id)
+		DO UPDATE SET last_offset = %s.last_offset + $3
 		RETURNING last_offset`,
 		pq.QuoteIdentifier(s.streamsTableName),
+		pq.QuoteIdentifier(s.streamsTableName),
 	), streamID.Type, streamID.UUID, numEvents).Scan(&newOffset); err != nil {
-		return 0, fmt.Errorf("bumping last_offset: %w", err)
+		return 0, fmt.Errorf("reserving stream offsets: %w", err)
 	}
 	return newOffset, nil
 }
@@ -180,15 +170,19 @@ func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 	}
 }
 
-// DefaultStrategyOption is a function option that configures a DefaultStrategy.
-type DefaultStrategyOption func(*DefaultStrategy)
+// DefaultStrategyOption is a functional option that configures a DefaultStrategy.
+type DefaultStrategyOption func(*DefaultStrategy) error
 
 // WithEventsTableName sets a custom table name for the table that stores events.
 //
 // The default is "event".
 func WithEventsTableName(name string) DefaultStrategyOption {
-	return func(s *DefaultStrategy) {
+	return func(s *DefaultStrategy) error {
+		if err := validateTableName(name); err != nil {
+			return fmt.Errorf("invalid events table name: %w", err)
+		}
 		s.eventsTableName = name
+		return nil
 	}
 }
 
@@ -196,15 +190,19 @@ func WithEventsTableName(name string) DefaultStrategyOption {
 //
 // The default is "stream".
 func WithStreamsTableName(name string) DefaultStrategyOption {
-	return func(s *DefaultStrategy) {
+	return func(s *DefaultStrategy) error {
+		if err := validateTableName(name); err != nil {
+			return fmt.Errorf("invalid streams table name: %w", err)
+		}
 		s.streamsTableName = name
+		return nil
 	}
 }
 
 // Schema returns the complete SQL schema for the event store.
 func (s *DefaultStrategy) Schema() string {
 	return fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS "%s" (
+		CREATE TABLE IF NOT EXISTS %s (
 			id            bigserial    PRIMARY KEY,
 			stream_id     uuid         NOT NULL,
 			stream_type   varchar(255) NOT NULL,
@@ -214,23 +212,23 @@ func (s *DefaultStrategy) Schema() string {
 			timestamp     timestamptz  NOT NULL,
 			data          jsonb,
 
-			UNIQUE (stream_id, stream_type, stream_offset),
+			CONSTRAINT event_stream_offset_unique UNIQUE (stream_id, stream_type, stream_offset),
 
 			CHECK (stream_offset > 0)
 		);
 
-		CREATE TABLE IF NOT EXISTS "%s" (
+		CREATE TABLE IF NOT EXISTS %s (
 			stream_type   varchar(255) NOT NULL,
 			stream_id     uuid         NOT NULL,
 			last_offset   bigint       NOT NULL DEFAULT 0,
 
 			PRIMARY KEY (stream_type, stream_id)
 		);
-	`, s.eventsTableName, s.streamsTableName)
+	`, pq.QuoteIdentifier(s.eventsTableName), pq.QuoteIdentifier(s.streamsTableName))
 }
 
 // ListStreams returns metadata for all streams in the event store.
-func (s *DefaultStrategy) ListStreams(db *sql.DB) ([]StreamMetadata, error) {
+func (s *DefaultStrategy) ListStreams(ctx context.Context, db *sql.DB) ([]StreamMetadata, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			stream_type,
@@ -239,7 +237,7 @@ func (s *DefaultStrategy) ListStreams(db *sql.DB) ([]StreamMetadata, error) {
 		FROM %s
 	`, pq.QuoteIdentifier(s.streamsTableName))
 
-	rows, err := db.Query(query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("querying streams: %w", err)
 	}
@@ -270,9 +268,9 @@ func (s *DefaultStrategy) ListStreams(db *sql.DB) ([]StreamMetadata, error) {
 
 // ReadAll returns a SQL rows result set for reading all events in the event store.
 func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventstore.ReadStreamOptions) (*sql.Rows, error) {
-	direction := "ASC"
-	if opts.Direction == eventstore.Reverse {
-		direction = "DESC"
+	direction, ok := directionSQL[opts.Direction]
+	if !ok {
+		direction = "ASC"
 	}
 
 	offsetClause := ""
@@ -311,11 +309,8 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventsto
 
 // validateTableName validates that the given table name is a valid SQL identifier.
 func validateTableName(name string) error {
-	if ok, err := regexp.Match(`^[A-Za-z_][A-Za-z0-9_$]{0,62}$`, []byte(name)); err != nil {
-		return fmt.Errorf("matching regex: %w", err)
-	} else if !ok {
+	if !tableNameRE.MatchString(name) {
 		return errors.New("table name must be a valid SQL identifier")
 	}
-
 	return nil
 }

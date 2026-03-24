@@ -58,6 +58,20 @@ func WithLogger(logger estoria.Logger) Option {
 	}
 }
 
+// WithMaxRetries sets the maximum number of times a failing outbox item will be retried
+// before being marked as permanently failed.
+//
+// The default is 10. Set to 0 to disable the retry limit (items will retry indefinitely).
+func WithMaxRetries(n int) Option {
+	return func(o *Outbox) error {
+		if n < 0 {
+			return errors.New("max retries must be non-negative")
+		}
+		o.maxRetries = n
+		return nil
+	}
+}
+
 // validateTableName validates that the given table name is a valid SQL identifier.
 func validateTableName(name string) error {
 	if !tableNameRE.MatchString(name) {
