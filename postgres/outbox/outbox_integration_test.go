@@ -573,6 +573,421 @@ func TestOutbox_Run(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestOutbox_RetryAndDeadLetter — Tests retry counting and dead-letter behavior
+// ---------------------------------------------------------------------------
+
+func TestOutbox_RetryAndDeadLetter(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	for _, tt := range []struct {
+		name string
+		run  func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy)
+	}{
+		{
+			name: "handler_failure_increments_retry_count",
+			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+				t.Helper()
+
+				// Handler fails on the first call, succeeds on the second.
+				callCount := 0
+				var mu sync.Mutex
+				handler := func(_ context.Context, item *pgoutbox.Item) error {
+					mu.Lock()
+					defer mu.Unlock()
+					callCount++
+					if callCount == 1 {
+						return fmt.Errorf("simulated failure")
+					}
+					return nil
+				}
+
+				ob := newOutbox(t, ctx, db, handler)
+				es := newEventStore(t, ctx, db, strat, ob)
+
+				streamID := typeid.NewV4("mystream")
+				appendEvents(t, ctx, es, streamID, []*eventstore.WritableEvent{
+					{Type: "retryable_event", Data: []byte(`{"x":1}`)},
+				})
+
+				// First call: handler fails; retry count should be committed as 1.
+				if err := ob.ProcessNext(ctx); err == nil {
+					t.Fatal("expected ProcessNext to return error on first handler failure")
+				}
+
+				// Verify retry_count = 1 in the database.
+				var retryCount int
+				var failedAt *time.Time
+				var itemID int64
+				if err := db.QueryRowContext(ctx,
+					`SELECT id, retry_count, failed_at FROM outbox WHERE event_type = 'retryable_event'`,
+				).Scan(&itemID, &retryCount, &failedAt); err != nil {
+					t.Fatalf("querying outbox item after first failure: %v", err)
+				}
+				if retryCount != 1 {
+					t.Errorf("after first failure: retry_count = %d, want 1", retryCount)
+				}
+				if failedAt != nil {
+					t.Errorf("after first failure: failed_at should be nil, got %v", failedAt)
+				}
+
+				// Second call: handler succeeds; item should now be processed.
+				if err := ob.ProcessNext(ctx); err != nil {
+					t.Fatalf("second ProcessNext (handler succeeds): %v", err)
+				}
+
+				// Verify processed_at is now set and retry_count is still 1.
+				var processedAt *time.Time
+				if err := db.QueryRowContext(ctx,
+					`SELECT retry_count, processed_at, failed_at FROM outbox WHERE id = $1`, itemID,
+				).Scan(&retryCount, &processedAt, &failedAt); err != nil {
+					t.Fatalf("querying outbox item after second call: %v", err)
+				}
+				if retryCount != 1 {
+					t.Errorf("after success: retry_count = %d, want 1", retryCount)
+				}
+				if processedAt == nil {
+					t.Error("after success: processed_at should be set, got nil")
+				}
+				if failedAt != nil {
+					t.Errorf("after success: failed_at should be nil, got %v", failedAt)
+				}
+			},
+		},
+		{
+			name: "item_dead_lettered_after_max_retries",
+			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+				t.Helper()
+
+				// Handler always fails.
+				handler := func(_ context.Context, _ *pgoutbox.Item) error {
+					return fmt.Errorf("always fails")
+				}
+
+				const maxRetries = 3
+				ob := newOutbox(t, ctx, db, handler, pgoutbox.WithMaxRetries(maxRetries))
+				es := newEventStore(t, ctx, db, strat, ob)
+
+				streamID := typeid.NewV4("mystream")
+				appendEvents(t, ctx, es, streamID, []*eventstore.WritableEvent{
+					{Type: "doomed_event", Data: []byte(`{}`)},
+				})
+
+				// Call ProcessNext maxRetries times — each should return a handler error.
+				for i := 0; i < maxRetries; i++ {
+					if err := ob.ProcessNext(ctx); err == nil {
+						t.Fatalf("call %d: expected error, got nil", i+1)
+					}
+				}
+
+				// The (maxRetries+1)th call triggers dead-lettering.
+				if err := ob.ProcessNext(ctx); err == nil {
+					t.Fatal("expected error when dead-lettering item, got nil")
+				}
+
+				// Verify failed_at is now set in the database.
+				var failedAt *time.Time
+				var retryCount int
+				if err := db.QueryRowContext(ctx,
+					`SELECT retry_count, failed_at FROM outbox WHERE event_type = 'doomed_event'`,
+				).Scan(&retryCount, &failedAt); err != nil {
+					t.Fatalf("querying outbox item after dead letter: %v", err)
+				}
+				if failedAt == nil {
+					t.Error("expected failed_at to be set after max retries exceeded, got nil")
+				}
+				if retryCount != maxRetries+1 {
+					t.Errorf("retry_count = %d, want %d", retryCount, maxRetries+1)
+				}
+
+				// ProcessNext should now return ErrNoItems because the dead-lettered item is skipped.
+				if err := ob.ProcessNext(ctx); !errors.Is(err, pgoutbox.ErrNoItems) {
+					t.Errorf("expected ErrNoItems after dead-lettered item, got: %v", err)
+				}
+			},
+		},
+		{
+			name: "max_retries_zero_means_infinite",
+			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+				t.Helper()
+
+				// Handler always fails — with maxRetries=0 it should never be dead-lettered.
+				handler := func(_ context.Context, _ *pgoutbox.Item) error {
+					return fmt.Errorf("always fails")
+				}
+
+				ob := newOutbox(t, ctx, db, handler, pgoutbox.WithMaxRetries(0))
+				es := newEventStore(t, ctx, db, strat, ob)
+
+				streamID := typeid.NewV4("mystream")
+				appendEvents(t, ctx, es, streamID, []*eventstore.WritableEvent{
+					{Type: "infinite_retry_event", Data: []byte(`{}`)},
+				})
+
+				const iterations = 20
+				for i := 0; i < iterations; i++ {
+					err := ob.ProcessNext(ctx)
+					if err == nil {
+						t.Fatalf("iteration %d: expected error from always-failing handler, got nil", i+1)
+					}
+					// Must not be ErrNoItems — the item must still be visible.
+					if errors.Is(err, pgoutbox.ErrNoItems) {
+						t.Fatalf("iteration %d: got ErrNoItems, item was unexpectedly dead-lettered", i+1)
+					}
+				}
+
+				// Verify the item is still alive (failed_at IS NULL) with a high retry count.
+				var failedAt *time.Time
+				var retryCount int
+				if err := db.QueryRowContext(ctx,
+					`SELECT retry_count, failed_at FROM outbox WHERE event_type = 'infinite_retry_event'`,
+				).Scan(&retryCount, &failedAt); err != nil {
+					t.Fatalf("querying outbox item: %v", err)
+				}
+				if failedAt != nil {
+					t.Errorf("expected failed_at to remain nil with maxRetries=0, got %v", failedAt)
+				}
+				if retryCount != iterations {
+					t.Errorf("retry_count = %d, want %d", retryCount, iterations)
+				}
+			},
+		},
+		{
+			name: "dead_lettered_items_skipped",
+			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+				t.Helper()
+
+				// Track which event type the handler is called with so we can confirm
+				// event 1 is dead-lettered and event 2 is processed.
+				var mu sync.Mutex
+				processedTypes := make([]string, 0, 2)
+
+				// Handler fails for "event_one", succeeds for "event_two".
+				handler := func(_ context.Context, item *pgoutbox.Item) error {
+					mu.Lock()
+					defer mu.Unlock()
+					if item.EventID.Type == "event_one" {
+						return fmt.Errorf("event_one always fails")
+					}
+					processedTypes = append(processedTypes, item.EventID.Type)
+					return nil
+				}
+
+				const maxRetries = 1
+				ob := newOutbox(t, ctx, db, handler, pgoutbox.WithMaxRetries(maxRetries))
+				es := newEventStore(t, ctx, db, strat, ob)
+
+				streamID := typeid.NewV4("mystream")
+				appendEvents(t, ctx, es, streamID, []*eventstore.WritableEvent{
+					{Type: "event_one", Data: []byte(`{}`)},
+					{Type: "event_two", Data: []byte(`{}`)},
+				})
+
+				// Call 1: event_one handler fails, retry_count becomes 1.
+				if err := ob.ProcessNext(ctx); err == nil {
+					t.Fatal("call 1: expected error for event_one, got nil")
+				}
+
+				// Call 2: event_one retry_count (1) reaches maxRetries (1), so
+				// newRetryCount (2) > maxRetries (1) → dead-lettered.
+				if err := ob.ProcessNext(ctx); err == nil {
+					t.Fatal("call 2: expected error when dead-lettering event_one, got nil")
+				}
+
+				// Call 3: event_one is now skipped; event_two is claimed and processed.
+				if err := ob.ProcessNext(ctx); err != nil {
+					t.Fatalf("call 3: expected event_two to succeed, got: %v", err)
+				}
+
+				// Verify database state.
+				var failedAt *time.Time
+				var processedAt *time.Time
+				var retryCount int
+
+				if err := db.QueryRowContext(ctx,
+					`SELECT retry_count, failed_at FROM outbox WHERE event_type = 'event_one'`,
+				).Scan(&retryCount, &failedAt); err != nil {
+					t.Fatalf("querying event_one: %v", err)
+				}
+				if failedAt == nil {
+					t.Error("event_one: expected failed_at to be set, got nil")
+				}
+
+				if err := db.QueryRowContext(ctx,
+					`SELECT processed_at FROM outbox WHERE event_type = 'event_two'`,
+				).Scan(&processedAt); err != nil {
+					t.Fatalf("querying event_two: %v", err)
+				}
+				if processedAt == nil {
+					t.Error("event_two: expected processed_at to be set, got nil")
+				}
+
+				mu.Lock()
+				defer mu.Unlock()
+				if len(processedTypes) != 1 || processedTypes[0] != "event_two" {
+					t.Errorf("handler processed types = %v, want [event_two]", processedTypes)
+				}
+			},
+		},
+		{
+			name: "retry_count_visible_to_handler",
+			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+				t.Helper()
+
+				// Record the RetryCount the handler sees on each invocation.
+				var mu sync.Mutex
+				seenRetryCounts := make([]int, 0, 3)
+
+				// Handler fails when RetryCount < 2, succeeds otherwise.
+				handler := func(_ context.Context, item *pgoutbox.Item) error {
+					mu.Lock()
+					seenRetryCounts = append(seenRetryCounts, item.RetryCount)
+					shouldFail := item.RetryCount < 2
+					mu.Unlock()
+					if shouldFail {
+						return fmt.Errorf("not enough retries yet (retry_count=%d)", item.RetryCount)
+					}
+					return nil
+				}
+
+				// maxRetries=5 gives plenty of budget so the item won't be dead-lettered.
+				ob := newOutbox(t, ctx, db, handler, pgoutbox.WithMaxRetries(5))
+				es := newEventStore(t, ctx, db, strat, ob)
+
+				streamID := typeid.NewV4("mystream")
+				appendEvents(t, ctx, es, streamID, []*eventstore.WritableEvent{
+					{Type: "counted_event", Data: []byte(`{}`)},
+				})
+
+				// Call 1: handler sees RetryCount=0, fails.
+				if err := ob.ProcessNext(ctx); err == nil {
+					t.Fatal("call 1: expected handler failure, got nil")
+				}
+				// Call 2: handler sees RetryCount=1, fails.
+				if err := ob.ProcessNext(ctx); err == nil {
+					t.Fatal("call 2: expected handler failure, got nil")
+				}
+				// Call 3: handler sees RetryCount=2, succeeds.
+				if err := ob.ProcessNext(ctx); err != nil {
+					t.Fatalf("call 3: expected success, got: %v", err)
+				}
+
+				mu.Lock()
+				defer mu.Unlock()
+
+				if len(seenRetryCounts) != 3 {
+					t.Fatalf("handler was called %d times, want 3", len(seenRetryCounts))
+				}
+				for i, want := range []int{0, 1, 2} {
+					if seenRetryCounts[i] != want {
+						t.Errorf("call %d: handler saw RetryCount=%d, want %d", i+1, seenRetryCounts[i], want)
+					}
+				}
+
+				// The item should now be processed.
+				var processedAt *time.Time
+				if err := db.QueryRowContext(ctx,
+					`SELECT processed_at FROM outbox WHERE event_type = 'counted_event'`,
+				).Scan(&processedAt); err != nil {
+					t.Fatalf("querying outbox item: %v", err)
+				}
+				if processedAt == nil {
+					t.Error("expected processed_at to be set after successful third call, got nil")
+				}
+			},
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+
+			db, err := createPostgresContainer(t, ctx)
+			if err != nil {
+				t.Fatalf("createPostgresContainer: %v", err)
+			}
+
+			strat := must(strategy.NewDefaultStrategy())
+
+			tt.run(t, ctx, db, strat)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestOutbox_RunConcurrency — Tests the Run() concurrency guard
+// ---------------------------------------------------------------------------
+
+func TestOutbox_RunConcurrency(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	t.Run("run_rejects_concurrent_call", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		db, err := createPostgresContainer(t, ctx)
+		if err != nil {
+			t.Fatalf("createPostgresContainer: %v", err)
+		}
+
+		// Use a long poll interval so the first Run() stays alive long enough for
+		// the second call to arrive while running is still true.
+		ob := newOutbox(t, ctx, db,
+			func(_ context.Context, _ *pgoutbox.Item) error { return nil },
+			pgoutbox.WithPollInterval(10*time.Second),
+		)
+
+		firstRunErr := make(chan error, 1)
+		go func() {
+			firstRunErr <- ob.Run(ctx)
+		}()
+
+		// Give the first goroutine time to reach CompareAndSwap and set running=true.
+		// The CompareAndSwap is the very first operation in Run(), so a short sleep
+		// is sufficient on any reasonably loaded machine.
+		time.Sleep(50 * time.Millisecond)
+
+		// Attempt the second concurrent Run() call in its own goroutine so that if
+		// the guard fires it returns immediately rather than blocking the test.
+		secondRunErr := make(chan error, 1)
+		go func() {
+			secondRunErr <- ob.Run(ctx)
+		}()
+
+		select {
+		case err := <-secondRunErr:
+			if err == nil {
+				cancel()
+				t.Fatal("second Run() call succeeded; concurrency guard may not be working")
+			}
+			// Got the expected rejection — cancel the first Run and verify it exits cleanly.
+			cancel()
+			select {
+			case runErr := <-firstRunErr:
+				if runErr != nil {
+					t.Errorf("first Run returned unexpected error: %v", runErr)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("first Run did not stop after context cancellation")
+			}
+		case <-time.After(2 * time.Second):
+			cancel()
+			t.Fatal("second Run() did not return within 2s; concurrency guard may not be working")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // TestOutbox_Options — Tests configuration options
 // ---------------------------------------------------------------------------
 
