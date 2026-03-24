@@ -1,8 +1,6 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.25.1
-
-replace github.com/go-estoria/estoria => ../estoria
+go 1.26.1
 
 require (
 	github.com/DataDog/datadog-go/v5 v5.6.0
