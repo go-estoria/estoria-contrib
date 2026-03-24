@@ -36,12 +36,14 @@ func (m JSONSnapshotMarshaler[E]) Unmarshal(data []byte, snapshot *Snapshot[E]) 
 type Cache[E estoria.Entity] struct {
 	redis     *redis.Client
 	marshaler SnapshotMarshaler[E]
+	ttl       time.Duration
 }
 
 func New[E estoria.Entity](client *redis.Client, opts ...CacheOption[E]) *Cache[E] {
 	aggregateCache := &Cache[E]{
 		redis:     client,
 		marshaler: JSONSnapshotMarshaler[E]{},
+		ttl:       5 * time.Minute,
 	}
 
 	for _, opt := range opts {
@@ -83,7 +85,7 @@ func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.A
 		return fmt.Errorf("marshaling snapshot: %w", err)
 	}
 
-	if err := c.redis.Set(ctx, aggregate.ID().String(), data, time.Second).Err(); err != nil {
+	if err := c.redis.Set(ctx, aggregate.ID().String(), data, c.ttl).Err(); err != nil {
 		return fmt.Errorf("setting data in Redis: %w", err)
 	}
 
@@ -92,8 +94,16 @@ func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.A
 
 type CacheOption[E estoria.Entity] func(*Cache[E])
 
+// WithMarshaler sets the marshaler used to encode and decode aggregate data.
 func WithMarshaler[E estoria.Entity](marshaler SnapshotMarshaler[E]) CacheOption[E] {
 	return func(c *Cache[E]) {
 		c.marshaler = marshaler
+	}
+}
+
+// WithTTL sets the time-to-live for cached aggregates.
+func WithTTL[E estoria.Entity](ttl time.Duration) CacheOption[E] {
+	return func(c *Cache[E]) {
+		c.ttl = ttl
 	}
 }

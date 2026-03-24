@@ -62,7 +62,10 @@ func (s *SingleCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
 ) ([]*mongo.Cursor, error) {
-	cursor, err := s.collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "global_offset"))
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "global_offset")
+	filter := bson.D{}
+	filter = append(filter, versionFilter...)
+	cursor, err := s.collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -76,10 +79,13 @@ func (s *SingleCollectionStrategy) GetStreamCursor(
 	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (*mongo.Cursor, error) {
-	cursor, err := s.collection.Find(ctx, bson.D{
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "offset")
+	filter := bson.D{
 		{Key: "stream_type", Value: streamID.Type},
 		{Key: "stream_id", Value: streamID.UUID.String()},
-	}, findOptsFromReadStreamOptions(opts, "offset"))
+	}
+	filter = append(filter, versionFilter...)
+	cursor, err := s.collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -128,7 +134,7 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamI
 	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
 		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.UUID},
+		{Key: "stream_id", Value: streamID.UUID.String()},
 	}, opts)
 	if result.Err() != nil {
 		if result.Err() == mongo.ErrNoDocuments {

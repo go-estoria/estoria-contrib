@@ -18,13 +18,14 @@ type ObjectMarshaler interface {
 }
 
 type JSONObject struct {
-	StreamID   uuid.UUID `json:"stream_id"`
-	StreamType string    `json:"stream_type"`
-	EventID    uuid.UUID `json:"event_id"`
-	EventType  string    `json:"event_type"`
-	Version    int64     `json:"version"`
-	Timestamp  time.Time `json:"timestamp"`
-	Data       string    `json:"data"`
+	StreamID   uuid.UUID         `json:"stream_id"`
+	StreamType string            `json:"stream_type"`
+	EventID    uuid.UUID         `json:"event_id"`
+	EventType  string            `json:"event_type"`
+	Version    int64             `json:"version"`
+	Timestamp  time.Time         `json:"timestamp"`
+	Data       string            `json:"data"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 type JSONObjectMarshaler struct{}
@@ -38,6 +39,7 @@ func (m JSONObjectMarshaler) MarshalObject(event *eventstore.Event) ([]byte, err
 		Version:    event.StreamVersion,
 		Timestamp:  event.Timestamp,
 		Data:       base64.StdEncoding.EncodeToString(event.Data),
+		Metadata:   event.Metadata,
 	})
 }
 
@@ -54,10 +56,11 @@ func (m JSONObjectMarshaler) UnmarshalObject(src io.ReadCloser) (*eventstore.Eve
 	}
 
 	return &eventstore.Event{
-		StreamID:      typeid.New(obj.EventType, obj.EventID),
+		StreamID:      typeid.New(obj.StreamType, obj.StreamID),
 		ID:            typeid.New(obj.EventType, obj.EventID),
 		StreamVersion: obj.Version,
 		Timestamp:     obj.Timestamp,
 		Data:          data,
+		Metadata:      obj.Metadata,
 	}, nil
 }

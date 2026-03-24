@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,7 +25,7 @@ func (f BucketKeyResolverFunc) ResolveKey(aggregateID typeid.ID, version int64) 
 	return f(aggregateID, version)
 }
 
-func DefaultBuckeyKeyResolver(aggregateID typeid.ID, version int64) string {
+func DefaultBucketKeyResolver(aggregateID typeid.ID, version int64) string {
 	return fmt.Sprintf("%s/%s/%d.json", aggregateID.Type, aggregateID.UUID, version)
 }
 
@@ -52,7 +53,7 @@ func NewSingleBucketStrategy(client *s3.Client, bucket string, opts ...SingleBuc
 	strategy := &SingleBucketStrategy{
 		s3:         client,
 		bucket:     bucket,
-		resolveKey: DefaultBuckeyKeyResolver,
+		resolveKey: DefaultBucketKeyResolver,
 		marshaler:  JSONObjectMarshaler{},
 		log:        estoria.GetLogger().WithGroup("s3eventstore"),
 	}
@@ -80,7 +81,7 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 
 	toVersion := int64(0)
 	if opts.Count > 0 {
-		toVersion = opts.Offset + opts.Count
+		toVersion = opts.AfterVersion + opts.Count
 	}
 
 	return &streamIterator{
@@ -88,8 +89,8 @@ func (s *SingleBucketStrategy) GetStreamIterator(
 		bucket:         s.bucket,
 		paginator:      paginator,
 		s3:             s.s3,
-		fromVersion:    opts.Offset,
-		currentVersion: opts.Offset,
+		fromVersion:    opts.AfterVersion,
+		currentVersion: opts.AfterVersion,
 		toVersion:      toVersion,
 		marshaler:      s.marshaler,
 		log:            s.log,
@@ -107,20 +108,23 @@ func (s *SingleBucketStrategy) InsertStreamEvents(
 		return nil, fmt.Errorf("getting latest version: %w", err)
 	}
 
-	if opts.ExpectVersion > 0 && latestVersion != opts.ExpectVersion {
-		return nil, fmt.Errorf("expected version %d, but stream has version %d", opts.ExpectVersion, latestVersion)
+	if opts.ExpectVersion != nil && latestVersion != *opts.ExpectVersion {
+		return nil, fmt.Errorf("expected version %d, but stream has version %d", *opts.ExpectVersion, latestVersion)
 	}
 
 	now := time.Now()
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
+		// GlobalPosition is nil for S3-backed events because S3 does not provide
+		// a native auto-incrementing global sequence number.
 		fullEvents[i] = &eventstore.Event{
 			ID:            typeid.NewV4(we.Type),
 			StreamID:      streamID,
 			StreamVersion: latestVersion + int64(i) + 1,
 			Timestamp:     now,
 			Data:          we.Data,
+			Metadata:      we.Metadata,
 		}
 
 		data, err := s.marshaler.MarshalObject(fullEvents[i])
@@ -171,7 +175,9 @@ func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID ty
 
 	var latestVersion int64
 	for _, obj := range results.Contents {
-		version, err := strconv.Atoi(*obj.Key)
+		_, file := path.Split(*obj.Key)
+		versionStr, _ := strings.CutSuffix(file, ".json")
+		version, err := strconv.Atoi(versionStr)
 		if err != nil {
 			return 0, fmt.Errorf("parsing version number: %w", err)
 		}
@@ -181,7 +187,7 @@ func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID ty
 		}
 	}
 
-	s.log.Debug("fonud latest version for stream", "stream_id", streamID, "version", latestVersion)
+	s.log.Debug("found latest version for stream", "stream_id", streamID, "version", latestVersion)
 	return latestVersion, nil
 }
 

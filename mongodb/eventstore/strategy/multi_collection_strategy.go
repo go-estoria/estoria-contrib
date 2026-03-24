@@ -25,6 +25,14 @@ import (
 // The MultiCollectionStrategy is useful when the number of events in a single
 // collection becomes too large, and you want to partition events across multiple
 // collections.
+//
+// Known Limitations:
+//
+// Global Offset Concurrency: The global offset counter is computed outside the MongoDB
+// transaction in ExecuteInsertTransaction. This means concurrent writes to different streams
+// may compute the same global offset value, leading to duplicate offsets in the global event
+// sequence. Applications requiring strict global ordering should use SingleCollectionStrategy
+// instead, which computes the global offset atomically within a single-collection transaction.
 type MultiCollectionStrategy struct {
 	mongo    MongoSessionStarter
 	database MongoDatabase
@@ -123,10 +131,14 @@ func (s *MultiCollectionStrategy) GetAllCursor(
 		return nil, fmt.Errorf("listing collection names: %w", err)
 	}
 
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "global_offset")
+	filter := bson.D{}
+	filter = append(filter, versionFilter...)
+
 	cursors := make([]*mongo.Cursor, len(collectionNames))
 	for i, collectionName := range collectionNames {
 		collection := s.database.Collection(collectionName)
-		cursor, err := collection.Find(ctx, bson.D{}, findOptsFromReadStreamOptions(opts, "global_offset"))
+		cursor, err := collection.Find(ctx, filter, findOpts)
 		if err != nil {
 			return nil, fmt.Errorf("finding events in collection %s: %w", collectionName, err)
 		}
@@ -143,11 +155,14 @@ func (s *MultiCollectionStrategy) GetStreamCursor(
 	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (*mongo.Cursor, error) {
-	collection := s.database.Collection(s.selector.CollectionName(streamID))
-	cursor, err := collection.Find(ctx, bson.D{
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "offset")
+	filter := bson.D{
 		{Key: "stream_type", Value: streamID.Type},
 		{Key: "stream_id", Value: streamID.UUID.String()},
-	}, findOptsFromReadStreamOptions(opts, "offset"))
+	}
+	filter = append(filter, versionFilter...)
+	collection := s.database.Collection(s.selector.CollectionName(streamID))
+	cursor, err := collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}

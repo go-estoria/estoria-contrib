@@ -1,6 +1,7 @@
 package eventstore_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -107,12 +108,12 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
-				name: "read stream (offset)",
+				name: "read stream (after_version)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Offset: 2},
+				haveOpts:     eventstore.ReadStreamOptions{AfterVersion: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:],
 			},
 			{
@@ -125,12 +126,12 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   eventsFor(streamIDs[0])[:2],
 			},
 			{
-				name: "read stream (offset,count)",
+				name: "read stream (after_version,count)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Offset: 2, Count: 2},
+				haveOpts:     eventstore.ReadStreamOptions{AfterVersion: 2, Count: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:4],
 			},
 			{
@@ -152,22 +153,22 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   reversed(eventsFor(streamIDs[0])),
 			},
 			{
-				name: "read stream (forward,offset)",
+				name: "read stream (forward,after_version)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2},
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, AfterVersion: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:],
 			},
 			{
-				name: "read stream (reverse,offset)",
+				name: "read stream (reverse,after_version)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2},
-				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:],
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, AfterVersion: 2},
+				wantEvents:   reversed(eventsFor(streamIDs[0])[:2]),
 			},
 			{
 				name: "read stream (forward,count)",
@@ -188,22 +189,22 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				wantEvents:   reversed(eventsFor(streamIDs[0]))[:2],
 			},
 			{
-				name: "read stream (forward,offset,count)",
+				name: "read stream (forward,after_version,count)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, Offset: 2, Count: 2},
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Forward, AfterVersion: 2, Count: 2},
 				wantEvents:   eventsFor(streamIDs[0])[2:4],
 			},
 			{
-				name: "read stream (reverse,offset,count)",
+				name: "read stream (reverse,after_version,count)",
 				withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 					streamIDs[0]: writableEvents,
 				},
 				haveStreamID: streamIDs[0],
-				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, Offset: 2, Count: 2},
-				wantEvents:   reversed(eventsFor(streamIDs[0]))[2:4],
+				haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, AfterVersion: 2, Count: 2},
+				wantEvents:   reversed(eventsFor(streamIDs[0])[:2]),
 			},
 		} {
 			t.Run(tStrat.name+"_"+tStrat.desc+"_"+tt.name, func(t *testing.T) {
@@ -299,6 +300,287 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestEventStore_Integration_ProductionReadiness tests production-readiness behaviors introduced
+// by recent fixes, including guard conditions, iterator state, and constraint handling.
+func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	// newStore is a helper that spins up a fresh Postgres container, applies the schema,
+	// and returns a ready-to-use *EventStore backed by the default strategy.
+	newStore := func(t *testing.T, opts ...pgeventstore.EventStoreOption) *pgeventstore.EventStore {
+		t.Helper()
+
+		db, err := createPostgresContainer(t, t.Context())
+		if err != nil {
+			t.Fatalf("failed to create Postgres container: %v", err)
+		}
+
+		strat := must(strategy.NewDefaultStrategy())
+		if _, err := db.ExecContext(t.Context(), strat.Schema()); err != nil {
+			t.Fatalf("failed to create DB schema: %v", err)
+		}
+
+		baseOpts := []pgeventstore.EventStoreOption{pgeventstore.WithStrategy(strat)}
+		baseOpts = append(baseOpts, opts...)
+
+		es, err := pgeventstore.New(db, baseOpts...)
+		if err != nil {
+			t.Fatalf("failed to create event store: %v", err)
+		}
+
+		return es
+	}
+
+	// B4: AppendStream with an empty events slice must be a no-op and must not create the stream.
+	t.Run("append_empty_events_is_noop", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		streamID := typeid.NewV4("test")
+
+		err := es.AppendStream(t.Context(), streamID, []*eventstore.WritableEvent{}, eventstore.AppendStreamOptions{})
+		if err != nil {
+			t.Fatalf("AppendStream with empty slice returned unexpected error: %v", err)
+		}
+
+		// The stream must not have been created; a subsequent read should return ErrStreamNotFound.
+		_, err = es.ReadStream(t.Context(), streamID, eventstore.ReadStreamOptions{})
+		if !errors.Is(err, eventstore.ErrStreamNotFound) {
+			t.Errorf("expected ErrStreamNotFound after no-op append, got: %v", err)
+		}
+	})
+
+	// H1: Calling Next() on a closed iterator must return ErrStreamIteratorClosed.
+	t.Run("next_after_close_returns_iterator_closed", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		streamID := typeid.NewV4("test")
+
+		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:1], eventstore.AppendStreamOptions{}); err != nil {
+			t.Fatalf("AppendStream failed: %v", err)
+		}
+
+		iter, err := es.ReadStream(t.Context(), streamID, eventstore.ReadStreamOptions{})
+		if err != nil {
+			t.Fatalf("ReadStream failed: %v", err)
+		}
+
+		if err := iter.Close(t.Context()); err != nil {
+			t.Fatalf("Close failed: %v", err)
+		}
+
+		_, err = iter.Next(t.Context())
+		if !errors.Is(err, eventstore.ErrStreamIteratorClosed) {
+			t.Errorf("expected ErrStreamIteratorClosed after Close(), got: %v", err)
+		}
+	})
+
+	// B5: ReadAll on an empty store must return a non-nil iterator whose first Next() call
+	// returns ErrEndOfEventStream.
+	t.Run("read_all_empty_store_returns_empty_iterator", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+
+		iter, err := es.ReadAll(t.Context(), eventstore.ReadStreamOptions{})
+		if err != nil {
+			t.Fatalf("ReadAll on empty store returned unexpected error: %v", err)
+		}
+		if iter == nil {
+			t.Fatal("ReadAll on empty store returned nil iterator")
+		}
+
+		_, err = iter.Next(t.Context())
+		if !errors.Is(err, eventstore.ErrEndOfEventStream) {
+			t.Errorf("expected ErrEndOfEventStream from empty iterator, got: %v", err)
+		}
+	})
+
+	// M6: AppendStream and ReadStream with an empty stream type must return an error.
+	t.Run("append_with_empty_stream_type_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		emptyTypeID := typeid.New("", typeid.NewV4("ignored").UUID)
+
+		err := es.AppendStream(t.Context(), emptyTypeID, writableEvents[0:1], eventstore.AppendStreamOptions{})
+		if err == nil {
+			t.Fatal("AppendStream with empty stream type returned nil error, expected an error")
+		}
+		const wantSubstr = "stream type is required"
+		if !containsSubstring(err.Error(), wantSubstr) {
+			t.Errorf("expected error to contain %q, got: %v", wantSubstr, err)
+		}
+	})
+
+	t.Run("read_with_empty_stream_type_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		emptyTypeID := typeid.New("", typeid.NewV4("ignored").UUID)
+
+		_, err := es.ReadStream(t.Context(), emptyTypeID, eventstore.ReadStreamOptions{})
+		if err == nil {
+			t.Fatal("ReadStream with empty stream type returned nil error, expected an error")
+		}
+		const wantSubstr = "stream type is required"
+		if !containsSubstring(err.Error(), wantSubstr) {
+			t.Errorf("expected error to contain %q, got: %v", wantSubstr, err)
+		}
+	})
+
+	// M7: AppendStream must reject events whose data exceeds WithMaxEventDataBytes.
+	t.Run("append_exceeding_max_data_bytes_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		const limit = 100
+		es := newStore(t, pgeventstore.WithMaxEventDataBytes(limit))
+		streamID := typeid.NewV4("test")
+
+		// Build a payload that clearly exceeds the limit.
+		largeData := make([]byte, limit+1)
+		for i := range largeData {
+			largeData[i] = 'x'
+		}
+
+		oversizedEvent := []*eventstore.WritableEvent{{Type: "event", Data: largeData}}
+		err := es.AppendStream(t.Context(), streamID, oversizedEvent, eventstore.AppendStreamOptions{})
+		if err == nil {
+			t.Fatal("AppendStream with oversized data returned nil error, expected an error")
+		}
+
+		// A correctly-sized event on the same stream must still succeed.
+		smallData := []byte(`{"key":"value"}`)
+		smallEvent := []*eventstore.WritableEvent{{Type: "event", Data: smallData}}
+		if err := es.AppendStream(t.Context(), streamID, smallEvent, eventstore.AppendStreamOptions{}); err != nil {
+			t.Errorf("AppendStream with data within limit returned unexpected error: %v", err)
+		}
+	})
+
+	// M3: ListStreams called with a cancelled context must return an error.
+	t.Run("list_streams_with_cancelled_context", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		streamID := typeid.NewV4("test")
+
+		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:1], eventstore.AppendStreamOptions{}); err != nil {
+			t.Fatalf("AppendStream failed: %v", err)
+		}
+
+		cancelledCtx, cancel := context.WithCancel(t.Context())
+		cancel() // cancel immediately
+
+		_, err := es.ListStreams(cancelledCtx)
+		if err == nil {
+			t.Fatal("ListStreams with cancelled context returned nil error, expected an error")
+		}
+	})
+
+	// H2: A version-mismatch detected via the pre-insert version check must surface as
+	// StreamVersionMismatchError.
+	t.Run("constraint_violation_returns_version_mismatch", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		streamID := typeid.NewV4("test")
+
+		// Append two events so the stream is at version 2.
+		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:2], eventstore.AppendStreamOptions{}); err != nil {
+			t.Fatalf("initial AppendStream failed: %v", err)
+		}
+
+		// Append with a wrong expected version (1 instead of 2).
+		err := es.AppendStream(t.Context(), streamID, writableEvents[2:3], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
+		if err == nil {
+			t.Fatal("AppendStream with wrong ExpectVersion returned nil error, expected StreamVersionMismatchError")
+		}
+
+		var mismatch eventstore.StreamVersionMismatchError
+		if !errors.As(err, &mismatch) {
+			t.Errorf("expected StreamVersionMismatchError, got: %T: %v", err, err)
+		}
+	})
+
+	// B1: A failed append (version mismatch) must not corrupt the stream; a subsequent
+	// correctly-versioned append must succeed and produce the right sequence of events.
+	t.Run("version_mismatch_does_not_corrupt_stream", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		streamID := typeid.NewV4("test")
+
+		// Append 3 events; stream is now at version 3.
+		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:3], eventstore.AppendStreamOptions{}); err != nil {
+			t.Fatalf("initial AppendStream failed: %v", err)
+		}
+
+		// Attempt to append with a stale expected version (1 instead of 3); must fail.
+		err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
+		if err == nil {
+			t.Fatal("AppendStream with wrong ExpectVersion returned nil error, expected an error")
+		}
+		var mismatch eventstore.StreamVersionMismatchError
+		if !errors.As(err, &mismatch) {
+			t.Errorf("expected StreamVersionMismatchError from stale append, got: %T: %v", err, err)
+		}
+
+		// Retry with the correct expected version; must succeed.
+		if err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(3)}); err != nil {
+			t.Fatalf("corrected AppendStream failed after previous mismatch: %v", err)
+		}
+
+		// Read back all events and verify the stream is intact with exactly 4 events.
+		iter, err := es.ReadStream(t.Context(), streamID, eventstore.ReadStreamOptions{})
+		if err != nil {
+			t.Fatalf("ReadStream failed: %v", err)
+		}
+
+		var gotEvents []*eventstore.Event
+		for {
+			ev, err := iter.Next(t.Context())
+			if errors.Is(err, eventstore.ErrEndOfEventStream) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("unexpected error during iteration: %v", err)
+			}
+			gotEvents = append(gotEvents, ev)
+		}
+
+		const wantCount = 4
+		if len(gotEvents) != wantCount {
+			t.Errorf("expected %d events after corruption check, got %d", wantCount, len(gotEvents))
+		}
+
+		for i, ev := range gotEvents {
+			wantVersion := int64(i + 1)
+			if ev.StreamVersion != wantVersion {
+				t.Errorf("event %d: expected StreamVersion %d, got %d", i, wantVersion, ev.StreamVersion)
+			}
+		}
+	})
+}
+
+// containsSubstring reports whether s contains substr.
+// This is a simple helper to avoid importing strings just for Contains.
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+			return false
+		}())
 }
 
 // TestEventStore_Integration_AppendStream tests appending events to a stream
@@ -400,7 +682,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				},
 				haveStreamID: streamIDs[0],
 				haveEvents:   writableEvents[2:],
-				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 2},
+				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(2)},
 				wantEvents:   eventsFor(streamIDs[0]),
 			},
 			{
@@ -410,7 +692,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				},
 				haveStreamID: streamIDs[0],
 				haveEvents:   writableEvents[2:],
-				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: 1},
+				haveOpts:     eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)},
 				wantErr:      eventstore.StreamVersionMismatchError{StreamID: streamIDs[0], ExpectedVersion: 1, ActualVersion: 2},
 			},
 		} {

@@ -56,7 +56,7 @@ func (i *streamIterator) scanEventRecord() (*eventstore.Event, error) {
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil, eventstore.ErrEndOfEventStream
-		} else if kdbErr, ok := kurrentdb.FromError(err); !ok {
+		} else if kdbErr, ok := kurrentdb.FromError(err); ok {
 			switch kdbErr.Code() {
 			case kurrentdb.ErrorCodeResourceNotFound:
 				return nil, eventstore.ErrStreamNotFound

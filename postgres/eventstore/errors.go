@@ -1,17 +1,8 @@
 package eventstore
 
-import (
-	"fmt"
+import "github.com/go-estoria/estoria/eventstore"
 
-	"github.com/go-estoria/estoria/typeid"
-)
-
-// ErrEventExists is returned when attempting to write an event that already exists.
-type ErrEventExists struct {
-	EventID typeid.ID
-}
-
-// Error returns the error message.
-func (e ErrEventExists) Error() string {
-	return fmt.Sprintf("event exists: %s", e.EventID)
-}
+// EventExistsError is an alias for the core eventstore.EventExistsError type.
+//
+// Deprecated: Use eventstore.EventExistsError directly.
+type EventExistsError = eventstore.EventExistsError

@@ -53,7 +53,7 @@ func DefaultTransactionOptions() *options.TransactionOptionsBuilder {
 	return options.Transaction().SetReadPreference(readpref.Primary())
 }
 
-func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) options.Lister[options.FindOptions] {
+func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) (options.Lister[options.FindOptions], bson.D) {
 	findOpts := options.Find()
 	if opts.Direction == eventstore.Reverse {
 		findOpts.SetSort(bson.D{{Key: offsetKey, Value: -1}})
@@ -61,15 +61,20 @@ func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey 
 		findOpts.SetSort(bson.D{{Key: offsetKey, Value: 1}})
 	}
 
-	if opts.Offset > 0 {
-		findOpts.SetSkip(opts.Offset)
-	}
-
 	if opts.Count > 0 {
 		findOpts.SetLimit(opts.Count)
 	}
 
-	return findOpts
+	var versionFilter bson.D
+	if opts.AfterVersion > 0 {
+		if opts.Direction == eventstore.Reverse {
+			versionFilter = bson.D{{Key: offsetKey, Value: bson.D{{Key: "$lte", Value: opts.AfterVersion}}}}
+		} else {
+			versionFilter = bson.D{{Key: offsetKey, Value: bson.D{{Key: "$gt", Value: opts.AfterVersion}}}}
+		}
+	}
+
+	return findOpts, versionFilter
 }
 
 func getListStreamsCursor(ctx context.Context, collection MongoCollection) (*mongo.Cursor, error) {

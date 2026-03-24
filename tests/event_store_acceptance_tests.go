@@ -1,7 +1,9 @@
 package tests
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/go-estoria/estoria/eventstore"
@@ -17,7 +19,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	for i := range 10 {
 		appendedEvents = append(appendedEvents, &eventstore.WritableEvent{
 			Type: "eventtype",
-			Data: fmt.Appendf(nil, "event data %d", i+1),
+			Data: fmt.Appendf(nil, `{"index":%d}`, i+1),
 		})
 	}
 
@@ -54,10 +56,26 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 			return fmt.Errorf("expected stream version %d, got %d", i+1, readEvent.StreamVersion)
 		}
 
-		if string(readEvent.Data) != string(appendedEvents[i].Data) {
+		// Use semantic JSON comparison so that storage backends that normalize JSON
+		// (e.g. Postgres jsonb) don't cause spurious failures.
+		if eq, err := jsonEqual(readEvent.Data, appendedEvents[i].Data); err != nil {
+			return fmt.Errorf("comparing event data: %w", err)
+		} else if !eq {
 			return fmt.Errorf("expected event data %s, got %s", string(appendedEvents[i].Data), string(readEvent.Data))
 		}
 	}
 
 	return nil
+}
+
+// jsonEqual reports whether a and b are semantically equivalent JSON documents.
+func jsonEqual(a, b []byte) (bool, error) {
+	var va, vb any
+	if err := json.Unmarshal(a, &va); err != nil {
+		return false, fmt.Errorf("unmarshaling first value: %w", err)
+	}
+	if err := json.Unmarshal(b, &vb); err != nil {
+		return false, fmt.Errorf("unmarshaling second value: %w", err)
+	}
+	return reflect.DeepEqual(va, vb), nil
 }

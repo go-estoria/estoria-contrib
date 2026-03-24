@@ -184,7 +184,7 @@ func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
 // ReadAll returns an iterator for reading all events in the event store.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from MongoDB event store",
-		"offset", opts.Offset,
+		"after_version", opts.AfterVersion,
 		"count", opts.Count,
 		"direction", opts.Direction,
 	)
@@ -218,7 +218,7 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from MongoDB stream",
 		"stream_id", streamID.String(),
-		"offset", opts.Offset,
+		"after_version", opts.AfterVersion,
 		"count", opts.Count,
 		"direction", opts.Direction,
 	)
@@ -242,10 +242,26 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 		"expected_version", opts.ExpectVersion,
 	)
 
+	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
+		return fmt.Errorf("ExpectVersion and StreamMustNotExist are mutually exclusive")
+	}
+
 	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID,
 		func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
-			if opts.ExpectVersion > 0 && offset != opts.ExpectVersion {
-				return nil, fmt.Errorf("expected offset %d, but stream has offset %d", opts.ExpectVersion, offset)
+			if opts.StreamMustNotExist && offset > 0 {
+				return nil, eventstore.StreamVersionMismatchError{
+					StreamID:        streamID,
+					ExpectedVersion: 0,
+					ActualVersion:   offset,
+				}
+			}
+
+			if opts.ExpectVersion != nil && offset != *opts.ExpectVersion {
+				return nil, eventstore.StreamVersionMismatchError{
+					StreamID:        streamID,
+					ExpectedVersion: *opts.ExpectVersion,
+					ActualVersion:   offset,
+				}
 			}
 
 			now := time.Now().UTC()
@@ -260,6 +276,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 						StreamVersion: offset + int64(i) + 1,
 						Timestamp:     now,
 						Data:          we.Data,
+						Metadata:      we.Metadata,
 					},
 					GlobalOffset: globalOffset + int64(i) + 1,
 				}

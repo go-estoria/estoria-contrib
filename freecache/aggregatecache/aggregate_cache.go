@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/coocood/freecache"
 	"github.com/go-estoria/estoria"
@@ -38,14 +39,16 @@ func (m JSONSnapshotMarshaler[E]) Unmarshal(data []byte, snapshot *Snapshot[E]) 
 }
 
 type Cache[E estoria.Entity] struct {
-	cache     FreeCache
-	marshaler SnapshotMarshaler[E]
+	cache      FreeCache
+	marshaler  SnapshotMarshaler[E]
+	ttlSeconds int
 }
 
 func New[E estoria.Entity](cache FreeCache, opts ...CacheOption[E]) *Cache[E] {
 	aggregateCache := &Cache[E]{
-		cache:     cache,
-		marshaler: JSONSnapshotMarshaler[E]{},
+		cache:      cache,
+		marshaler:  JSONSnapshotMarshaler[E]{},
+		ttlSeconds: 300,
 	}
 
 	for _, opt := range opts {
@@ -80,7 +83,7 @@ func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.A
 		return fmt.Errorf("marshaling snapshot: %w", err)
 	}
 
-	if err := c.cache.Set([]byte(aggregate.ID().String()), data, 1); err != nil {
+	if err := c.cache.Set([]byte(aggregate.ID().String()), data, c.ttlSeconds); err != nil {
 		return fmt.Errorf("setting data in cache: %w", err)
 	}
 
@@ -89,8 +92,16 @@ func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.A
 
 type CacheOption[E estoria.Entity] func(*Cache[E])
 
+// WithMarshaler sets the marshaler used to encode and decode aggregate data.
 func WithMarshaler[E estoria.Entity](marshaler SnapshotMarshaler[E]) CacheOption[E] {
 	return func(c *Cache[E]) {
 		c.marshaler = marshaler
+	}
+}
+
+// WithTTL sets the time-to-live for cached aggregates.
+func WithTTL[E estoria.Entity](ttl time.Duration) CacheOption[E] {
+	return func(c *Cache[E]) {
+		c.ttlSeconds = int(ttl.Seconds())
 	}
 }
