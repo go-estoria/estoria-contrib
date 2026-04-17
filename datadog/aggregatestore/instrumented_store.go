@@ -8,7 +8,7 @@ import (
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/gofrs/uuid/v5"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 // An InstrumentedStore wraps an aggregate store for DataDog instrumentation.

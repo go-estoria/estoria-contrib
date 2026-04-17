@@ -8,7 +8,7 @@ import (
 	"github.com/DataDog/datadog-go/v5/statsd"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 // An InstrumentedStore wraps an event store for Datadog instrumentation.
