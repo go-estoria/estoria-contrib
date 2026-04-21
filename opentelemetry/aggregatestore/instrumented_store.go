@@ -95,14 +95,13 @@ func (s *InstrumentedStore[E]) New(id uuid.UUID) *aggregatestore.Aggregate[E] {
 
 // Load loads an aggregate by ID while capturing telemetry.
 func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[E], e error) {
-	if opts == nil {
-		opts = &aggregatestore.LoadOptions{}
-	}
-
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Load", trace.WithAttributes(
 		attribute.String("aggregate.uuid", id.String()),
-		attribute.Int64("load_options.to_version", opts.ToVersion)),
-	)
+	))
+
+	if opts != nil {
+		span.SetAttributes(attribute.Int64("load_options.to_version", opts.ToVersion))
+	}
 
 	defer func() {
 		span.RecordError(e)
@@ -122,7 +121,6 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Hydrate", trace.WithAttributes(
 		attribute.String("aggregate.id", aggregate.ID().String()),
 		attribute.Int64("aggregate.version", aggregate.Version()),
-		attribute.Int64("hydrate_options.to_version", opts.ToVersion),
 	))
 	defer func() {
 		span.RecordError(e)
@@ -133,6 +131,10 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 		s.hydrateCounter.Add(ctx, 1)
 		span.End()
 	}()
+
+	if opts != nil {
+		span.SetAttributes(attribute.Int64("hydrate_options.to_version", opts.ToVersion))
+	}
 
 	return s.inner.Hydrate(ctx, aggregate, opts)
 }

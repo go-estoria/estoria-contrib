@@ -1,6 +1,6 @@
 module github.com/go-estoria/estoria-contrib
 
-go 1.26.1
+go 1.26.2
 
 require (
 	github.com/DataDog/datadog-go/v5 v5.8.3
@@ -24,6 +24,8 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.0.0
 	go.opentelemetry.io/otel v1.41.0
 	go.opentelemetry.io/otel/metric v1.41.0
+	go.opentelemetry.io/otel/sdk v1.40.0
+	go.opentelemetry.io/otel/sdk/metric v1.40.0
 	go.opentelemetry.io/otel/trace v1.41.0
 )
 
