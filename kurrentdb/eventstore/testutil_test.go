@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"slices"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
 	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -45,11 +46,19 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 	}
 
 	portStr := fmt.Sprint(portNum)
-	port := nat.Port(portStr + "/tcp")
+	port, err := network.ParsePort(portStr + "/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("parsing port: %w", err)
+	}
+
+	hostIP, err := netip.ParseAddr("0.0.0.0")
+	if err != nil {
+		return nil, fmt.Errorf("parsing host IP: %w", err)
+	}
 
 	req := testcontainers.ContainerRequest{
 		Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:latest",
-		ExposedPorts: []string{string(port)},
+		ExposedPorts: []string{port.String()},
 		Env: map[string]string{
 			"KURRENTDB_CLUSTER_SIZE":               "1",
 			"KURRENTDB_RUN_PROJECTIONS":            "All",
@@ -60,8 +69,8 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 		},
 		// bind host port -> container port so the node's advertised port is reachable
 		HostConfigModifier: func(hc *container.HostConfig) {
-			hc.PortBindings = nat.PortMap{
-				port: []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: portStr}},
+			hc.PortBindings = network.PortMap{
+				port: []network.PortBinding{{HostIP: hostIP, HostPort: portStr}},
 			}
 		},
 		WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)"),
@@ -85,7 +94,7 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 	if err != nil {
 		return nil, fmt.Errorf("get host: %w", err)
 	}
-	mapped, err := c.MappedPort(ctx, port)
+	mapped, err := c.MappedPort(ctx, port.String())
 	if err != nil {
 		return nil, fmt.Errorf("get mapped port: %w", err)
 	}

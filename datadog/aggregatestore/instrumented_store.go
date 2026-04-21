@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/gofrs/uuid/v5"
-	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 // An InstrumentedStore wraps an aggregate store for DataDog instrumentation.
@@ -74,7 +74,10 @@ func (s *InstrumentedStore[E]) New(id uuid.UUID) *aggregatestore.Aggregate[E] {
 func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[E], e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".Load")
 	span.SetTag("aggregate.id", id.String())
-	span.SetTag("load_options.to_version", opts.ToVersion)
+
+	if opts != nil {
+		span.SetTag("load_options.to_version", opts.ToVersion)
+	}
 
 	defer func() {
 		s.meter.Incr(s.metricNamespace+".load", nil, 1)
@@ -89,7 +92,10 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".Hydrate")
 	span.SetTag("aggregate.id", aggregate.ID().String())
 	span.SetTag("aggregate.version", aggregate.Version())
-	span.SetTag("hydrate_options.to_version", opts.ToVersion)
+
+	if opts != nil {
+		span.SetTag("hydrate_options.to_version", opts.ToVersion)
+	}
 
 	defer func() {
 		s.meter.Incr(s.metricNamespace+".hydrate", nil, 1)
