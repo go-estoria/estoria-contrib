@@ -2,7 +2,6 @@ package outbox_test
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -14,6 +13,8 @@ import (
 	pgoutbox "github.com/go-estoria/estoria-contrib/postgres/outbox"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
+	"github.com/gofrs/uuid/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // collectingHandler returns an ItemHandler that appends each received item to a shared slice.
@@ -38,9 +39,9 @@ func appendEvents(t *testing.T, ctx context.Context, es *pgeventstore.EventStore
 
 // newEventStore is a helper that creates an event store with the given strategy and hooks,
 // creating the DB schema and fataling the test on error.
-func newEventStore(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy, hooks ...pgeventstore.TransactionHook) *pgeventstore.EventStore {
+func newEventStore(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy, hooks ...pgeventstore.TransactionHook) *pgeventstore.EventStore {
 	t.Helper()
-	if _, err := db.ExecContext(ctx, strat.Schema()); err != nil {
+	if _, err := db.Exec(ctx, strat.Schema()); err != nil {
 		t.Fatalf("creating event store schema: %v", err)
 	}
 	opts := []pgeventstore.EventStoreOption{pgeventstore.WithStrategy(strat)}
@@ -56,13 +57,13 @@ func newEventStore(t *testing.T, ctx context.Context, db *sql.DB, strat pgevents
 
 // newOutbox is a helper that creates an outbox with the given handler and options,
 // creating the DB schema and fataling the test on error.
-func newOutbox(t *testing.T, ctx context.Context, db *sql.DB, handler pgoutbox.ItemHandler, opts ...pgoutbox.Option) *pgoutbox.Outbox {
+func newOutbox(t *testing.T, ctx context.Context, db *pgxpool.Pool, handler pgoutbox.ItemHandler, opts ...pgoutbox.Option) *pgoutbox.Outbox {
 	t.Helper()
 	ob, err := pgoutbox.New(db, handler, opts...)
 	if err != nil {
 		t.Fatalf("creating outbox: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, ob.Schema()); err != nil {
+	if _, err := db.Exec(ctx, ob.Schema()); err != nil {
 		t.Fatalf("creating outbox schema: %v", err)
 	}
 	return ob
@@ -123,7 +124,7 @@ func TestOutbox_HandleEvents(t *testing.T) {
 			}
 
 			strat := must(strategy.NewDefaultStrategy())
-			if _, err := db.ExecContext(ctx, strat.Schema()); err != nil {
+			if _, err := db.Exec(ctx, strat.Schema()); err != nil {
 				t.Fatalf("creating event store schema: %v", err)
 			}
 
@@ -136,7 +137,7 @@ func TestOutbox_HandleEvents(t *testing.T) {
 			}
 
 			if tt.createOutboxSchema {
-				if _, err := db.ExecContext(ctx, ob.Schema()); err != nil {
+				if _, err := db.Exec(ctx, ob.Schema()); err != nil {
 					t.Fatalf("creating outbox schema: %v", err)
 				}
 			}
@@ -168,7 +169,7 @@ func TestOutbox_HandleEvents(t *testing.T) {
 			}
 
 			// Query the outbox table directly to verify row count and field values.
-			rows, err := db.QueryContext(ctx,
+			rows, err := db.Query(ctx,
 				`SELECT id, event_id, event_type, stream_id, stream_type, stream_version, data
 				 FROM outbox
 				 ORDER BY id ASC`,
@@ -189,14 +190,14 @@ func TestOutbox_HandleEvents(t *testing.T) {
 			var got []outboxRow
 			for rows.Next() {
 				var r outboxRow
-				var eventUUID, streamUUID string
+				var eventUUID, streamUUID uuid.UUID
 				if err := rows.Scan(&r.id, &eventUUID, &r.eventType, &streamUUID, &r.streamType, &r.streamVersion, &r.data); err != nil {
 					t.Fatalf("scanning outbox row: %v", err)
 				}
-				if eventUUID == "" {
+				if eventUUID.IsNil() {
 					t.Errorf("row %d: event_id is empty", r.id)
 				}
-				if streamUUID == "" {
+				if streamUUID.IsNil() {
 					t.Errorf("row %d: stream_id is empty", r.id)
 				}
 				got = append(got, r)
@@ -244,11 +245,11 @@ func TestOutbox_ProcessNext(t *testing.T) {
 	// per case (e.g., stateful handlers, variable post-processing assertions).
 	for _, tt := range []struct {
 		name string
-		run  func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy)
+		run  func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy)
 	}{
 		{
 			name: "processes items one at a time in order",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				var mu sync.Mutex
@@ -309,7 +310,7 @@ func TestOutbox_ProcessNext(t *testing.T) {
 		},
 		{
 			name: "returns ErrNoItems when outbox is empty",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				// Only the outbox table is needed; no event store required.
@@ -325,7 +326,7 @@ func TestOutbox_ProcessNext(t *testing.T) {
 		},
 		{
 			name: "returns ErrNoItems when all items are processed",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				ob := newOutbox(t, ctx, db,
@@ -356,7 +357,7 @@ func TestOutbox_ProcessNext(t *testing.T) {
 		},
 		{
 			name: "handler error leaves item unprocessed for retry",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				// Stateful handler: fail on the first call, succeed on the second.
@@ -409,7 +410,7 @@ func TestOutbox_ProcessNext(t *testing.T) {
 		},
 		{
 			name: "processes items across multiple streams in insertion order",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				var mu sync.Mutex
@@ -504,7 +505,7 @@ func TestOutbox_Run(t *testing.T) {
 			}
 
 			strat := must(strategy.NewDefaultStrategy())
-			if _, err := db.ExecContext(ctx, strat.Schema()); err != nil {
+			if _, err := db.Exec(ctx, strat.Schema()); err != nil {
 				t.Fatalf("creating event store schema: %v", err)
 			}
 
@@ -515,7 +516,7 @@ func TestOutbox_Run(t *testing.T) {
 				collectingHandler(&mu, &received),
 				pgoutbox.WithPollInterval(50*time.Millisecond),
 			))
-			if _, err := db.ExecContext(ctx, ob.Schema()); err != nil {
+			if _, err := db.Exec(ctx, ob.Schema()); err != nil {
 				t.Fatalf("creating outbox schema: %v", err)
 			}
 
@@ -585,11 +586,11 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 
 	for _, tt := range []struct {
 		name string
-		run  func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy)
+		run  func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy)
 	}{
 		{
 			name: "handler_failure_increments_retry_count",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				// Handler fails on the first call, succeeds on the second.
@@ -622,7 +623,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				var retryCount int
 				var failedAt *time.Time
 				var itemID int64
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT id, retry_count, failed_at FROM outbox WHERE event_type = 'retryable_event'`,
 				).Scan(&itemID, &retryCount, &failedAt); err != nil {
 					t.Fatalf("querying outbox item after first failure: %v", err)
@@ -641,7 +642,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 
 				// Verify processed_at is now set and retry_count is still 1.
 				var processedAt *time.Time
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT retry_count, processed_at, failed_at FROM outbox WHERE id = $1`, itemID,
 				).Scan(&retryCount, &processedAt, &failedAt); err != nil {
 					t.Fatalf("querying outbox item after second call: %v", err)
@@ -659,7 +660,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 		},
 		{
 			name: "item_dead_lettered_after_max_retries",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				// Handler always fails.
@@ -691,7 +692,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				// Verify failed_at is now set in the database.
 				var failedAt *time.Time
 				var retryCount int
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT retry_count, failed_at FROM outbox WHERE event_type = 'doomed_event'`,
 				).Scan(&retryCount, &failedAt); err != nil {
 					t.Fatalf("querying outbox item after dead letter: %v", err)
@@ -711,7 +712,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 		},
 		{
 			name: "max_retries_zero_means_infinite",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				// Handler always fails — with maxRetries=0 it should never be dead-lettered.
@@ -742,7 +743,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				// Verify the item is still alive (failed_at IS NULL) with a high retry count.
 				var failedAt *time.Time
 				var retryCount int
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT retry_count, failed_at FROM outbox WHERE event_type = 'infinite_retry_event'`,
 				).Scan(&retryCount, &failedAt); err != nil {
 					t.Fatalf("querying outbox item: %v", err)
@@ -757,7 +758,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 		},
 		{
 			name: "dead_lettered_items_skipped",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				// Track which event type the handler is called with so we can confirm
@@ -807,7 +808,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				var processedAt *time.Time
 				var retryCount int
 
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT retry_count, failed_at FROM outbox WHERE event_type = 'event_one'`,
 				).Scan(&retryCount, &failedAt); err != nil {
 					t.Fatalf("querying event_one: %v", err)
@@ -816,7 +817,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 					t.Error("event_one: expected failed_at to be set, got nil")
 				}
 
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT processed_at FROM outbox WHERE event_type = 'event_two'`,
 				).Scan(&processedAt); err != nil {
 					t.Fatalf("querying event_two: %v", err)
@@ -834,7 +835,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 		},
 		{
 			name: "retry_count_visible_to_handler",
-			run: func(t *testing.T, ctx context.Context, db *sql.DB, strat pgeventstore.Strategy) {
+			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
 				// Record the RetryCount the handler sees on each invocation.
@@ -889,7 +890,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 
 				// The item should now be processed.
 				var processedAt *time.Time
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT processed_at FROM outbox WHERE event_type = 'counted_event'`,
 				).Scan(&processedAt); err != nil {
 					t.Fatalf("querying outbox item: %v", err)
@@ -1013,7 +1014,7 @@ func TestOutbox_Options(t *testing.T) {
 				}
 
 				strat := must(strategy.NewDefaultStrategy())
-				if _, err := db.ExecContext(ctx, strat.Schema()); err != nil {
+				if _, err := db.Exec(ctx, strat.Schema()); err != nil {
 					t.Fatalf("creating event store schema: %v", err)
 				}
 
@@ -1029,7 +1030,7 @@ func TestOutbox_Options(t *testing.T) {
 
 				// Verify the custom table was actually created (not the default "outbox").
 				var tableCount int
-				if err := db.QueryRowContext(ctx,
+				if err := db.QueryRow(ctx,
 					`SELECT count(*) FROM information_schema.tables WHERE table_name = $1`, customTable,
 				).Scan(&tableCount); err != nil {
 					t.Fatalf("querying information_schema: %v", err)
@@ -1074,7 +1075,7 @@ func TestOutbox_Options(t *testing.T) {
 				}
 
 				strat := must(strategy.NewDefaultStrategy())
-				if _, err := db.ExecContext(ctx, strat.Schema()); err != nil {
+				if _, err := db.Exec(ctx, strat.Schema()); err != nil {
 					t.Fatalf("creating event store schema: %v", err)
 				}
 

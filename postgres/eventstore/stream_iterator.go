@@ -2,15 +2,15 @@ package eventstore
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/go-estoria/estoria/eventstore"
+	"github.com/jackc/pgx/v5"
 )
 
 type streamIterator struct {
 	strategy Strategy
-	rows     *sql.Rows
+	rows     pgx.Rows
 	first    *eventstore.Event
 	closed   bool
 }
@@ -45,7 +45,8 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 
 func (i *streamIterator) Close(_ context.Context) error {
 	i.closed = true
-	return i.rows.Close()
+	i.rows.Close()
+	return nil
 }
 
 // emptyStreamIterator is a StreamIterator that immediately returns ErrEndOfEventStream.
