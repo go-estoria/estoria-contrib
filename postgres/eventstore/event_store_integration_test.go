@@ -218,7 +218,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 
 				// create the strategy and initialize the DB schema
 				s := tStrat.create(t)
-				if _, err := db.ExecContext(t.Context(), s.Schema()); err != nil {
+				if _, err := db.Exec(t.Context(), s.Schema()); err != nil {
 					t.Fatalf("failed to create DB schema: %v", err)
 				}
 
@@ -322,7 +322,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		}
 
 		strat := must(strategy.NewDefaultStrategy())
-		if _, err := db.ExecContext(t.Context(), strat.Schema()); err != nil {
+		if _, err := db.Exec(t.Context(), strat.Schema()); err != nil {
 			t.Fatalf("failed to create DB schema: %v", err)
 		}
 
@@ -707,7 +707,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 
 				// create the strategy and initialize the DB schema
 				s := tStrat.create(t)
-				if _, err := db.ExecContext(t.Context(), s.Schema()); err != nil {
+				if _, err := db.Exec(t.Context(), s.Schema()); err != nil {
 					t.Fatalf("failed to create DB schema: %v", err)
 				}
 

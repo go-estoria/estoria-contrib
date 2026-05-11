@@ -2,16 +2,15 @@ package outbox_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"testing"
 
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-func createPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, error) {
+func createPostgresContainer(t *testing.T, ctx context.Context) (*pgxpool.Pool, error) {
 	t.Helper()
 
 	postgresContainer, err := postgres.Run(ctx, "postgres:17",
@@ -35,16 +34,18 @@ func createPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, error)
 		return nil, fmt.Errorf("failed to get Postgres connection string: %w", err)
 	}
 
-	db, err := sql.Open("postgres", connStr)
+	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		t.Fatalf("failed to create Postgres client: %v", err)
+		t.Fatalf("failed to create Postgres pool: %v", err)
 	}
 
-	if err := db.Ping(); err != nil {
+	t.Cleanup(pool.Close)
+
+	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping Postgres: %w", err)
 	}
 
-	return db, nil
+	return pool, nil
 }
 
 func must[T any](val T, err error) T {

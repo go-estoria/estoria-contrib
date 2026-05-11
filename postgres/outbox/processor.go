@@ -2,7 +2,6 @@ package outbox
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +9,7 @@ import (
 
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
 )
 
 // ErrNoItems is returned by ProcessNext when there are no unprocessed outbox items.
@@ -29,14 +28,14 @@ var ErrNoItems = errors.New("no unprocessed outbox items")
 // ProcessNext is safe to call concurrently; Postgres row-level locking ensures
 // each item is delivered to at most one caller at a time.
 func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
-	tx, err := o.db.BeginTx(ctx, nil)
+	tx, err := o.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 
 	defer func() {
 		if retErr != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 				o.log.Error("rolling back transaction", "error", rollbackErr)
 			}
 		}
@@ -49,7 +48,7 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 		ORDER BY id ASC
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED`,
-		pq.QuoteIdentifier(o.tableName),
+		pgx.Identifier{o.tableName}.Sanitize(),
 	)
 
 	var item Item
@@ -57,7 +56,7 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 	var eventType, streamType string
 	var metadataJSON []byte
 
-	row := tx.QueryRowContext(ctx, query)
+	row := tx.QueryRow(ctx, query)
 	if err := row.Scan(
 		&item.ID,
 		&eventUUID,
@@ -72,7 +71,7 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 		&item.RetryCount,
 		&item.LastError,
 	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNoItems
 		}
 		return fmt.Errorf("scanning outbox item: %w", err)
@@ -96,9 +95,9 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 			// Permanently fail the item — it has exhausted its retry budget.
 			failQuery := fmt.Sprintf(
 				`UPDATE %s SET retry_count = $2, last_error = $3, failed_at = now() WHERE id = $1`,
-				pq.QuoteIdentifier(o.tableName),
+				pgx.Identifier{o.tableName}.Sanitize(),
 			)
-			if _, execErr := tx.ExecContext(ctx, failQuery, item.ID, newRetryCount, errMsg); execErr != nil {
+			if _, execErr := tx.Exec(ctx, failQuery, item.ID, newRetryCount, errMsg); execErr != nil {
 				o.log.Error("marking outbox item as failed", "error", execErr)
 				return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
 			}
@@ -112,17 +111,17 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 			// Increment the retry count and record the error so the next poll picks it up.
 			retryQuery := fmt.Sprintf(
 				`UPDATE %s SET retry_count = $2, last_error = $3 WHERE id = $1`,
-				pq.QuoteIdentifier(o.tableName),
+				pgx.Identifier{o.tableName}.Sanitize(),
 			)
-			if _, execErr := tx.ExecContext(ctx, retryQuery, item.ID, newRetryCount, errMsg); execErr != nil {
+			if _, execErr := tx.Exec(ctx, retryQuery, item.ID, newRetryCount, errMsg); execErr != nil {
 				o.log.Error("updating retry count", "error", execErr)
 				return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
 			}
 		}
 
-		// Commit the retry/fail update. The deferred rollback will see sql.ErrTxDone
+		// Commit the retry/fail update. The deferred rollback will see pgx.ErrTxClosed
 		// (which is filtered) because the transaction is already done after this commit.
-		if commitErr := tx.Commit(); commitErr != nil {
+		if commitErr := tx.Commit(ctx); commitErr != nil {
 			o.log.Error("committing retry update", "error", commitErr)
 			return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
 		}
@@ -132,14 +131,14 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 
 	updateQuery := fmt.Sprintf(
 		`UPDATE %s SET processed_at = now() WHERE id = $1`,
-		pq.QuoteIdentifier(o.tableName),
+		pgx.Identifier{o.tableName}.Sanitize(),
 	)
 
-	if _, err := tx.ExecContext(ctx, updateQuery, item.ID); err != nil {
+	if _, err := tx.Exec(ctx, updateQuery, item.ID); err != nil {
 		return fmt.Errorf("marking outbox item %d as processed: %w", item.ID, err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing transaction: %w", err)
 	}
 

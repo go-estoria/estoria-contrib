@@ -2,7 +2,6 @@ package strategy
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,8 +10,15 @@ import (
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// quoteIdent returns the given identifier wrapped in double quotes,
+// equivalent to pq.QuoteIdentifier for a single-part identifier.
+func quoteIdent(name string) string {
+	return pgx.Identifier{name}.Sanitize()
+}
 
 const (
 	defaultEventsTableName  = "event"
@@ -102,12 +108,12 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.Re
 		ORDER BY
 			stream_offset %s
 		%s
-	`, pq.QuoteIdentifier(s.eventsTableName), versionClause, direction, limitClause),
+	`, quoteIdent(s.eventsTableName), versionClause, direction, limitClause),
 		args, nil
 }
 
-// ScanEventRow scans a single event row from the given SQL rows and returns an event.
-func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error) {
+// ScanEventRow scans a single event row from the given pgx rows and returns an event.
+func (s *DefaultStrategy) ScanEventRow(rows pgx.Rows) (*eventstore.Event, error) {
 	var (
 		e              eventstore.Event
 		globalPosition int64
@@ -146,16 +152,16 @@ func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error
 
 // NextHighwaterMark reserves and returns the next highwater mark (stream offset) for the given stream ID.
 // It uses the provided transactional context to ensure atomicity.
-func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx *sql.Tx, streamID typeid.ID, numEvents int) (int64, error) {
+func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx pgx.Tx, streamID typeid.ID, numEvents int) (int64, error) {
 	var newOffset int64
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s (stream_type, stream_id, last_offset)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (stream_type, stream_id)
 		DO UPDATE SET last_offset = %s.last_offset + $3
 		RETURNING last_offset`,
-		pq.QuoteIdentifier(s.streamsTableName),
-		pq.QuoteIdentifier(s.streamsTableName),
+		quoteIdent(s.streamsTableName),
+		quoteIdent(s.streamsTableName),
 	), streamID.Type, streamID.UUID, numEvents).Scan(&newOffset); err != nil {
 		return 0, fmt.Errorf("reserving stream offsets: %w", err)
 	}
@@ -178,7 +184,7 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
-	`, pq.QuoteIdentifier(s.eventsTableName)), nil
+	`, quoteIdent(s.eventsTableName)), nil
 }
 
 // AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
@@ -255,24 +261,24 @@ func (s *DefaultStrategy) Schema() string {
 
 			PRIMARY KEY (stream_type, stream_id)
 		);
-	`, pq.QuoteIdentifier(s.eventsTableName), pq.QuoteIdentifier(s.streamsTableName))
+	`, quoteIdent(s.eventsTableName), quoteIdent(s.streamsTableName))
 }
 
 // ListStreams returns metadata for all streams in the event store.
-func (s *DefaultStrategy) ListStreams(ctx context.Context, db *sql.DB) ([]StreamMetadata, error) {
+func (s *DefaultStrategy) ListStreams(ctx context.Context, pool *pgxpool.Pool) ([]StreamMetadata, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			stream_type,
 			stream_id,
 			last_offset
 		FROM %s
-	`, pq.QuoteIdentifier(s.streamsTableName))
+	`, quoteIdent(s.streamsTableName))
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("querying streams: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	var streams []StreamMetadata
 	for rows.Next() {
@@ -303,7 +309,7 @@ func (s *DefaultStrategy) ListStreams(ctx context.Context, db *sql.DB) ([]Stream
 // id column) rather than a stream version. This allows callers to resume reading from a known
 // global checkpoint. This semantic differs from ReadStreamQuery where AfterVersion refers to
 // stream versions.
-func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventstore.ReadStreamOptions) (*sql.Rows, error) {
+func (s *DefaultStrategy) ReadAll(ctx context.Context, pool *pgxpool.Pool, opts eventstore.ReadStreamOptions) (pgx.Rows, error) {
 	direction, ok := directionSQL[opts.Direction]
 	if !ok {
 		direction = "ASC"
@@ -341,9 +347,9 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventsto
 		ORDER BY
 			id %s
 		%s
-	`, pq.QuoteIdentifier(s.eventsTableName), afterClause, direction, limitClause)
+	`, quoteIdent(s.eventsTableName), afterClause, direction, limitClause)
 
-	rows, err := db.QueryContext(ctx, query, args...)
+	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying all events: %w", err)
 	}

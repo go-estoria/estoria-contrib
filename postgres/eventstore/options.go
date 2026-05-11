@@ -1,10 +1,10 @@
 package eventstore
 
 import (
-	"database/sql"
 	"errors"
 
 	"github.com/go-estoria/estoria"
+	"github.com/jackc/pgx/v5"
 )
 
 // EventStoreOption is a functional option for configuring an EventStore.
@@ -54,7 +54,7 @@ func WithAppendTransactionHooks(hooks ...TransactionHook) EventStoreOption {
 }
 
 // WithTxOptions sets optional transaction options to use for write transactions.
-func WithTxOptions(opts *sql.TxOptions) EventStoreOption {
+func WithTxOptions(opts pgx.TxOptions) EventStoreOption {
 	return func(s *EventStore) error {
 		s.txOpts = opts
 		return nil

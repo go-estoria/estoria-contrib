@@ -16,7 +16,7 @@ go get github.com/go-estoria/estoria-contrib
 
 ```go
 import (
-    "database/sql"
+    "github.com/jackc/pgx/v5/pgxpool"
 
     "github.com/go-estoria/estoria-contrib/postgres/outbox"
     pgeventstore "github.com/go-estoria/estoria-contrib/postgres/eventstore"
@@ -29,7 +29,7 @@ handler := func(ctx context.Context, item *outbox.Item) error {
 }
 
 // Create the outbox.
-ob, err := outbox.New(db, handler,
+ob, err := outbox.New(pool, handler,
     outbox.WithTableName("outbox"),
     outbox.WithPollInterval(500*time.Millisecond),
 )
@@ -38,12 +38,12 @@ if err != nil {
 }
 
 // Create the outbox table (safe to call on every startup).
-if _, err := db.ExecContext(ctx, ob.Schema()); err != nil {
+if _, err := pool.Exec(ctx, ob.Schema()); err != nil {
     log.Fatal(err)
 }
 
 // Create the event store, registering the outbox as a transaction hook.
-store, err := pgeventstore.New(db,
+store, err := pgeventstore.New(pool,
     pgeventstore.WithAppendTransactionHooks(ob),
 )
 if err != nil {

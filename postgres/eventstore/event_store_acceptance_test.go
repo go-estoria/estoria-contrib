@@ -51,7 +51,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 				t.Fatalf("tc setup: failed to create event store strategy: %v", err)
 			}
 
-			if _, err = db.ExecContext(t.Context(), strat.Schema()); err != nil {
+			if _, err = db.Exec(t.Context(), strat.Schema()); err != nil {
 				t.Fatalf("tc setup: failed to create events table: %v", err)
 			}
 
