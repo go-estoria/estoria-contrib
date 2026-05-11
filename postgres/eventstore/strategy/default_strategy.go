@@ -14,12 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// quoteIdent returns the given identifier wrapped in double quotes,
-// equivalent to pq.QuoteIdentifier for a single-part identifier.
-func quoteIdent(name string) string {
-	return pgx.Identifier{name}.Sanitize()
-}
-
 const (
 	defaultEventsTableName  = "event"
 	defaultStreamsTableName = "stream"
@@ -355,6 +349,12 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, pool *pgxpool.Pool, opts 
 	}
 
 	return rows, nil
+}
+
+// quoteIdent returns the given identifier wrapped in double quotes,
+// equivalent to pq.QuoteIdentifier for a single-part identifier.
+func quoteIdent(name string) string {
+	return pgx.Identifier{name}.Sanitize()
 }
 
 // validateTableName validates that the given table name is a valid SQL identifier.
