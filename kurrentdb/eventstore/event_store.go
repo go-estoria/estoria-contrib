@@ -67,7 +67,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 	result, err := s.kurrentDB.ReadStream(ctx, streamID.String(), readOpts, count)
 	if err != nil {
 		s.log.Error("reading stream", "stream_id", streamID.String(), "error", err.Error())
-		if _, ok := kurrentdb.FromError(err); ok {
+		if kdbErr, ok := kurrentdb.FromError(err); !ok && kdbErr != nil && kdbErr.Code() == kurrentdb.ErrorCodeResourceNotFound {
 			return nil, eventstore.ErrStreamNotFound
 		}
 
@@ -129,7 +129,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	if _, err := s.kurrentDB.AppendToStream(ctx, streamID.String(), appendOpts, streamEvents...); err != nil {
-		if kdbErr, ok := kurrentdb.FromError(err); ok {
+		if kdbErr, ok := kurrentdb.FromError(err); !ok && kdbErr != nil {
 			switch kdbErr.Code() {
 			case kurrentdb.ErrorCodeWrongExpectedVersion:
 				var expected, actual int
