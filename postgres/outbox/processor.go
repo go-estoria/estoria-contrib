@@ -15,18 +15,24 @@ import (
 // ErrNoItems is returned by ProcessNext when there are no unprocessed outbox items.
 var ErrNoItems = errors.New("no unprocessed outbox items")
 
-// ProcessNext claims and processes the next unprocessed outbox item. It uses
-// SELECT FOR UPDATE SKIP LOCKED so that concurrent processors never handle the
-// same item. If there are no unprocessed items, ErrNoItems is returned.
+// ProcessNext claims and processes the next eligible outbox item.
+//
+// Selection enforces strict per-stream FIFO: a stream's next event is only eligible
+// once every earlier event on that stream has been successfully processed. Concurrent
+// processors may handle different streams in parallel via SELECT FOR UPDATE SKIP LOCKED.
+// If there are no eligible items, ErrNoItems is returned.
 //
 // On handler failure, the item's retry count and last error are persisted within
 // the same transaction (which is then committed), so the failure is recorded even
 // though the item was not successfully processed. If the retry count reaches the
-// configured maximum, the item is permanently marked as failed and will no longer
-// be selected for processing.
+// configured maximum, the item is permanently marked as failed. Because a failed
+// item is still considered an unprocessed predecessor, its stream halts at that
+// point and no later events on that stream will be delivered until an operator
+// resolves the failure.
 //
-// ProcessNext is safe to call concurrently; Postgres row-level locking ensures
-// each item is delivered to at most one caller at a time.
+// ProcessNext is safe to call concurrently; Postgres row-level locking ensures each
+// item is delivered to at most one caller at a time, and the head-of-stream predicate
+// preserves within-stream order across concurrent callers.
 func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 	tx, err := o.pool.Begin(ctx)
 	if err != nil {
@@ -41,14 +47,25 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 		}
 	}()
 
+	// Only the head of each stream (the lowest-id row with no earlier unprocessed
+	// predecessor on the same stream) is eligible. A permanently-failed predecessor
+	// still has processed_at IS NULL, so it blocks the stream until resolved.
+	table := pgx.Identifier{o.tableName}.Sanitize()
 	query := fmt.Sprintf(
 		`SELECT id, event_id, event_type, stream_id, stream_type, stream_version, timestamp, data, metadata, created_at, retry_count, last_error
-		FROM %s
-		WHERE processed_at IS NULL AND failed_at IS NULL
-		ORDER BY id ASC
+		FROM %[1]s o
+		WHERE o.processed_at IS NULL
+		  AND o.failed_at IS NULL
+		  AND NOT EXISTS (
+		    SELECT 1 FROM %[1]s e
+		    WHERE e.stream_id = o.stream_id
+		      AND e.id < o.id
+		      AND e.processed_at IS NULL
+		  )
+		ORDER BY o.id ASC
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED`,
-		pgx.Identifier{o.tableName}.Sanitize(),
+		table,
 	)
 
 	var item Item

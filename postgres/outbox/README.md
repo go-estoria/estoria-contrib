@@ -71,4 +71,16 @@ go ob.Run(ctx)
 
 When the event store appends events, each registered `TransactionHook` is called with the open transaction before it is committed. The outbox inserts one row per event into the outbox table inside that same transaction, so the event rows and outbox rows are always written atomically — either both land or neither does.
 
-The polling loop calls `ProcessNext` on each tick. `ProcessNext` opens its own transaction and selects the oldest unprocessed row using `SELECT FOR UPDATE SKIP LOCKED`, which allows multiple concurrent processors to run without contention. The configured handler is called with the locked row. If the handler returns without error, the row is marked `processed_at = now()` and the transaction is committed. If the handler returns an error, the transaction is rolled back and the row remains available for the next poll cycle.
+The polling loop calls `ProcessNext` on each tick. `ProcessNext` opens its own transaction and selects the next eligible row using `SELECT FOR UPDATE SKIP LOCKED`. The configured handler is called with the locked row. If the handler returns without error, the row is marked `processed_at = now()` and the transaction is committed. If the handler returns an error, the retry count and last error are persisted in the same transaction and the row remains available for the next poll cycle.
+
+## Ordering and Concurrency
+
+`ProcessNext` enforces **strict per-stream FIFO**: an outbox row is only eligible once every earlier row on the same stream has been successfully processed. Concurrent processors (multiple service instances, or multiple goroutines on the same instance) may handle different streams in parallel, but no two callers will ever deliver events for the same stream out of order.
+
+This is implemented in the selection query: in addition to the row-level `FOR UPDATE SKIP LOCKED` claim, each candidate row must have no earlier row on its stream with `processed_at IS NULL`. The partial index `(stream_id, id) WHERE processed_at IS NULL` keeps that lookup cheap.
+
+### Halt on permanent failure
+
+When a row exceeds its configured `WithMaxRetries` budget, it is marked `failed_at = now()` (a "dead letter") and the handler is no longer invoked for it. Because a dead-lettered row still has `processed_at IS NULL`, it continues to act as an unprocessed predecessor and **halts its stream**: no later events on the same stream will be delivered until an operator resolves the failure (typically by setting `processed_at` manually after replaying the event downstream, or by setting `processed_at` and explicitly skipping it). Other streams are unaffected and continue to drain in parallel.
+
+This is the safer default for event-sourced projections, where skipping a single event in a stream's history can leave downstream consumers in a permanently inconsistent state. Operators should monitor `failed_at IS NOT NULL` rows and alert on them.

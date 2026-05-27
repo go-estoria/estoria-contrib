@@ -79,7 +79,11 @@ func New(pool *pgxpool.Pool, handler ItemHandler, opts ...Option) (*Outbox, erro
 //	DELETE FROM outbox WHERE failed_at < now() - interval '30 days';
 func (o *Outbox) Schema() string {
 	quotedTable := pgx.Identifier{o.tableName}.Sanitize()
-	quotedIndex := pgx.Identifier{"idx_" + o.tableName + "_unprocessed"}.Sanitize()
+	// Indexed by (stream_id, id) so the head-of-stream NOT EXISTS subquery in
+	// ProcessNext can probe by stream_id. The predicate is processed_at IS NULL
+	// (not also failed_at IS NULL) so that permanently-failed predecessors stay
+	// indexed and continue to block subsequent events on their stream.
+	quotedIndex := pgx.Identifier{"idx_" + o.tableName + "_unprocessed_stream"}.Sanitize()
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     id              bigserial    PRIMARY KEY,
     event_id        uuid         NOT NULL,
@@ -98,8 +102,8 @@ func (o *Outbox) Schema() string {
 );
 
 CREATE INDEX IF NOT EXISTS %s
-    ON %s (id)
-    WHERE processed_at IS NULL AND failed_at IS NULL;
+    ON %s (stream_id, id)
+    WHERE processed_at IS NULL;
 `, quotedTable, quotedIndex, quotedTable)
 }
 
