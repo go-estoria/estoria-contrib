@@ -757,22 +757,21 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 			},
 		},
 		{
-			name: "dead_lettered_items_skipped",
+			name: "dead_letter_halts_affected_stream_only",
 			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
-				// Track which event type the handler is called with so we can confirm
-				// event 1 is dead-lettered and event 2 is processed.
+				// Track which event types the handler successfully processes.
 				var mu sync.Mutex
 				processedTypes := make([]string, 0, 2)
 
-				// Handler fails for "event_one", succeeds for "event_two".
+				// Handler fails for "poison" (stream A's first event), succeeds for everything else.
 				handler := func(_ context.Context, item *pgoutbox.Item) error {
+					if item.EventID.Type == "poison" {
+						return fmt.Errorf("poison always fails")
+					}
 					mu.Lock()
 					defer mu.Unlock()
-					if item.EventID.Type == "event_one" {
-						return fmt.Errorf("event_one always fails")
-					}
 					processedTypes = append(processedTypes, item.EventID.Type)
 					return nil
 				}
@@ -781,55 +780,72 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				ob := newOutbox(t, ctx, db, handler, pgoutbox.WithMaxRetries(maxRetries))
 				es := newEventStore(t, ctx, db, strat, ob)
 
-				streamID := typeid.NewV4("mystream")
-				appendEvents(t, ctx, es, streamID, []*eventstore.WritableEvent{
-					{Type: "event_one", Data: []byte(`{}`)},
-					{Type: "event_two", Data: []byte(`{}`)},
+				// Two streams: A is poisoned at v1 and should halt; B is healthy and should drain.
+				streamA := typeid.NewV4("streamA")
+				streamB := typeid.NewV4("streamB")
+				appendEvents(t, ctx, es, streamA, []*eventstore.WritableEvent{
+					{Type: "poison", Data: []byte(`{}`)},       // v1 — will be dead-lettered
+					{Type: "after_poison", Data: []byte(`{}`)}, // v2 — must remain blocked
+				})
+				appendEvents(t, ctx, es, streamB, []*eventstore.WritableEvent{
+					{Type: "ok1", Data: []byte(`{}`)},
+					{Type: "ok2", Data: []byte(`{}`)},
 				})
 
-				// Call 1: event_one handler fails, retry_count becomes 1.
-				if err := ob.ProcessNext(ctx); err == nil {
-					t.Fatal("call 1: expected error for event_one, got nil")
+				// Drain everything reachable. The poison row will burn through its retry budget
+				// (2 ProcessNext calls return errors), then get dead-lettered. After that, only
+				// streamB's items remain eligible. Allow extra iterations as a safety margin.
+				for range 10 {
+					if err := ob.ProcessNext(ctx); errors.Is(err, pgoutbox.ErrNoItems) {
+						break
+					}
+					// poison-handler errors are expected; we only care about the final state.
 				}
 
-				// Call 2: event_one retry_count (1) reaches maxRetries (1), so
-				// newRetryCount (2) > maxRetries (1) → dead-lettered.
-				if err := ob.ProcessNext(ctx); err == nil {
-					t.Fatal("call 2: expected error when dead-lettering event_one, got nil")
-				}
-
-				// Call 3: event_one is now skipped; event_two is claimed and processed.
-				if err := ob.ProcessNext(ctx); err != nil {
-					t.Fatalf("call 3: expected event_two to succeed, got: %v", err)
-				}
-
-				// Verify database state.
-				var failedAt *time.Time
-				var processedAt *time.Time
-				var retryCount int
-
+				// streamA's poison row should be dead-lettered.
+				var poisonFailedAt *time.Time
 				if err := db.QueryRow(ctx,
-					`SELECT retry_count, failed_at FROM outbox WHERE event_type = 'event_one'`,
-				).Scan(&retryCount, &failedAt); err != nil {
-					t.Fatalf("querying event_one: %v", err)
+					`SELECT failed_at FROM outbox WHERE event_type = 'poison'`,
+				).Scan(&poisonFailedAt); err != nil {
+					t.Fatalf("querying poison row: %v", err)
 				}
-				if failedAt == nil {
-					t.Error("event_one: expected failed_at to be set, got nil")
+				if poisonFailedAt == nil {
+					t.Error("poison: expected failed_at to be set, got nil")
 				}
 
+				// streamA's after_poison row must NOT have been processed — the stream is halted.
+				var afterPoisonProcessedAt *time.Time
 				if err := db.QueryRow(ctx,
-					`SELECT processed_at FROM outbox WHERE event_type = 'event_two'`,
-				).Scan(&processedAt); err != nil {
-					t.Fatalf("querying event_two: %v", err)
+					`SELECT processed_at FROM outbox WHERE event_type = 'after_poison'`,
+				).Scan(&afterPoisonProcessedAt); err != nil {
+					t.Fatalf("querying after_poison row: %v", err)
 				}
-				if processedAt == nil {
-					t.Error("event_two: expected processed_at to be set, got nil")
+				if afterPoisonProcessedAt != nil {
+					t.Errorf("after_poison: expected stream to be halted, but processed_at = %v", afterPoisonProcessedAt)
 				}
 
+				// streamB's items must both have been processed — its stream is healthy.
+				for _, evType := range []string{"ok1", "ok2"} {
+					var processedAt *time.Time
+					if err := db.QueryRow(ctx,
+						`SELECT processed_at FROM outbox WHERE event_type = $1`, evType,
+					).Scan(&processedAt); err != nil {
+						t.Fatalf("querying %s: %v", evType, err)
+					}
+					if processedAt == nil {
+						t.Errorf("%s: expected processed_at to be set, got nil", evType)
+					}
+				}
+
+				// Final sanity: the handler should have succeeded for exactly ok1 and ok2.
 				mu.Lock()
 				defer mu.Unlock()
-				if len(processedTypes) != 1 || processedTypes[0] != "event_two" {
-					t.Errorf("handler processed types = %v, want [event_two]", processedTypes)
+				if len(processedTypes) != 2 {
+					t.Fatalf("handler processed %d items, want 2 (ok1, ok2): %v", len(processedTypes), processedTypes)
+				}
+				got := map[string]bool{processedTypes[0]: true, processedTypes[1]: true}
+				if !got["ok1"] || !got["ok2"] {
+					t.Errorf("handler processed types = %v, want {ok1, ok2}", processedTypes)
 				}
 			},
 		},
@@ -917,6 +933,120 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 			tt.run(t, ctx, db, strat)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// TestOutbox_PerStreamOrdering — Tests per-stream FIFO under concurrent processors
+// ---------------------------------------------------------------------------
+
+func TestOutbox_PerStreamOrdering(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	t.Run("concurrent_processors_preserve_within_stream_order", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		db, err := createPostgresContainer(t, ctx)
+		if err != nil {
+			t.Fatalf("createPostgresContainer: %v", err)
+		}
+
+		strat := must(strategy.NewDefaultStrategy())
+
+		var mu sync.Mutex
+		receivedByStream := make(map[typeid.ID][]int64) // streamID → versions in delivery order
+
+		// Small handler delay encourages goroutines to overlap and race for outbox rows.
+		// If per-stream FIFO weren't enforced, two workers could deliver the same stream's
+		// events out of version order and this test would catch it.
+		handler := func(_ context.Context, item *pgoutbox.Item) error {
+			time.Sleep(15 * time.Millisecond)
+			mu.Lock()
+			defer mu.Unlock()
+			receivedByStream[item.StreamID] = append(receivedByStream[item.StreamID], item.StreamVersion)
+			return nil
+		}
+
+		ob := newOutbox(t, ctx, db, handler)
+		es := newEventStore(t, ctx, db, strat, ob)
+
+		// Three streams with five events each, appended in interleaved order so the
+		// outbox rows for any single stream are spread across non-adjacent ids.
+		streamA := typeid.NewV4("streamA")
+		streamB := typeid.NewV4("streamB")
+		streamC := typeid.NewV4("streamC")
+		streams := []typeid.ID{streamA, streamB, streamC}
+
+		const eventsPerStream = 5
+		for v := 1; v <= eventsPerStream; v++ {
+			for _, sid := range streams {
+				appendEvents(t, ctx, es, sid, []*eventstore.WritableEvent{
+					{Type: "e", Data: fmt.Appendf(nil, `{"v":%d}`, v)},
+				})
+			}
+		}
+
+		totalItems := eventsPerStream * len(streams)
+
+		// Spin up more workers than streams to force contention on stream heads.
+		const workers = 6
+		var wg sync.WaitGroup
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		for range workers {
+			wg.Go(func() {
+				for {
+					if runCtx.Err() != nil {
+						return
+					}
+					err := ob.ProcessNext(runCtx)
+					if errors.Is(err, pgoutbox.ErrNoItems) {
+						mu.Lock()
+						done := 0
+						for _, vs := range receivedByStream {
+							done += len(vs)
+						}
+						mu.Unlock()
+						if done >= totalItems {
+							return
+						}
+						// Another worker may still be holding a row in an open tx — back off briefly.
+						time.Sleep(5 * time.Millisecond)
+						continue
+					}
+					if err != nil {
+						t.Errorf("ProcessNext: %v", err)
+						return
+					}
+				}
+			})
+		}
+		wg.Wait()
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		for _, sid := range streams {
+			versions := receivedByStream[sid]
+			if len(versions) != eventsPerStream {
+				t.Errorf("stream %s: received %d events, want %d (versions=%v)",
+					sid, len(versions), eventsPerStream, versions)
+				continue
+			}
+			for i, v := range versions {
+				if v != int64(i+1) {
+					t.Errorf("stream %s: position %d delivered version %d, want %d (full sequence=%v)",
+						sid, i, v, i+1, versions)
+				}
+			}
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
