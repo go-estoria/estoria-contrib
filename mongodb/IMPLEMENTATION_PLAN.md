@@ -463,12 +463,13 @@ for primary. Gate with `testing.Short()` as today. Run the race-sensitive tests 
 
 ## 6. Branching & PR sequencing
 
-**Integration model:** all five PRs merge into a single long-lived **feature branch**
-(e.g. `mongodb-rewrite`), cut from `main`. The feature branch is merged to `main` **once, as a single
-release**, when the whole rewrite is complete and green. No partial slice reaches `main` on its own.
+**Integration model:** all five PRs merge into a single long-lived **feature branch**,
+`mongodb-rewrite`, already cut from `main` and seeded with these two planning docs (its first commit).
+The feature branch is merged to `main` **once, as a single release**, when the whole rewrite is
+complete and green. No partial slice reaches `main` on its own.
 
-- Cut `mongodb-rewrite` from `main` (current default). Each PR below is a topic branch off
-  `mongodb-rewrite`, reviewed and merged **into `mongodb-rewrite`** — never into `main`.
+- `mongodb-rewrite` exists; start from it. Each PR below is a topic branch off `mongodb-rewrite`,
+  reviewed and merged **into `mongodb-rewrite`** — never into `main`.
 - Keep `mongodb-rewrite` current with `main` (merge/rebase `main` in) if `main` moves during the work,
   so the eventual release merge is a clean fast-forward-ish diff.
 - The breaking change (schema rewrite, removed `Strategy`/multi-collection) lands on `main` atomically
