@@ -128,6 +128,11 @@ func (o *Outbox) ackFailure(ctx context.Context, key bson.D, doc itemDocument, h
 	errMsg := handlerErr.Error()
 
 	if o.maxRetries > 0 && newRetry > o.maxRetries {
+		// Marking the item failed and halting the stream are two writes to different collections,
+		// so they cannot be made atomic without a transaction. If a crash occurs between them the
+		// item is failed but the stream is not yet halted; the next claim re-loads the same head and
+		// re-runs the handler, which fails again and re-halts. That re-delivery is within the
+		// documented at-least-once contract and never violates per-stream FIFO.
 		now := time.Now().UTC()
 		if _, err := o.coll.UpdateOne(ctx,
 			bson.D{{Key: "_id", Value: doc.ID}},

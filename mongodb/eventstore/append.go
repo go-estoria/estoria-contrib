@@ -2,6 +2,7 @@ package eventstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -190,7 +191,7 @@ func (s *EventStore) appendInTransaction(sc context.Context, streamID typeid.ID,
 // exist (the ReturnDocument(Before) result for a newly upserted stream is ErrNoDocuments).
 func decodeLastOffset(res *mongo.SingleResult) (int64, error) {
 	if err := res.Err(); err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return 0, nil
 		}
 		return 0, err

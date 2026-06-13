@@ -211,7 +211,7 @@ func (o *Outbox) EnsureIndexes(ctx context.Context) error {
 	return nil
 }
 
-// itemFromTypeID is a small helper used in tests and logging to render an item's stream identity.
+// streamIDString renders an item's stream identity for logging and error messages.
 func streamIDString(streamType string, streamID string) string {
 	id, err := uuid.FromString(streamID)
 	if err != nil {
