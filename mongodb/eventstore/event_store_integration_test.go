@@ -2,14 +2,34 @@ package eventstore_test
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"testing"
 
-	"github.com/go-estoria/estoria-contrib/mongodb/eventstore"
+	es "github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/gofrs/uuid/v5"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
+
+// writableEvents builds n simple writable events of the given type.
+func writableEvents(eventType string, n int) []*es.WritableEvent {
+	events := make([]*es.WritableEvent, n)
+	for i := range events {
+		events[i] = &es.WritableEvent{
+			Type: eventType,
+			Data: fmt.Appendf(nil, `{"index":%d}`, i+1),
+		}
+	}
+	return events
+}
+
+// drain reads an iterator into a slice.
+func drain(t *testing.T, ctx context.Context, iter es.StreamIterator) []*es.Event {
+	t.Helper()
+	events, err := es.ReadAll(ctx, iter)
+	if err != nil {
+		t.Fatalf("reading events: %v", err)
+	}
+	return events
+}
 
 func TestEventStore_Integration_ListStreams(t *testing.T) {
 	if testing.Short() {
@@ -25,102 +45,273 @@ func TestEventStore_Integration_ListStreams(t *testing.T) {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
 
-	for _, tt := range []struct {
-		name          string
-		haveOpts      func(*testing.T) []eventstore.EventStoreOption
-		haveDocuments map[string][]bson.M
-		wantStreams   []eventstore.StreamInfo
-		wantErr       error
-	}{
-		{
-			name:          "returns an empty slice when no streams exist",
-			haveDocuments: map[string][]bson.M{},
-			wantStreams:   []eventstore.StreamInfo{},
-		},
-		{
-			name: "returns a single stream",
-			haveDocuments: map[string][]bson.M{
-				"events": {
-					{"stream_id": "f60c13d5-63de-4e33-873f-fddb0ccfdf81", "stream_type": "streamtypeA", "data": "data1", "offset": int64(1), "global_offset": int64(1)},
-				},
-			},
-			wantStreams: []eventstore.StreamInfo{
-				{StreamID: typeid.New("streamtypeA", uuid.Must(uuid.FromString("f60c13d5-63de-4e33-873f-fddb0ccfdf81"))), Offset: 1, GlobalOffset: 1},
-			},
-		},
-		{
-			name: "returns multiple streams",
-			haveDocuments: map[string][]bson.M{
-				"events": {
-					{"stream_id": "f60c13d5-63de-4e33-873f-fddb0ccfdf81", "stream_type": "streamtypeA", "data": "data1", "offset": int64(1), "global_offset": int64(1)},
-					{"stream_id": "163f58b0-7326-4b76-964e-43c1f05c0a9a", "stream_type": "streamtypeB", "data": "data2", "offset": int64(1), "global_offset": int64(2)},
-					{"stream_id": "09381358-2bd4-4bfa-8d18-65fc6a19583d", "stream_type": "streamtypeC", "data": "data3", "offset": int64(1), "global_offset": int64(3)},
-				},
-			},
-			wantStreams: []eventstore.StreamInfo{
-				{StreamID: typeid.New("streamtypeA", uuid.Must(uuid.FromString("f60c13d5-63de-4e33-873f-fddb0ccfdf81"))), Offset: 1, GlobalOffset: 1},
-				{StreamID: typeid.New("streamtypeB", uuid.Must(uuid.FromString("163f58b0-7326-4b76-964e-43c1f05c0a9a"))), Offset: 1, GlobalOffset: 2},
-				{StreamID: typeid.New("streamtypeC", uuid.Must(uuid.FromString("09381358-2bd4-4bfa-8d18-65fc6a19583d"))), Offset: 1, GlobalOffset: 3},
-			},
-		},
-		{
-			name: "returns an error if stream info cannot be decoded",
-			haveDocuments: map[string][]bson.M{
-				"events": {
-					{"stream_id": "invalid_uuid", "stream_type": "streamtypeA", "data": "data1", "offset": int64(1), "global_offset": int64(1)},
-				},
-			},
-			wantErr: errors.New(`decoding streams: parsing UUID: uuid: incorrect UUID length 12 in string "invalid_uuid"`),
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			database := mongoClient.Database("estoria")
-			t.Cleanup(func() {
-				if err := database.Drop(ctx); err != nil {
-					t.Fatalf("tc cleanup: failed to drop database: %v", err)
-				}
-			})
+	t.Run("returns an empty slice when no streams exist", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t, ctx, mongoClient)
 
-			for collectionName, haveDocuments := range tt.haveDocuments {
-				if len(haveDocuments) > 0 {
-					collection := database.Collection(collectionName)
-					if _, err := collection.InsertMany(ctx, haveDocuments); err != nil {
-						t.Fatalf("tc setup: failed to insert documents: %v", err)
-					}
-				}
-			}
+		streams, err := store.ListStreams(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(streams) != 0 {
+			t.Fatalf("expected 0 streams, got %d", len(streams))
+		}
+	})
 
-			haveOpts := []eventstore.EventStoreOption{}
-			if tt.haveOpts != nil {
-				haveOpts = tt.haveOpts(t)
-			}
+	t.Run("returns correct offset and global offset per stream", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t, ctx, mongoClient)
 
-			eventStore, err := eventstore.New(mongoClient, haveOpts...)
-			if err != nil {
-				t.Fatalf("tc setup: failed to create EventStore: %v", err)
-			}
+		streamA := typeid.NewV4("streamtypeA")
+		streamB := typeid.NewV4("streamtypeB")
 
-			gotStreams, gotErr := eventStore.ListStreams(ctx)
-			if tt.wantErr != nil {
-				if gotErr == nil {
-					t.Fatalf("expected error %v, got nil", tt.wantErr)
-				} else if gotErr.Error() != tt.wantErr.Error() {
-					t.Fatalf("expected error %v, got %v", tt.wantErr, gotErr)
-				}
-			} else if err != nil {
-				t.Fatalf("unexpected error listing streams: %v", err)
-			}
+		// A gets 3 events (global 1..3), B gets 2 events (global 4..5).
+		if err := store.AppendStream(ctx, streamA, writableEvents("evt", 3), es.AppendStreamOptions{}); err != nil {
+			t.Fatalf("appending to A: %v", err)
+		}
+		if err := store.AppendStream(ctx, streamB, writableEvents("evt", 2), es.AppendStreamOptions{}); err != nil {
+			t.Fatalf("appending to B: %v", err)
+		}
 
-			if len(gotStreams) != len(tt.wantStreams) {
-				t.Errorf("expected %d streams, got %d", len(tt.wantStreams), len(gotStreams))
-			}
+		streams, err := store.ListStreams(ctx)
+		if err != nil {
+			t.Fatalf("listing streams: %v", err)
+		}
+		if len(streams) != 2 {
+			t.Fatalf("expected 2 streams, got %d", len(streams))
+		}
 
-			// TODO: fix this test (stream info is not always returned in the same order)
-			// for i, wantStream := range tt.wantStreams {
-			// 	if gotStream := gotStreams[i]; gotStream != wantStream {
-			// 		t.Errorf("expected stream %d to be %v, got %v", i, wantStream, gotStream)
-			// 	}
-			// }
-		})
+		byID := map[string]int64{}
+		globalByID := map[string]int64{}
+		for _, s := range streams {
+			byID[s.StreamID.String()] = s.Offset
+			globalByID[s.StreamID.String()] = s.GlobalOffset
+		}
+
+		if byID[streamA.String()] != 3 || globalByID[streamA.String()] != 3 {
+			t.Errorf("stream A: expected offset 3 / global 3, got offset %d / global %d", byID[streamA.String()], globalByID[streamA.String()])
+		}
+		if byID[streamB.String()] != 2 || globalByID[streamB.String()] != 5 {
+			t.Errorf("stream B: expected offset 2 / global 5, got offset %d / global %d", byID[streamB.String()], globalByID[streamB.String()])
+		}
+	})
+}
+
+func TestEventStore_Integration_ReadStream(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
 	}
+
+	t.Parallel()
+
+	ctx := context.Background()
+
+	mongoClient, err := createMongoDBContainer(t, ctx)
+	if err != nil {
+		t.Fatalf("failed to create MongoDB container: %v", err)
+	}
+
+	store := newTestStore(t, ctx, mongoClient)
+
+	streamID := typeid.NewV4("streamtype")
+	if err := store.AppendStream(ctx, streamID, writableEvents("evt", 5), es.AppendStreamOptions{}); err != nil {
+		t.Fatalf("appending: %v", err)
+	}
+
+	t.Run("forward, all", func(t *testing.T) {
+		iter, err := store.ReadStream(ctx, streamID, es.ReadStreamOptions{})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		events := drain(t, ctx, iter)
+		if len(events) != 5 {
+			t.Fatalf("expected 5 events, got %d", len(events))
+		}
+		for i, e := range events {
+			if e.StreamVersion != int64(i+1) {
+				t.Errorf("event %d: expected version %d, got %d", i, i+1, e.StreamVersion)
+			}
+		}
+	})
+
+	t.Run("forward, AfterVersion exclusive", func(t *testing.T) {
+		iter, err := store.ReadStream(ctx, streamID, es.ReadStreamOptions{AfterVersion: 2})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		events := drain(t, ctx, iter)
+		if len(events) != 3 {
+			t.Fatalf("expected 3 events, got %d", len(events))
+		}
+		if events[0].StreamVersion != 3 {
+			t.Errorf("expected first version 3, got %d", events[0].StreamVersion)
+		}
+	})
+
+	t.Run("forward, Count", func(t *testing.T) {
+		iter, err := store.ReadStream(ctx, streamID, es.ReadStreamOptions{Count: 2})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		events := drain(t, ctx, iter)
+		if len(events) != 2 {
+			t.Fatalf("expected 2 events, got %d", len(events))
+		}
+	})
+
+	t.Run("reverse, all", func(t *testing.T) {
+		iter, err := store.ReadStream(ctx, streamID, es.ReadStreamOptions{Direction: es.Reverse})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		events := drain(t, ctx, iter)
+		if len(events) != 5 {
+			t.Fatalf("expected 5 events, got %d", len(events))
+		}
+		if events[0].StreamVersion != 5 {
+			t.Errorf("expected first version 5, got %d", events[0].StreamVersion)
+		}
+	})
+
+	t.Run("reverse, AfterVersion inclusive", func(t *testing.T) {
+		iter, err := store.ReadStream(ctx, streamID, es.ReadStreamOptions{Direction: es.Reverse, AfterVersion: 3})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		events := drain(t, ctx, iter)
+		if len(events) != 3 {
+			t.Fatalf("expected 3 events, got %d", len(events))
+		}
+		if events[0].StreamVersion != 3 || events[2].StreamVersion != 1 {
+			t.Errorf("expected versions 3..1, got %d..%d", events[0].StreamVersion, events[2].StreamVersion)
+		}
+	})
+}
+
+func TestEventStore_Integration_ReadAll(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	t.Parallel()
+
+	ctx := context.Background()
+
+	mongoClient, err := createMongoDBContainer(t, ctx)
+	if err != nil {
+		t.Fatalf("failed to create MongoDB container: %v", err)
+	}
+
+	store := newTestStore(t, ctx, mongoClient)
+
+	streamA := typeid.NewV4("streamA")
+	streamB := typeid.NewV4("streamB")
+
+	// Interleave appends across streams: A(2), B(2), A(1) => global 1..5.
+	if err := store.AppendStream(ctx, streamA, writableEvents("evt", 2), es.AppendStreamOptions{}); err != nil {
+		t.Fatalf("append A: %v", err)
+	}
+	if err := store.AppendStream(ctx, streamB, writableEvents("evt", 2), es.AppendStreamOptions{}); err != nil {
+		t.Fatalf("append B: %v", err)
+	}
+	if err := store.AppendStream(ctx, streamA, writableEvents("evt", 1), es.AppendStreamOptions{ExpectVersion: es.VersionPtr(2)}); err != nil {
+		t.Fatalf("append A2: %v", err)
+	}
+
+	t.Run("global order, dense and gap-free", func(t *testing.T) {
+		iter, err := store.ReadAll(ctx, es.ReadStreamOptions{})
+		if err != nil {
+			t.Fatalf("reading all: %v", err)
+		}
+		events := drain(t, ctx, iter)
+		if len(events) != 5 {
+			t.Fatalf("expected 5 events, got %d", len(events))
+		}
+		for i, e := range events {
+			if e.GlobalPosition == nil {
+				t.Fatalf("event %d has nil global position", i)
+			}
+			if *e.GlobalPosition != int64(i+1) {
+				t.Errorf("event %d: expected global position %d, got %d", i, i+1, *e.GlobalPosition)
+			}
+		}
+	})
+
+	t.Run("AfterVersion and Count", func(t *testing.T) {
+		iter, err := store.ReadAll(ctx, es.ReadStreamOptions{AfterVersion: 2, Count: 2})
+		if err != nil {
+			t.Fatalf("reading all: %v", err)
+		}
+		events := drain(t, ctx, iter)
+		if len(events) != 2 {
+			t.Fatalf("expected 2 events, got %d", len(events))
+		}
+		if *events[0].GlobalPosition != 3 || *events[1].GlobalPosition != 4 {
+			t.Errorf("expected global positions 3,4, got %d,%d", *events[0].GlobalPosition, *events[1].GlobalPosition)
+		}
+	})
+}
+
+func TestEventStore_Integration_AppendEdgeCases(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	t.Parallel()
+
+	ctx := context.Background()
+
+	mongoClient, err := createMongoDBContainer(t, ctx)
+	if err != nil {
+		t.Fatalf("failed to create MongoDB container: %v", err)
+	}
+
+	store := newTestStore(t, ctx, mongoClient)
+
+	t.Run("empty append is a no-op", func(t *testing.T) {
+		streamID := typeid.NewV4("emptytype")
+		if err := store.AppendStream(ctx, streamID, nil, es.AppendStreamOptions{}); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		streams, err := store.ListStreams(ctx)
+		if err != nil {
+			t.Fatalf("listing streams: %v", err)
+		}
+		for _, s := range streams {
+			if s.StreamID == streamID {
+				t.Fatalf("empty append created a stream")
+			}
+		}
+	})
+
+	t.Run("metadata round-trips", func(t *testing.T) {
+		streamID := typeid.NewV4("metatype")
+		events := []*es.WritableEvent{{
+			Type:     "evt",
+			Data:     []byte(`{"x":1}`),
+			Metadata: map[string]string{"k": "v", "a": "b"},
+		}}
+		if err := store.AppendStream(ctx, streamID, events, es.AppendStreamOptions{}); err != nil {
+			t.Fatalf("appending: %v", err)
+		}
+		iter, err := store.ReadStream(ctx, streamID, es.ReadStreamOptions{})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		read := drain(t, ctx, iter)
+		if len(read) != 1 {
+			t.Fatalf("expected 1 event, got %d", len(read))
+		}
+		if read[0].Metadata["k"] != "v" || read[0].Metadata["a"] != "b" {
+			t.Errorf("metadata did not round-trip: %v", read[0].Metadata)
+		}
+	})
+
+	t.Run("ExpectVersion and StreamMustNotExist are mutually exclusive", func(t *testing.T) {
+		streamID := typeid.NewV4("exclusivetype")
+		opts := es.AppendStreamOptions{ExpectVersion: es.VersionPtr(0), StreamMustNotExist: true}
+		if err := store.AppendStream(ctx, streamID, writableEvents("evt", 1), opts); err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+	})
 }

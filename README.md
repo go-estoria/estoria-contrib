@@ -15,7 +15,7 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 | [AWS S3](./aws/s3/eventstore) | Estoria streams map to subdirectories within a bucket. | No |
 | [DataDog](./datadog/eventstore) | Wraps an event store for DataDog-compatible telemetry. | No |
 | [EventStoreDB](./eventstoredb/eventstore) | Estoria streams map 1:1 to EventStoreDB streams. | N/A |
-| [MongoDB](./mongodb/eventstore) | Estoria streams map to databases, collections, or a single collection for all streams, depending on the strategy chosen. | Yes |
+| [MongoDB](./mongodb/eventstore) | All events are stored in a single collection with atomic, transactional per-stream and global sequencing. Requires a replica set. | Yes |
 | [OpenTelemetry](./opentelemetry/eventstore) | Wraps an event store for OpenTelemetry-compatible telemetry. | N/A |
 | [SQL](./sql/eventstore) | Estoria streams use a single table for all events. | Yes |
 
