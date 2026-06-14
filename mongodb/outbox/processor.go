@@ -103,15 +103,24 @@ func (o *Outbox) ProcessNext(ctx context.Context) error {
 // leaves only a harmless orphan (a pending item below the cursor, never re-selected) rather than a
 // stuck stream whose cursor points at a missing item.
 func (o *Outbox) ackSuccess(ctx context.Context, key bson.D, itemID bson.ObjectID, version int64) error {
-	if _, err := o.streamState.UpdateOne(ctx,
+	res, err := o.streamState.UpdateOne(ctx,
 		bson.D{{Key: "_id", Value: key}, {Key: "next_version", Value: version}},
 		bson.D{{Key: "$set", Value: bson.D{
 			{Key: "next_version", Value: version + 1},
 			{Key: "leased_until", Value: epoch},
 			{Key: "leased_by", Value: ""},
 		}}},
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("advancing stream cursor: %w", err)
+	}
+
+	// The cursor guard ({next_version: version}) should always match under the lease invariant
+	// (only the lease holder reaches here, and it advances the cursor exactly once). If it does not,
+	// the stream state changed unexpectedly; deleting the item would leave the cursor pointing at a
+	// missing item and stall the stream, so skip the delete and surface the anomaly instead.
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("stream cursor for version %d advanced unexpectedly; leaving item in place", version)
 	}
 
 	if _, err := o.coll.DeleteOne(ctx, bson.D{{Key: "_id", Value: itemID}}); err != nil {
