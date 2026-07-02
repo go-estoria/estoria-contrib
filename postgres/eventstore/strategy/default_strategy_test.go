@@ -10,6 +10,13 @@ import (
 	"github.com/go-estoria/estoria/typeid"
 )
 
+// normalizeSQL collapses all runs of whitespace to single spaces so generated
+// queries can be compared for logical equality regardless of indentation or
+// trailing whitespace on blank lines left by omitted optional clauses.
+func normalizeSQL(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 	for _, tt := range []struct {
 		name               string
@@ -285,7 +292,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if strings.TrimSpace(gotQuery) != strings.TrimSpace(tt.wantQuery) {
+			if normalizeSQL(gotQuery) != normalizeSQL(tt.wantQuery) {
 				t.Errorf("expected query:\n-----\n%s\n-----\ngot:\n-----\n%s\n-----\n", tt.wantQuery, gotQuery)
 			}
 
@@ -358,7 +365,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if strings.TrimSpace(gotStmt) != strings.TrimSpace(tt.wantStmt) {
+			if normalizeSQL(gotStmt) != normalizeSQL(tt.wantStmt) {
 				t.Errorf("expected statement:\n-----\n%s\n-----\ngot:\n-----\n%s\n-----\n", tt.wantStmt, gotStmt)
 			}
 		})
