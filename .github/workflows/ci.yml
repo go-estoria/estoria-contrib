@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Lint is intentionally NOT a required status check yet: this repo has no lint
+  # history and the full core linter set will surface many findings. Leave it
+  # off branch protection's required list until a cleanup pass is done, then
+  # promote it to a hard gate. It still runs and reports status so failures are
+  # visible.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # Pinned to the v2 line so a future golangci-lint v3 can't reject the
+          # `version: "2"` config and turn the job red for unrelated reasons.
+          version: v2.12
+
+  # Single comprehensive test job. The suite has three kinds of tests:
+  #   - testcontainers-based (mongo/postgres/kurrent) — self-provision, need Docker
+  #     (preinstalled on ubuntu-latest);
+  #   - live-server cache tests (redis/valkey) — need a running server, provided
+  #     here as service containers;
+  #   - pure unit tests (bigcache/freecache/datadog/otel/strategies) — no deps.
+  # Running the full `go test ./...` with Docker + these services covers every
+  # package deterministically. (We don't use `-short` or the make itest/atest
+  # targets here: the redis/valkey cache tests are neither Short-guarded nor
+  # Integration-named, so those selectors would silently miss or break them.)
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      valkey:
+        image: valkey/valkey:8
+        # The valkey cache tests connect to localhost:6380; map host 6380 to the
+        # container's default 6379.
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -cover -timeout 20m ./...

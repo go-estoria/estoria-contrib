@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Go module dependencies. This repo has a large, multi-provider dependency
+  # tree, so grouping minor/patch bumps is essential to keep PR volume sane.
+  # When the core library (go-estoria/estoria) releases, its bump arrives here
+  # as an ordinary grouped PR — that is how release ordering stays automatic.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 15
+    groups:
+      go-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions used by the workflows in this repo.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        update-types:
+          - minor
+          - patch

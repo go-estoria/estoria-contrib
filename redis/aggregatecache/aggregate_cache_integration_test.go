@@ -59,7 +59,7 @@ func TestCache_GetAggregate(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				if err := client.Set(context.Background(), "type_9fbcfd12-fffa-4e43-8168-9e107db5c800", data, time.Second); err != nil {
+				if err := client.Set(context.Background(), "type_9fbcfd12-fffa-4e43-8168-9e107db5c800", data, time.Second).Err(); err != nil {
 					t.Fatal(err)
 				}
 
