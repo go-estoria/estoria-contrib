@@ -81,8 +81,16 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		stream:   result,
 	}
 
+	// A stream read past its tip yields no events. That is an empty result, not a missing
+	// stream: KurrentDB reports an absent stream distinctly, as a resource-not-found above.
 	if err := iter.Preload(); errors.Is(err, eventstore.ErrStreamNotFound) {
 		return nil, eventstore.ErrStreamNotFound
+	} else if errors.Is(err, eventstore.ErrEndOfEventStream) {
+		if closeErr := iter.Close(ctx); closeErr != nil {
+			s.log.Warn("closing empty stream iterator", "stream_id", streamID.String(), "error", closeErr)
+		}
+
+		return emptyStreamIterator{}, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("preloading first event: %w", err)
 	}

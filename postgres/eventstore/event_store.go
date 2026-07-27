@@ -125,14 +125,28 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		return nil, fmt.Errorf("querying stream events: %w", err)
 	}
 
-	// no rows means the stream doesn't exist
+	// No rows has two meanings: the stream holds no events at all, or the read was filtered
+	// and nothing matched. Only the first is ErrStreamNotFound.
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("preparing stream events results: %w", err)
 		}
 		rows.Close()
-		return nil, eventstore.ErrStreamNotFound
+
+		// An unfiltered read that matched nothing saw the whole stream: it is absent.
+		if opts.AfterVersion == 0 {
+			return nil, eventstore.ErrStreamNotFound
+		}
+
+		exists, err := s.streamExists(ctx, streamID)
+		if err != nil {
+			return nil, err
+		} else if !exists {
+			return nil, eventstore.ErrStreamNotFound
+		}
+
+		return emptyStreamIterator{}, nil
 	}
 
 	// calling .Next() advanced the cursor, so scan the first row now
@@ -276,6 +290,31 @@ func (s *EventStore) ListStreams(ctx context.Context) ([]strategy.StreamMetadata
 	}
 
 	return lister.ListStreams(ctx, s.pool)
+}
+
+// StreamExistenceChecker is an interface for strategies that can report whether a stream
+// exists independently of any read filter.
+type StreamExistenceChecker interface {
+	StreamExists(ctx context.Context, pool *pgxpool.Pool, streamID typeid.ID) (bool, error)
+}
+
+// streamExists reports whether the given stream exists.
+//
+// Strategies that do not implement StreamExistenceChecker get the conservative answer,
+// true: a filtered read matching no events is not evidence that the stream is absent, so
+// ReadStream returns an empty iterator rather than claiming a not-found it cannot prove.
+func (s *EventStore) streamExists(ctx context.Context, streamID typeid.ID) (bool, error) {
+	checker, ok := s.strategy.(StreamExistenceChecker)
+	if !ok {
+		return true, nil
+	}
+
+	exists, err := checker.StreamExists(ctx, s.pool, streamID)
+	if err != nil {
+		return false, fmt.Errorf("checking whether stream exists: %w", err)
+	}
+
+	return exists, nil
 }
 
 // AllReader is an interface for strategies that support reading all events across all streams.

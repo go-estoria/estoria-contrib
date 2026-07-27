@@ -89,3 +89,15 @@ func (i *streamIterator) scanEventRecord() (*eventstore.Event, error) {
 		Data:          resolvedEvent.Event.Data,
 	}, nil
 }
+
+// emptyStreamIterator is a StreamIterator that immediately returns ErrEndOfEventStream.
+// ReadStream returns one when a read matched no events but the stream exists.
+type emptyStreamIterator struct{}
+
+func (emptyStreamIterator) Next(_ context.Context) (*eventstore.Event, error) {
+	return nil, eventstore.ErrEndOfEventStream
+}
+
+func (emptyStreamIterator) Close(_ context.Context) error {
+	return nil
+}
