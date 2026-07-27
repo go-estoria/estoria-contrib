@@ -162,6 +162,29 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx pgx.Tx, stre
 	return newOffset, nil
 }
 
+// StreamExists reports whether the given stream exists, regardless of how many events it
+// holds or which of them a read's options would match.
+//
+// A row in the streams table is created only by NextHighwaterMark, within the same
+// transaction that appends the events, so its presence is authoritative.
+func (s *DefaultStrategy) StreamExists(ctx context.Context, pool *pgxpool.Pool, streamID typeid.ID) (bool, error) {
+	var exists int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT 1
+		FROM %s
+		WHERE
+			stream_type = $1
+			AND stream_id = $2`,
+		quoteIdent(s.streamsTableName),
+	), streamID.Type, streamID.UUID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("querying stream: %w", err)
+	}
+
+	return true, nil
+}
+
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
 // The statement uses RETURNING id to capture the generated global position.
 func (s *DefaultStrategy) AppendStreamStatement() (string, error) {

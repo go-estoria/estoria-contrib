@@ -389,6 +389,61 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		}
 	})
 
+	// A stream whose tip is at or below AfterVersion exists; it simply has nothing newer.
+	// Reporting that as ErrStreamNotFound made any aggregate snapshotted at the stream tip
+	// unloadable. See go-estoria/estoria-contrib#18 and go-estoria/estoria#24.
+	t.Run("read_past_stream_tip_returns_empty_iterator", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+		streamID := typeid.NewV4("test")
+
+		events := []*eventstore.WritableEvent{
+			{Type: "eventtype", Data: []byte(`{"index":1}`)},
+			{Type: "eventtype", Data: []byte(`{"index":2}`)},
+			{Type: "eventtype", Data: []byte(`{"index":3}`)},
+		}
+		if err := es.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+			t.Fatalf("failed to append events: %v", err)
+		}
+
+		// at the tip, and beyond it
+		for _, afterVersion := range []int64{3, 10} {
+			iter, err := es.ReadStream(t.Context(), streamID, eventstore.ReadStreamOptions{
+				AfterVersion: afterVersion,
+			})
+			if err != nil {
+				t.Fatalf("ReadStream(AfterVersion: %d) returned unexpected error: %v", afterVersion, err)
+			}
+			if iter == nil {
+				t.Fatalf("ReadStream(AfterVersion: %d) returned nil iterator", afterVersion)
+			}
+
+			if _, err := iter.Next(t.Context()); !errors.Is(err, eventstore.ErrEndOfEventStream) {
+				t.Errorf("AfterVersion %d: expected ErrEndOfEventStream, got: %v", afterVersion, err)
+			}
+
+			if err := iter.Close(t.Context()); err != nil {
+				t.Errorf("AfterVersion %d: closing iterator: %v", afterVersion, err)
+			}
+		}
+	})
+
+	// The filtered read still reports absence when the stream genuinely does not exist,
+	// rather than treating every empty filtered read as an existing stream.
+	t.Run("filtered_read_of_absent_stream_returns_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		es := newStore(t)
+
+		_, err := es.ReadStream(t.Context(), typeid.NewV4("test"), eventstore.ReadStreamOptions{
+			AfterVersion: 3,
+		})
+		if !errors.Is(err, eventstore.ErrStreamNotFound) {
+			t.Errorf("expected ErrStreamNotFound for a filtered read of an absent stream, got: %v", err)
+		}
+	})
+
 	t.Run("append_with_empty_stream_type_returns_error", func(t *testing.T) {
 		t.Parallel()
 

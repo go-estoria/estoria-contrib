@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -63,6 +64,20 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 		} else if !eq {
 			return fmt.Errorf("expected event data %s, got %s", string(appendedEvents[i].Data), string(readEvent.Data))
 		}
+	}
+
+	// A stream read past its own tip exists and simply has nothing newer, so the read yields
+	// an empty iterator rather than reporting the stream missing. Backends that infer absence
+	// from an empty filtered read make any aggregate snapshotted at the tip unloadable.
+	tipIter, err := eventStore.ReadStream(t.Context(), streamID, eventstore.ReadStreamOptions{
+		AfterVersion: int64(len(appendedEvents)),
+	})
+	if err != nil {
+		return fmt.Errorf("error reading stream past its tip: %w", err)
+	}
+
+	if _, err := tipIter.Next(t.Context()); !errors.Is(err, eventstore.ErrEndOfEventStream) {
+		return fmt.Errorf("expected ErrEndOfEventStream reading past the stream tip, got: %w", err)
 	}
 
 	return nil

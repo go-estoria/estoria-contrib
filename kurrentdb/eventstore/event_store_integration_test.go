@@ -62,6 +62,25 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			wantErr:      eventstore.ErrStreamNotFound,
 		},
 		{
+			// A stream read past its own tip exists and simply has nothing newer.
+			// See go-estoria/estoria-contrib#18 and go-estoria/estoria#24.
+			name: "read stream past its tip",
+			withEvents: map[typeid.ID][]*eventstore.WritableEvent{
+				streamIDs[0]: writableEvents[0:3],
+			},
+			haveStreamID: streamIDs[0],
+			haveOpts:     eventstore.ReadStreamOptions{AfterVersion: 3},
+			wantEvents:   nil,
+		},
+		{
+			// Absence is still reported as such, rather than every empty filtered read
+			// being treated as an existing stream.
+			name:         "read non-existent stream (filtered)",
+			haveStreamID: typeid.NewV4("nonexistentstream"),
+			haveOpts:     eventstore.ReadStreamOptions{AfterVersion: 3},
+			wantErr:      eventstore.ErrStreamNotFound,
+		},
+		{
 			name: "read stream with one event",
 			withEvents: map[typeid.ID][]*eventstore.WritableEvent{
 				streamIDs[0]: writableEvents[0:1],
