@@ -141,7 +141,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 
 		exists, err := s.streamExists(ctx, streamID)
 		if err != nil {
-			return nil, fmt.Errorf("checking whether stream exists: %w", err)
+			return nil, err
 		} else if !exists {
 			return nil, eventstore.ErrStreamNotFound
 		}
@@ -309,7 +309,12 @@ func (s *EventStore) streamExists(ctx context.Context, streamID typeid.ID) (bool
 		return true, nil
 	}
 
-	return checker.StreamExists(ctx, s.pool, streamID)
+	exists, err := checker.StreamExists(ctx, s.pool, streamID)
+	if err != nil {
+		return false, fmt.Errorf("checking whether stream exists: %w", err)
+	}
+
+	return exists, nil
 }
 
 // AllReader is an interface for strategies that support reading all events across all streams.
