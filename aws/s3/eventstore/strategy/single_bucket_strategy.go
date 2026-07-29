@@ -157,9 +157,6 @@ func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID ty
 		Delimiter: aws.String("/"),
 	})
 	if err != nil {
-		// errors.As rather than a type assertion: the AWS SDK returns these wrapped
-		// (in smithy.OperationError), so asserting on err directly never matched and
-		// every "not found" surfaced as a listing failure instead of an empty stream.
 		var (
 			notFound     *types.NotFound
 			noSuchKey    *types.NoSuchKey

@@ -94,8 +94,7 @@ type StreamInfo struct {
 }
 
 // bsonField returns a BSON element's value as T, or an error naming the field and the
-// type actually stored. A document written by an older schema, or by something other
-// than this store, should surface as an error rather than panic on a type assertion.
+// type actually stored.
 func bsonField[T any](key string, value any) (T, error) {
 	typed, ok := value.(T)
 	if !ok {

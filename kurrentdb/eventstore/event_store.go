@@ -151,8 +151,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 // asVersionMismatch converts a KurrentDB wrong-expected-version error into a
 // StreamVersionMismatchError. The actual version is only available as text in the
-// server's message, so a message the scan does not recognize is reported as a plain
-// append failure rather than a mismatch with a bogus version.
+// server's message; an unrecognized message reports no mismatch.
 func (s *EventStore) asVersionMismatch(
 	err error,
 	streamID typeid.ID,

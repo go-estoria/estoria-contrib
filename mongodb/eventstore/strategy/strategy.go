@@ -11,8 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
-// Document field names, shared by both strategies so that the filters reading a field
-// and the documents writing it cannot drift apart.
+// Document field names shared by both strategies.
 const (
 	fieldStreamType   = "stream_type"
 	fieldStreamID     = "stream_id"
