@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
 	"github.com/moby/moby/api/types/container"
@@ -57,7 +58,10 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 	}
 
 	req := testcontainers.ContainerRequest{
-		Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:latest",
+		// Pinned rather than :latest so a server release cannot change the readiness
+		// contract below with no change on our side. 26.1 was byte-identical to the
+		// :latest this replaced. Matches how the mongo and postgres suites pin.
+		Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:26.1",
 		ExposedPorts: []string{port.String()},
 		Env: map[string]string{
 			"KURRENTDB_CLUSTER_SIZE":               "1",
@@ -73,7 +77,13 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 				port: []network.PortBinding{{HostIP: hostIP, HostPort: portStr}},
 			}
 		},
-		WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)"),
+		// testcontainers' default startup timeout is 60s, which this exceeded on CI once
+		// testcontainers-go moved to 0.43.0: up to 10 single-node clusters (see kurrentSem)
+		// elect leaders concurrently on a 2-core runner, and the log line simply arrives
+		// late. Failures looked like "matched 0 times, expected 1" with no test assertion
+		// involved. Three minutes is well inside the suite's 20m budget.
+		WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)").
+			WithStartupTimeout(3 * time.Minute),
 	}
 
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

@@ -16,9 +16,9 @@ require (
 	github.com/kurrent-io/KurrentDB-Client-Go v1.4.0
 	github.com/moby/moby/api v1.55.0
 	github.com/redis/go-redis/v9 v9.21.0
-	github.com/testcontainers/testcontainers-go v0.42.0
-	github.com/testcontainers/testcontainers-go/modules/mongodb v0.42.0
-	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
+	github.com/testcontainers/testcontainers-go v0.43.0
+	github.com/testcontainers/testcontainers-go/modules/mongodb v0.43.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	github.com/valkey-io/valkey-go v1.0.76
 	go.mongodb.org/mongo-driver/v2 v2.7.0
 	go.opentelemetry.io/otel v1.44.0
