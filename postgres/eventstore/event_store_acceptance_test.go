@@ -41,7 +41,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 		},
 	} {
 		t.Run(tStrat.name+"_"+tStrat.desc, func(t *testing.T) {
-			db, err := createPostgresContainer(t, t.Context())
+			db, err := createPostgresContainer(t.Context(), t)
 			if err != nil {
 				t.Fatalf("failed to create Postgres container: %v", err)
 			}

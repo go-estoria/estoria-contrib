@@ -3,6 +3,7 @@ package snapshotstore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strconv"
@@ -117,7 +118,7 @@ func versionFromS3Object(obj types.Object) (int64, error) {
 	_, file := path.Split(*obj.Key)
 	versionStr, ok := strings.CutSuffix(file, ".json")
 	if !ok {
-		return 0, fmt.Errorf("parsing version number: %w", fmt.Errorf("missing .json suffix"))
+		return 0, fmt.Errorf("parsing version number: %w", errors.New("missing .json suffix"))
 	}
 
 	version, err := strconv.Atoi(versionStr)
@@ -128,7 +129,7 @@ func versionFromS3Object(obj types.Object) (int64, error) {
 	return int64(version), nil
 }
 
-func (s *SnapshotStore) WriteSnapshot(_ context.Context, snap *snapshotstore.AggregateSnapshot) error {
+func (s *SnapshotStore) WriteSnapshot(ctx context.Context, snap *snapshotstore.AggregateSnapshot) error {
 	estoria.GetLogger().Debug("writing snapshot",
 		"aggregate_id", snap.AggregateID,
 		"aggregate_version",
@@ -142,7 +143,7 @@ func (s *SnapshotStore) WriteSnapshot(_ context.Context, snap *snapshotstore.Agg
 
 	bucket := s.resolveBucket(snap.AggregateID)
 	key := s.resolveKey(snap.AggregateID, snap.AggregateVersion)
-	if _, err := s.s3.PutObject(context.Background(), &s3.PutObjectInput{
+	if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      &bucket,
 		Key:         &key,
 		ContentType: aws.String("application/json"),

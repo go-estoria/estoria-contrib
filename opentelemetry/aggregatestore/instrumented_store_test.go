@@ -3,6 +3,7 @@ package aggregatestore
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/go-estoria/estoria"
@@ -438,7 +439,7 @@ func TestInstrumentedStore_Load(t *testing.T) {
 			}
 
 			recorder, reader, providerOpts := testProviders(t)
-			opts := append(providerOpts, tt.extraOpts...)
+			opts := append(slices.Clone(providerOpts), tt.extraOpts...)
 
 			store, err := NewInstrumentedStore(inner, opts...)
 			if err != nil {
@@ -580,7 +581,7 @@ func TestInstrumentedStore_Hydrate(t *testing.T) {
 			}
 
 			recorder, reader, providerOpts := testProviders(t)
-			opts := append(providerOpts, tt.extraOpts...)
+			opts := append(slices.Clone(providerOpts), tt.extraOpts...)
 
 			store, err := NewInstrumentedStore(inner, opts...)
 			if err != nil {
@@ -719,7 +720,7 @@ func TestInstrumentedStore_Save(t *testing.T) {
 			}
 
 			recorder, reader, providerOpts := testProviders(t)
-			opts := append(providerOpts, tt.extraOpts...)
+			opts := append(slices.Clone(providerOpts), tt.extraOpts...)
 
 			store, err := NewInstrumentedStore(inner, opts...)
 			if err != nil {

@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-func createMongoDBContainer(t *testing.T, ctx context.Context) (*mongo.Client, error) {
+func createMongoDBContainer(ctx context.Context, t *testing.T) (*mongo.Client, error) {
 	t.Helper()
 
 	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))

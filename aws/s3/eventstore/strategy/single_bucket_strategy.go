@@ -3,6 +3,7 @@ package strategy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strconv"
@@ -45,9 +46,9 @@ type SingleBucketStrategy struct {
 
 func NewSingleBucketStrategy(client *s3.Client, bucket string, opts ...SingleBucketStrategyOption) (*SingleBucketStrategy, error) {
 	if client == nil {
-		return nil, fmt.Errorf("client is required")
+		return nil, errors.New("client is required")
 	} else if bucket == "" {
-		return nil, fmt.Errorf("bucket is required")
+		return nil, errors.New("bucket is required")
 	}
 
 	strategy := &SingleBucketStrategy{
@@ -68,7 +69,7 @@ func NewSingleBucketStrategy(client *s3.Client, bucket string, opts ...SingleBuc
 }
 
 func (s *SingleBucketStrategy) GetStreamIterator(
-	ctx context.Context,
+	_ context.Context,
 	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (eventstore.StreamIterator, error) {
@@ -156,13 +157,23 @@ func (s *SingleBucketStrategy) getLatestVersion(ctx context.Context, streamID ty
 		Delimiter: aws.String("/"),
 	})
 	if err != nil {
-		if _, ok := err.(*types.NotFound); ok {
+		// errors.As rather than a type assertion: the AWS SDK returns these wrapped
+		// (in smithy.OperationError), so asserting on err directly never matched and
+		// every "not found" surfaced as a listing failure instead of an empty stream.
+		var (
+			notFound     *types.NotFound
+			noSuchKey    *types.NoSuchKey
+			noSuchBucket *types.NoSuchBucket
+		)
+
+		switch {
+		case errors.As(err, &notFound):
 			s.log.Debug("not found", "bucket", s.bucket)
 			return 0, nil
-		} else if _, ok := err.(*types.NoSuchKey); ok {
+		case errors.As(err, &noSuchKey):
 			s.log.Debug("key not found", "bucket", s.bucket)
 			return 0, nil
-		} else if _, ok := err.(*types.NoSuchBucket); ok {
+		case errors.As(err, &noSuchBucket):
 			s.log.Error("bucket not found", "bucket", s.bucket)
 			return 0, nil
 		}

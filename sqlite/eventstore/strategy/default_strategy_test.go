@@ -44,7 +44,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			wantNumArgs: 2,
 		},
 		{
-			name: "forward (overriden table name)",
+			name: "forward (overridden table name)",
 			withStrategyOpts: []strategy.DefaultStrategyOption{
 				strategy.WithEventsTableName("my_events"),
 			},
@@ -327,7 +327,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 	`,
 		},
 		{
-			name: "overriden table name",
+			name: "overridden table name",
 			withStrategyOpts: []strategy.DefaultStrategyOption{
 				strategy.WithEventsTableName("my_events"),
 			},

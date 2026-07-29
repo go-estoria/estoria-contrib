@@ -24,8 +24,10 @@ type EventStore struct {
 	log       estoria.Logger
 }
 
-var _ eventstore.StreamReader = (*EventStore)(nil)
-var _ eventstore.StreamWriter = (*EventStore)(nil)
+var (
+	_ eventstore.StreamReader = (*EventStore)(nil)
+	_ eventstore.StreamWriter = (*EventStore)(nil)
+)
 
 // New creates a new event store using the given KurrentDB client.
 func New(kurrentDB KurrentClient, opts ...EventStoreOption) (*EventStore, error) {
@@ -104,7 +106,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 	// Validate mutually exclusive options.
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
-		return fmt.Errorf("ExpectVersion and StreamMustNotExist are mutually exclusive")
+		return errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
 	}
 
 	appendOpts := kurrentdb.AppendToStreamOptions{}
@@ -137,39 +139,54 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	if _, err := s.kurrentDB.AppendToStream(ctx, streamID.String(), appendOpts, streamEvents...); err != nil {
-		if kdbErr, ok := kurrentdb.FromError(err); !ok && kdbErr != nil {
-			switch kdbErr.Code() {
-			case kurrentdb.ErrorCodeWrongExpectedVersion:
-				var expected, actual int
-				if _, scanErr := fmt.Fscanf(
-					strings.NewReader(kdbErr.Unwrap().Error()),
-					"wrong expected version: expecting '%d' but got '%d'",
-					&expected,
-					&actual,
-				); scanErr != nil {
-					s.log.Error("append to stream: failed to parse version mismatch error",
-						"stream_id", streamID.String(),
-						"expected_version", derefInt64(opts.ExpectVersion),
-						"scan_error", scanErr,
-						"error", err,
-						"code", kdbErr.Code(),
-						"unwrap", kdbErr.Unwrap(),
-					)
-					return fmt.Errorf("appending to stream: %w", err)
-				}
-
-				return eventstore.StreamVersionMismatchError{
-					StreamID:        streamID,
-					ExpectedVersion: derefInt64(opts.ExpectVersion),
-					ActualVersion:   int64(actual + 1), // convert to 1-based
-				}
-			}
+		if ok, mismatch := s.asVersionMismatch(err, streamID, opts); ok {
+			return mismatch
 		}
 
 		return fmt.Errorf("appending to stream: %w", err)
 	}
 
 	return nil
+}
+
+// asVersionMismatch converts a KurrentDB wrong-expected-version error into a
+// StreamVersionMismatchError. The actual version is only available as text in the
+// server's message, so a message the scan does not recognize is reported as a plain
+// append failure rather than a mismatch with a bogus version.
+func (s *EventStore) asVersionMismatch(
+	err error,
+	streamID typeid.ID,
+	opts eventstore.AppendStreamOptions,
+) (bool, error) {
+	kdbErr, ok := kurrentdb.FromError(err)
+	if ok || kdbErr == nil || kdbErr.Code() != kurrentdb.ErrorCodeWrongExpectedVersion {
+		return false, nil
+	}
+
+	var expected, actual int
+	if _, scanErr := fmt.Fscanf(
+		strings.NewReader(kdbErr.Unwrap().Error()),
+		"wrong expected version: expecting '%d' but got '%d'",
+		&expected,
+		&actual,
+	); scanErr != nil {
+		s.log.Error("append to stream: failed to parse version mismatch error",
+			"stream_id", streamID.String(),
+			"expected_version", derefInt64(opts.ExpectVersion),
+			"scan_error", scanErr,
+			"error", err,
+			"code", kdbErr.Code(),
+			"unwrap", kdbErr.Unwrap(),
+		)
+
+		return false, nil
+	}
+
+	return true, eventstore.StreamVersionMismatchError{
+		StreamID:        streamID,
+		ExpectedVersion: derefInt64(opts.ExpectVersion),
+		ActualVersion:   int64(actual + 1), // convert to 1-based
+	}
 }
 
 // derefInt64 safely dereferences an *int64, returning 0 for nil.

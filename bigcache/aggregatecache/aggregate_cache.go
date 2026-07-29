@@ -55,7 +55,7 @@ func New[E estoria.Entity](cache BigCache, opts ...CacheOption[E]) *Cache[E] {
 	return aggregateCache
 }
 
-func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.Aggregate[E], error) {
+func (c *Cache[E]) GetAggregate(_ context.Context, aggregateID typeid.ID) (*aggregatestore.Aggregate[E], error) {
 	data, err := c.cache.Get(aggregateID.String())
 	if errors.Is(err, bigcache.ErrEntryNotFound) {
 		return nil, nil
@@ -71,7 +71,7 @@ func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*ag
 	return aggregatestore.NewAggregate(snapshot.Entity, snapshot.Version), nil
 }
 
-func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.Aggregate[E]) error {
+func (c *Cache[E]) PutAggregate(_ context.Context, aggregate *aggregatestore.Aggregate[E]) error {
 	data, err := c.marshaler.Marshal(Snapshot[E]{
 		Entity:  aggregate.Entity(),
 		Version: aggregate.Version(),

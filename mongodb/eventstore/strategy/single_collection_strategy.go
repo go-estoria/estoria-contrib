@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-estoria/estoria"
@@ -25,9 +26,9 @@ type SingleCollectionStrategy struct {
 // NewSingleCollectionStrategy creates a new SingleCollectionStrategy using the given client and collection.
 func NewSingleCollectionStrategy(client MongoSessionStarter, collection MongoCollection, opts ...StrategyOption) (*SingleCollectionStrategy, error) {
 	if client == nil {
-		return nil, fmt.Errorf("client is required")
+		return nil, errors.New("client is required")
 	} else if collection == nil {
-		return nil, fmt.Errorf("collection is required")
+		return nil, errors.New("collection is required")
 	}
 
 	config := newStrategyConfig()
@@ -62,8 +63,8 @@ func (s *SingleCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadStreamOptions,
 ) ([]*mongo.Cursor, error) {
-	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "global_offset")
-	filter := bson.D{}
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, fieldGlobalOffset)
+	filter := make(bson.D, 0, len(versionFilter))
 	filter = append(filter, versionFilter...)
 	cursor, err := s.collection.Find(ctx, filter, findOpts)
 	if err != nil {
@@ -79,11 +80,12 @@ func (s *SingleCollectionStrategy) GetStreamCursor(
 	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (*mongo.Cursor, error) {
-	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "offset")
-	filter := bson.D{
-		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.UUID.String()},
-	}
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, fieldOffset)
+	filter := make(bson.D, 0, 2+len(versionFilter))
+	filter = append(filter,
+		bson.E{Key: fieldStreamType, Value: streamID.Type},
+		bson.E{Key: fieldStreamID, Value: streamID.UUID.String()},
+	)
 	filter = append(filter, versionFilter...)
 	cursor, err := s.collection.Find(ctx, filter, findOpts)
 	if err != nil {
@@ -130,15 +132,15 @@ func (s *SingleCollectionStrategy) ExecuteInsertTransaction(
 
 // Finds the highest offset for the given stream.
 func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.ID) (int64, error) {
-	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
-	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
+	s.log.Debug("finding highest offset for stream", fieldStreamID, streamID)
+	opts := options.FindOne().SetSort(bson.D{{Key: fieldOffset, Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{
-		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.UUID.String()},
+		{Key: fieldStreamType, Value: streamID.Type},
+		{Key: fieldStreamID, Value: streamID.UUID.String()},
 	}, opts)
 	if result.Err() != nil {
-		if result.Err() == mongo.ErrNoDocuments {
-			s.log.Debug("stream not found", "stream_id", streamID)
+		if errors.Is(result.Err(), mongo.ErrNoDocuments) {
+			s.log.Debug("stream not found", fieldStreamID, streamID)
 			return 0, nil
 		}
 		return 0, fmt.Errorf("finding highest offset: %w", result.Err())
@@ -149,17 +151,17 @@ func (s *SingleCollectionStrategy) getHighestOffset(ctx context.Context, streamI
 		return 0, fmt.Errorf("decoding highest offset: %w", err)
 	}
 
-	s.log.Debug("got highest offset for stream", "stream_id", streamID, "offset", offsets.Offset)
+	s.log.Debug("got highest offset for stream", fieldStreamID, streamID, fieldOffset, offsets.Offset)
 	return offsets.Offset, nil
 }
 
 // Finds the highest global offset among all events in the event store.
 func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (int64, error) {
 	s.log.Debug("finding highest global offset in event store")
-	opts := options.FindOne().SetSort(bson.D{{Key: "global_offset", Value: -1}})
+	opts := options.FindOne().SetSort(bson.D{{Key: fieldGlobalOffset, Value: -1}})
 	result := s.collection.FindOne(ctx, bson.D{}, opts)
 	if result.Err() != nil {
-		if result.Err() == mongo.ErrNoDocuments {
+		if errors.Is(result.Err(), mongo.ErrNoDocuments) {
 			s.log.Debug("event store is empty")
 			return 0, nil
 		}
@@ -171,6 +173,6 @@ func (s *SingleCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (
 		return 0, fmt.Errorf("decoding highest global offset: %w", err)
 	}
 
-	s.log.Debug("got highest global offset for event store", "global_offset", offsets.GlobalOffset)
+	s.log.Debug("got highest global offset for event store", fieldGlobalOffset, offsets.GlobalOffset)
 	return offsets.GlobalOffset, nil
 }

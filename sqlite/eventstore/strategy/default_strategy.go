@@ -27,10 +27,15 @@ const (
 // tableNameRE is the pre-compiled regex used to validate SQL table identifiers.
 var tableNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
+const (
+	sortAscending  = "ASC"
+	sortDescending = "DESC"
+)
+
 // directionSQL maps read direction values to their SQL ORDER BY keywords.
 var directionSQL = map[eventstore.ReadStreamDirection]string{
-	eventstore.Forward: "ASC",
-	eventstore.Reverse: "DESC",
+	eventstore.Forward: sortAscending,
+	eventstore.Reverse: sortDescending,
 }
 
 // DefaultStrategy is a strategy that stores all events in a single SQLite table,
@@ -65,7 +70,7 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.ReadStreamOptions) (string, []any, error) {
 	direction, ok := directionSQL[opts.Direction]
 	if !ok {
-		direction = "ASC"
+		direction = sortAscending
 	}
 
 	args := []any{
@@ -340,7 +345,7 @@ func (s *DefaultStrategy) ListStreams(ctx context.Context, db *sql.DB) ([]Stream
 func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventstore.ReadStreamOptions) (*sql.Rows, error) {
 	direction, ok := directionSQL[opts.Direction]
 	if !ok {
-		direction = "ASC"
+		direction = sortAscending
 	}
 
 	var args []any

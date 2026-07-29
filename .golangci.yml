@@ -1,6 +1,14 @@
 version: "2"
 linters:
   default: none
+  # Deliberately NOT enabled (CI lint triage): ireturn, wrapcheck, tagliatelle,
+  # nonamedreturns, mnd, inamedparam, nilnil — opinionated checks that fight this
+  # library's interface-returning, snake_case-storage design.
+  #
+  # Also not enabled: musttag. It fires wherever a store marshals one of the
+  # library's own wire structs (eventstore.Event, snapshotstore.AggregateSnapshot),
+  # which are serialized whole and deliberately carry no json tags. Requiring tags
+  # on every field of them is noise, not a finding.
   enable:
     - asasalint
     - asciicheck
@@ -40,24 +48,18 @@ linters:
     - govet
     - grouper
     - importas
-    - inamedparam
     - ineffassign
     - interfacebloat
     - intrange
-    - ireturn
     - loggercheck
     - makezero
     - mirror
     - misspell
-    - mnd
-    - musttag
     - nakedret
     - nestif
     - nilerr
-    - nilnil
     - noctx
     - nolintlint
-    - nonamedreturns
     - nosprintfhostport
     - paralleltest
     - perfsprint
@@ -73,7 +75,6 @@ linters:
     - sqlclosecheck
     - staticcheck
     - tagalign
-    - tagliatelle
     - testableexamples
     - testifylint
     - testpackage
@@ -85,8 +86,14 @@ linters:
     - usestdlibvars
     - wastedassign
     - whitespace
-    - wrapcheck
     - zerologlint
+  settings:
+    misspell:
+      # "strat" is this repo's abbreviation for a storage strategy, used throughout
+      # the backend tests. misspell reads it as a typo of "start" and --fix will
+      # happily rename the variables, which is how it earns ~79 of its findings.
+      ignore-rules:
+        - strat
   exclusions:
     generated: lax
     presets:
@@ -95,15 +102,76 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # Renaming these would mean EventStoreOption -> Option (and StrategyOption)
+      # across six backends: a breaking change to public API in every contrib
+      # module, to settle a stylistic point. Suppressed by message rather than via
+      # revive's rule list, which would replace revive's defaults wholesale and
+      # silently drop unused-parameter, indent-error-flow, and the rest.
       - linters:
-          - wrapcheck
-        source: return .+\.inner\.
+          - revive
+        text: stutters
+      # Interface implementations that legitimately ignore a parameter (ctx on the
+      # in-memory and strategy paths, testing helpers). Scoped to tests rather than
+      # excluding revive there, so context-as-argument and indent-error-flow still
+      # apply to test code.
       - linters:
+          - revive
+        text: unused-parameter
+        path: _test\.go
+      # Both hits are fmt.Sprintf'd table names that quoteIdentifier/quoteIdent has
+      # already validated against tableNameRE. The alternative is restructuring
+      # query building around a constraint that is already enforced.
+      - linters:
+          - gosec
+        text: G201
+      # kurrentdb.ErrorCode is an external enum of ~19 values; the switches handle
+      # the codes this driver acts on and fall through the rest deliberately.
+      - linters:
+          - exhaustive
+        text: kurrentdb.ErrorCode
+      # Stream versions and revisions are non-negative by contract, and KurrentDB's
+      # client types them as uint64 where estoria types them as int64, so crossing
+      # that boundary is unavoidable. Scoped to this backend so a genuine overflow
+      # elsewhere still gets reported.
+      - linters:
+          - gosec
+        text: G115
+        path: kurrentdb/
+      # Closing before an early return, not at scope exit — deferring would hold the
+      # rows open for the remainder of the function, which is the opposite of intent.
+      - linters:
+          - sqlclosecheck
+        text: Close should use defer
+      # directionSQL is an immutable package-level lookup table, not mutable state.
+      - linters:
+          - gochecknoglobals
+        text: directionSQL
+      # Marshaling a map[string]string cannot fail, and these call sites build
+      # []any argument lists with no error to return. Each discard is deliberate
+      # and carries a comment saying so.
+      - linters:
+          - errchkjson
+        text: encoding/json.Marshal
+      # Test files: skip low-value/noisy checks that don't apply to test code.
+      # (staticcheck stays on in tests on purpose — it catches real bugs.)
+      - linters:
+          # A test is the root of its own context tree — t.Context() has no parent to
+          # inherit from, which is exactly what contextcheck objects to.
+          - contextcheck
+          - copyloopvar
           - errcheck
           - forcetypeassert
-          - ireturn
+          - gochecknoglobals
+          - goconst
+          - godot
+          - godox
+          - ineffassign
+          - intrange
           - lll
           - nestif
+          - paralleltest
+          - prealloc
+          - testpackage
         path: _test\.go
     paths:
       - third_party$

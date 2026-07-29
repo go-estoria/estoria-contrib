@@ -11,6 +11,9 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
+// Default metric and trace namespace for this store.
+const namespaceAggregateStore = "aggregatestore"
+
 // An InstrumentedStore wraps an aggregate store for DataDog instrumentation.
 //
 // The store wraps and emits metrics and traces for the Load, Hydrate, and Save methods.
@@ -37,8 +40,8 @@ func NewInstrumentedStore[E estoria.Entity](inner aggregatestore.Store[E], opts 
 	store := &InstrumentedStore[E]{
 		inner:           inner,
 		metricsEnabled:  true,
-		metricNamespace: "aggregatestore",
-		traceNamespace:  "aggregatestore",
+		metricNamespace: namespaceAggregateStore,
+		traceNamespace:  namespaceAggregateStore,
 	}
 
 	for _, opt := range opts {
@@ -80,7 +83,7 @@ func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *agg
 	}
 
 	defer func() {
-		s.meter.Incr(s.metricNamespace+".load", nil, 1)
+		_ = s.meter.Incr(s.metricNamespace+".load", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -98,7 +101,7 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 	}
 
 	defer func() {
-		s.meter.Incr(s.metricNamespace+".hydrate", nil, 1)
+		_ = s.meter.Incr(s.metricNamespace+".hydrate", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -113,7 +116,7 @@ func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatesto
 	span.SetTag("aggregate.unsaved_events", int64(len(aggregate.State().UnsavedEvents())))
 
 	defer func() {
-		s.meter.Incr(s.metricNamespace+".save", nil, 1)
+		_ = s.meter.Incr(s.metricNamespace+".save", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 

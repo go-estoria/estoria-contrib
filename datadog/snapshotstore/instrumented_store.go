@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/go-estoria/estoria/snapshotstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 // An InstrumentedStore wraps an event store for OpenTelemetry instrumentation.
@@ -78,7 +78,7 @@ func (s *InstrumentedStore) ReadSnapshot(ctx context.Context, aggregateID typeid
 			span.Finish(tracer.WithError(e))
 		}
 
-		s.meter.Incr(s.metricNamespace+".ReadSnapshot", nil, 1)
+		_ = s.meter.Incr(s.metricNamespace+".ReadSnapshot", nil, 1)
 	}()
 
 	return s.inner.ReadSnapshot(ctx, aggregateID, opts)
@@ -93,7 +93,7 @@ func (s *InstrumentedStore) WriteSnapshot(ctx context.Context, snap *snapshotsto
 	span.SetTag("snapshot.timestamp.nano", snap.Timestamp.UnixNano())
 
 	defer func() {
-		s.meter.Incr(s.metricNamespace+".WriteSnapshot", nil, 1)
+		_ = s.meter.Incr(s.metricNamespace+".WriteSnapshot", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 

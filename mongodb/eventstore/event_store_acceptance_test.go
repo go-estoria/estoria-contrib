@@ -20,7 +20,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 
 	ctx := context.Background()
 
-	mongoClient, err := createMongoDBContainer(t, ctx)
+	mongoClient, err := createMongoDBContainer(ctx, t)
 	if err != nil {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}

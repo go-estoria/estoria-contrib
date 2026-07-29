@@ -11,6 +11,17 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
+// Document field names, shared by both strategies so that the filters reading a field
+// and the documents writing it cannot drift apart.
+const (
+	fieldStreamType   = "stream_type"
+	fieldStreamID     = "stream_id"
+	fieldOffset       = "offset"
+	fieldGlobalOffset = "global_offset"
+
+	opFirst = "$first"
+)
+
 type (
 	// MongoDatabase provides an API for obtaining a collection handle.
 	MongoDatabase interface {
@@ -80,14 +91,14 @@ func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey 
 func getListStreamsCursor(ctx context.Context, collection MongoCollection) (*mongo.Cursor, error) {
 	pipeline := mongo.Pipeline{
 		{{Key: "$sort", Value: bson.D{
-			{Key: "stream_id", Value: 1}, // Group documents together by stream_id.
-			{Key: "offset", Value: -1},   // Highest offset comes first within each stream.
+			{Key: fieldStreamID, Value: 1}, // Group documents together by stream_id.
+			{Key: fieldOffset, Value: -1},  // Highest offset comes first within each stream.
 		}}},
 		{{Key: "$group", Value: bson.D{
 			{Key: "_id", Value: "$stream_id"}, // Group key is stream_id.
-			{Key: "stream_type", Value: bson.D{{Key: "$first", Value: "$stream_type"}}},
-			{Key: "offset", Value: bson.D{{Key: "$first", Value: "$offset"}}},
-			{Key: "global_offset", Value: bson.D{{Key: "$first", Value: "$global_offset"}}},
+			{Key: fieldStreamType, Value: bson.D{{Key: opFirst, Value: "$stream_type"}}},
+			{Key: fieldOffset, Value: bson.D{{Key: opFirst, Value: "$offset"}}},
+			{Key: fieldGlobalOffset, Value: bson.D{{Key: opFirst, Value: "$global_offset"}}},
 		}}},
 	}
 

@@ -10,7 +10,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-func createPostgresContainer(t *testing.T, ctx context.Context) (*pgxpool.Pool, error) {
+func createPostgresContainer(ctx context.Context, t *testing.T) (*pgxpool.Pool, error) {
 	t.Helper()
 
 	postgresContainer, err := postgres.Run(ctx, "postgres:17",

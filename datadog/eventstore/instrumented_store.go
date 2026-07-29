@@ -6,10 +6,13 @@ import (
 	"fmt"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
+
+// Default metric and trace namespace for this store.
+const namespaceEventStore = "eventstore"
 
 // An InstrumentedStore wraps an event store for Datadog instrumentation.
 //
@@ -37,8 +40,8 @@ func NewInstrumentedStore(inner eventstore.Store, opts ...InstrumentedStoreOptio
 	store := &InstrumentedStore{
 		inner:           inner,
 		metricsEnabled:  true,
-		metricNamespace: "eventstore",
-		traceNamespace:  "eventstore",
+		metricNamespace: namespaceEventStore,
+		traceNamespace:  namespaceEventStore,
 	}
 
 	for _, opt := range opts {
@@ -72,7 +75,7 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts e
 	span.SetTag("options.after_version", opts.AfterVersion)
 
 	defer func() {
-		s.meter.Incr(s.metricNamespace+".ReadStream", nil, 1)
+		_ = s.meter.Incr(s.metricNamespace+".ReadStream", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -99,7 +102,7 @@ func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, even
 	}
 
 	defer func() {
-		s.meter.Incr(s.metricNamespace+".AppendStream", nil, 1)
+		_ = s.meter.Incr(s.metricNamespace+".AppendStream", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -177,7 +180,7 @@ type InstrumentedStreamIterator struct {
 func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Event, e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, i.traceNamespace+".StreamIterator.Next")
 	defer func() {
-		i.meter.Incr(i.nextMetric, nil, 1)
+		_ = i.meter.Incr(i.nextMetric, nil, 1)
 		if errors.Is(e, eventstore.ErrEndOfEventStream) {
 			span.Finish()
 		} else {

@@ -119,7 +119,7 @@ func TestNewInstrumentedStore(t *testing.T) {
 			}
 
 			if store == nil {
-				t.Errorf("expected non-nil store")
+				t.Fatalf("expected non-nil store")
 			}
 
 			if store.inner != tt.inner {

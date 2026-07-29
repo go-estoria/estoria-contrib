@@ -50,10 +50,12 @@ type EventStore struct {
 	maxEventDataBytes int
 }
 
-var _ eventstore.StreamReader = (*EventStore)(nil)
-var _ eventstore.StreamWriter = (*EventStore)(nil)
+var (
+	_ eventstore.StreamReader = (*EventStore)(nil)
+	_ eventstore.StreamWriter = (*EventStore)(nil)
+)
 
-// A TransactionHook is invoked during a write transaction, after the events have been writen,
+// A TransactionHook is invoked during a write transaction, after the events have been written,
 // and receives both the transactional context and the full set of events pending insertion in
 // the transaction.
 //
@@ -76,7 +78,7 @@ func (f TransactionHookFunc) HandleEvents(ctx context.Context, tx pgx.Tx, events
 // New creates a new event store using the provided pgx connection pool.
 func New(pool *pgxpool.Pool, opts ...EventStoreOption) (*EventStore, error) {
 	if pool == nil {
-		return nil, fmt.Errorf("pool is required")
+		return nil, errors.New("pool is required")
 	}
 
 	eventStore := &EventStore{
@@ -105,7 +107,7 @@ func New(pool *pgxpool.Pool, opts ...EventStoreOption) (*EventStore, error) {
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	if streamID.Type == "" {
-		return nil, fmt.Errorf("stream type is required")
+		return nil, errors.New("stream type is required")
 	}
 
 	s.log.Debug("reading events from Postgres stream",
@@ -170,7 +172,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	if streamID.Type == "" {
-		return fmt.Errorf("stream type is required")
+		return errors.New("stream type is required")
 	}
 
 	if s.maxEventDataBytes > 0 {
@@ -197,7 +199,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}()
 
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
-		return fmt.Errorf("ExpectVersion and StreamMustNotExist are mutually exclusive")
+		return errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
 	}
 
 	newMaxOffset, err := s.strategy.NextHighwaterMark(ctx, tx, streamID, len(events))
@@ -286,7 +288,7 @@ type StreamLister interface {
 func (s *EventStore) ListStreams(ctx context.Context) ([]strategy.StreamMetadata, error) {
 	lister, ok := s.strategy.(StreamLister)
 	if !ok {
-		return nil, fmt.Errorf("strategy does not support listing streams")
+		return nil, errors.New("strategy does not support listing streams")
 	}
 
 	return lister.ListStreams(ctx, s.pool)
@@ -332,7 +334,7 @@ type AllReader interface {
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)
 	if !ok {
-		return nil, fmt.Errorf("strategy does not support reading all events")
+		return nil, errors.New("strategy does not support reading all events")
 	}
 
 	rows, err := reader.ReadAll(ctx, s.pool, opts)
@@ -362,12 +364,4 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 		rows:     rows,
 		first:    first,
 	}, nil
-}
-
-// derefInt64 safely dereferences an *int64, returning 0 if the pointer is nil.
-func derefInt64(p *int64) int64 {
-	if p != nil {
-		return *p
-	}
-	return 0
 }

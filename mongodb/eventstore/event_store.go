@@ -2,6 +2,7 @@ package eventstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -73,8 +74,10 @@ type EventStore struct {
 	log estoria.Logger
 }
 
-var _ eventstore.StreamReader = (*EventStore)(nil)
-var _ eventstore.StreamWriter = (*EventStore)(nil)
+var (
+	_ eventstore.StreamReader = (*EventStore)(nil)
+	_ eventstore.StreamWriter = (*EventStore)(nil)
+)
 
 // StreamInfo represents information about a single stream in the event store.
 type StreamInfo struct {
@@ -90,6 +93,19 @@ type StreamInfo struct {
 	GlobalOffset int64
 }
 
+// bsonField returns a BSON element's value as T, or an error naming the field and the
+// type actually stored. A document written by an older schema, or by something other
+// than this store, should surface as an error rather than panic on a type assertion.
+func bsonField[T any](key string, value any) (T, error) {
+	typed, ok := value.(T)
+	if !ok {
+		var zero T
+		return zero, fmt.Errorf("field %q is %T, want %T", key, value, zero)
+	}
+
+	return typed, nil
+}
+
 // UnmarshalBSON unmarshals a BSON document into a StreamInfo.
 func (i *StreamInfo) UnmarshalBSON(b []byte) error {
 	data := bson.D{}
@@ -100,19 +116,28 @@ func (i *StreamInfo) UnmarshalBSON(b []byte) error {
 	id := uuid.Nil
 	typ := ""
 	for _, elem := range data {
+		var err error
+
 		switch elem.Key {
 		case "_id":
-			uid, err := uuid.FromString(elem.Value.(string))
-			if err != nil {
+			var raw string
+			if raw, err = bsonField[string](elem.Key, elem.Value); err != nil {
+				return fmt.Errorf("unmarshaling stream info: %w", err)
+			}
+
+			if id, err = uuid.FromString(raw); err != nil {
 				return fmt.Errorf("parsing UUID: %w", err)
 			}
-			id = uid
 		case "stream_type":
-			typ = elem.Value.(string)
+			typ, err = bsonField[string](elem.Key, elem.Value)
 		case "offset":
-			i.Offset = elem.Value.(int64)
+			i.Offset, err = bsonField[int64](elem.Key, elem.Value)
 		case "global_offset":
-			i.GlobalOffset = elem.Value.(int64)
+			i.GlobalOffset, err = bsonField[int64](elem.Key, elem.Value)
+		}
+
+		if err != nil {
+			return fmt.Errorf("unmarshaling stream info: %w", err)
 		}
 	}
 
@@ -128,7 +153,7 @@ func (i StreamInfo) String() string {
 // New creates a new EventStore using the given MongoDB client.
 func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 	if client == nil {
-		return nil, fmt.Errorf("mongodb client is required")
+		return nil, errors.New("mongodb client is required")
 	}
 
 	eventStore := &EventStore{
@@ -243,11 +268,11 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	)
 
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
-		return fmt.Errorf("ExpectVersion and StreamMustNotExist are mutually exclusive")
+		return errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
 	}
 
 	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID,
-		func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
+		func(_ context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
 			if opts.StreamMustNotExist && offset > 0 {
 				return nil, eventstore.StreamVersionMismatchError{
 					StreamID:        streamID,

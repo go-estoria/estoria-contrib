@@ -252,7 +252,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				for {
 					event, err := eventsIter.Next(t.Context())
 					if err != nil {
-						if err == eventstore.ErrEndOfEventStream {
+						if errors.Is(err, eventstore.ErrEndOfEventStream) {
 							break
 						}
 						t.Fatalf("error iterating events: %v", err)
@@ -798,7 +798,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				for {
 					ev, err := iter.Next(t.Context())
 					if err != nil {
-						if err == eventstore.ErrEndOfEventStream {
+						if errors.Is(err, eventstore.ErrEndOfEventStream) {
 							break
 						}
 						t.Fatalf("error iterating events: %v", err)

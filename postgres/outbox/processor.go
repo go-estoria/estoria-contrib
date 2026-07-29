@@ -103,44 +103,9 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 		}
 	}
 
-	if err := o.handler(ctx, &item); err != nil {
-		handlerErr := err
-		newRetryCount := item.RetryCount + 1
-		errMsg := handlerErr.Error()
-
-		if o.maxRetries > 0 && newRetryCount > o.maxRetries {
-			// Permanently fail the item — it has exhausted its retry budget.
-			failQuery := fmt.Sprintf(
-				`UPDATE %s SET retry_count = $2, last_error = $3, failed_at = now() WHERE id = $1`,
-				pgx.Identifier{o.tableName}.Sanitize(),
-			)
-			if _, execErr := tx.Exec(ctx, failQuery, item.ID, newRetryCount, errMsg); execErr != nil {
-				o.log.Error("marking outbox item as failed", "error", execErr)
-				return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
-			}
-			o.log.Error("outbox item permanently failed",
-				"item_id", item.ID,
-				"retry_count", newRetryCount,
-				"max_retries", o.maxRetries,
-				"error", errMsg,
-			)
-		} else {
-			// Increment the retry count and record the error so the next poll picks it up.
-			retryQuery := fmt.Sprintf(
-				`UPDATE %s SET retry_count = $2, last_error = $3 WHERE id = $1`,
-				pgx.Identifier{o.tableName}.Sanitize(),
-			)
-			if _, execErr := tx.Exec(ctx, retryQuery, item.ID, newRetryCount, errMsg); execErr != nil {
-				o.log.Error("updating retry count", "error", execErr)
-				return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
-			}
-		}
-
-		// Commit the retry/fail update. The deferred rollback will see pgx.ErrTxClosed
-		// (which is filtered) because the transaction is already done after this commit.
-		if commitErr := tx.Commit(ctx); commitErr != nil {
-			o.log.Error("committing retry update", "error", commitErr)
-			return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
+	if handlerErr := o.handler(ctx, &item); handlerErr != nil {
+		if err := o.recordHandlerFailure(ctx, tx, item, handlerErr); err != nil {
+			return err
 		}
 
 		return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
@@ -170,7 +135,7 @@ func (o *Outbox) ProcessNext(ctx context.Context) (retErr error) {
 // Run returns an error if it is called while another Run is already active on the same Outbox.
 func (o *Outbox) Run(ctx context.Context) error {
 	if !o.running.CompareAndSwap(false, true) {
-		return fmt.Errorf("outbox processor is already running")
+		return errors.New("outbox processor is already running")
 	}
 	defer o.running.Store(false)
 
@@ -200,4 +165,50 @@ func (o *Outbox) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// recordHandlerFailure persists the outcome of a failed handler call: either a retry
+// with an incremented count, or a permanent failure once the retry budget is spent.
+// It commits, since the caller's transaction is otherwise rolled back with the error.
+func (o *Outbox) recordHandlerFailure(ctx context.Context, tx pgx.Tx, item Item, handlerErr error) error {
+	newRetryCount := item.RetryCount + 1
+	errMsg := handlerErr.Error()
+
+	if o.maxRetries > 0 && newRetryCount > o.maxRetries {
+		// Permanently fail the item — it has exhausted its retry budget.
+		failQuery := fmt.Sprintf(
+			`UPDATE %s SET retry_count = $2, last_error = $3, failed_at = now() WHERE id = $1`,
+			pgx.Identifier{o.tableName}.Sanitize(),
+		)
+		if _, execErr := tx.Exec(ctx, failQuery, item.ID, newRetryCount, errMsg); execErr != nil {
+			o.log.Error("marking outbox item as failed", "error", execErr)
+			return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
+		}
+
+		o.log.Error("outbox item permanently failed",
+			"item_id", item.ID,
+			"retry_count", newRetryCount,
+			"max_retries", o.maxRetries,
+			"error", errMsg,
+		)
+	} else {
+		// Increment the retry count and record the error so the next poll picks it up.
+		retryQuery := fmt.Sprintf(
+			`UPDATE %s SET retry_count = $2, last_error = $3 WHERE id = $1`,
+			pgx.Identifier{o.tableName}.Sanitize(),
+		)
+		if _, execErr := tx.Exec(ctx, retryQuery, item.ID, newRetryCount, errMsg); execErr != nil {
+			o.log.Error("updating retry count", "error", execErr)
+			return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
+		}
+	}
+
+	// Commit the retry/fail update. The deferred rollback will see pgx.ErrTxClosed
+	// (which is filtered) because the transaction is already done after this commit.
+	if commitErr := tx.Commit(ctx); commitErr != nil {
+		o.log.Error("committing retry update", "error", commitErr)
+		return fmt.Errorf("handling outbox item %d: %w", item.ID, handlerErr)
+	}
+
+	return nil
 }
