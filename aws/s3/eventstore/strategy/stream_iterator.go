@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strconv"
@@ -32,7 +33,7 @@ func (i *streamIterator) All(ctx context.Context) ([]*eventstore.Event, error) {
 	for {
 		e, err := i.Next(ctx)
 		if err != nil {
-			if err == eventstore.ErrEndOfEventStream {
+			if errors.Is(err, eventstore.ErrEndOfEventStream) {
 				break
 			}
 			return nil, fmt.Errorf("iterating events: %w", err)
@@ -108,6 +109,6 @@ func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
 	return evt, nil
 }
 
-func (i *streamIterator) Close(ctx context.Context) error {
+func (i *streamIterator) Close(_ context.Context) error {
 	return nil
 }

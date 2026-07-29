@@ -2,6 +2,7 @@ package aggregatecache_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/coocood/freecache"
@@ -79,7 +80,7 @@ func TestCache_GetAggregate(t *testing.T) {
 			aggregate, err := cache.GetAggregate(context.Background(), tt.haveAggregateID)
 
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
+				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("want error %v, got %v", tt.wantErr, err)
 				}
 
@@ -129,7 +130,7 @@ func TestCache_PutAggregate(t *testing.T) {
 			err := cache.PutAggregate(context.Background(), tt.haveAggregate)
 
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
+				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("want error %v, got %v", tt.wantErr, err)
 				}
 			}

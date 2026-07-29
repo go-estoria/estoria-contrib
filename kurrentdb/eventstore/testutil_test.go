@@ -1,12 +1,12 @@
 package eventstore_test
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,13 +17,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func must[T any](val T, err error) T {
-	if err != nil {
-		panic("unexpected error: " + err.Error())
-	}
-	return val
-}
-
 func reversed[T any](s []T) []T {
 	r := make([]T, len(s))
 	copy(r, s)
@@ -33,8 +26,10 @@ func reversed[T any](s []T) []T {
 
 var kurrentSem = make(chan struct{}, 10) // limit concurrent KurrentDB containers
 
-func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Client, error) {
+func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 	t.Helper()
+
+	ctx := t.Context()
 
 	t.Log("waiting for available KurrentDB slot...")
 	kurrentSem <- struct{}{}
@@ -46,7 +41,7 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 		return nil, fmt.Errorf("getting free port: %w", err)
 	}
 
-	portStr := fmt.Sprint(portNum)
+	portStr := strconv.Itoa(portNum)
 	port, err := network.ParsePort(portStr + "/tcp")
 	if err != nil {
 		return nil, fmt.Errorf("parsing port: %w", err)
@@ -109,7 +104,7 @@ func createKurrentContainer(t *testing.T, ctx context.Context) (*kurrentdb.Clien
 		return nil, fmt.Errorf("get mapped port: %w", err)
 	}
 
-	dsn := fmt.Sprintf("kurrentdb://%s:%s?tls=false", host, mapped.Port())
+	dsn := "kurrentdb://" + net.JoinHostPort(host, mapped.Port()) + "?tls=false"
 
 	settings, err := kurrentdb.ParseConnectionString(dsn)
 	if err != nil {

@@ -16,7 +16,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 
 	streamID := typeid.NewV4("streamtype")
 
-	appendedEvents := []*eventstore.WritableEvent{}
+	appendedEvents := make([]*eventstore.WritableEvent, 0, 10)
 	for i := range 10 {
 		appendedEvents = append(appendedEvents, &eventstore.WritableEvent{
 			Type: "eventtype",
@@ -25,17 +25,17 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 	}
 
 	if err := eventStore.AppendStream(t.Context(), streamID, appendedEvents, eventstore.AppendStreamOptions{}); err != nil {
-		return fmt.Errorf("error appending events to stream: %v", err)
+		return fmt.Errorf("error appending events to stream: %w", err)
 	}
 
 	iter, err := eventStore.ReadStream(t.Context(), streamID, eventstore.ReadStreamOptions{})
 	if err != nil {
-		return fmt.Errorf("error reading stream: %v", err)
+		return fmt.Errorf("error reading stream: %w", err)
 	}
 
 	readEvents, err := eventstore.ReadAll(t.Context(), iter)
 	if err != nil {
-		return fmt.Errorf("error reading events: %v", err)
+		return fmt.Errorf("error reading events: %w", err)
 	}
 
 	if len(readEvents) != len(appendedEvents) {
@@ -46,7 +46,7 @@ func EventStoreAcceptanceTest(t *testing.T, eventStore eventstore.Store) error {
 		t.Logf("read event: ID=%s, StreamID=%s, StreamVersion=%d, Data=%s", readEvent.ID.String(), readEvent.StreamID, readEvent.StreamVersion, string(readEvent.Data))
 
 		if readEvent.ID.UUID.IsNil() {
-			return fmt.Errorf("event ID is empty")
+			return errors.New("event ID is empty")
 		}
 
 		if readEvent.StreamID != streamID {

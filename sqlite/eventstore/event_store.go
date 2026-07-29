@@ -49,10 +49,12 @@ type EventStore struct {
 	maxEventDataBytes int
 }
 
-var _ eventstore.StreamReader = (*EventStore)(nil)
-var _ eventstore.StreamWriter = (*EventStore)(nil)
+var (
+	_ eventstore.StreamReader = (*EventStore)(nil)
+	_ eventstore.StreamWriter = (*EventStore)(nil)
+)
 
-// A TransactionHook is invoked during a write transaction, after the events have been writen,
+// A TransactionHook is invoked during a write transaction, after the events have been written,
 // and receives both the transactional context and the full set of events pending insertion in
 // the transaction.
 //
@@ -75,7 +77,7 @@ func (f TransactionHookFunc) HandleEvents(ctx context.Context, tx *sql.Tx, event
 // New creates a new event store using the provided database connection.
 func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 	if db == nil {
-		return nil, fmt.Errorf("database is required")
+		return nil, errors.New("database is required")
 	}
 
 	eventStore := &EventStore{
@@ -104,7 +106,7 @@ func New(db *sql.DB, opts ...EventStoreOption) (*EventStore, error) {
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	if streamID.Type == "" {
-		return nil, fmt.Errorf("stream type is required")
+		return nil, errors.New("stream type is required")
 	}
 
 	s.log.Debug("reading events from SQLite stream",
@@ -169,7 +171,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	if streamID.Type == "" {
-		return fmt.Errorf("stream type is required")
+		return errors.New("stream type is required")
 	}
 
 	if s.maxEventDataBytes > 0 {
@@ -196,7 +198,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}()
 
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
-		return fmt.Errorf("ExpectVersion and StreamMustNotExist are mutually exclusive")
+		return errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
 	}
 
 	newMaxOffset, err := s.strategy.NextHighwaterMark(ctx, tx, streamID, len(events))
@@ -227,7 +229,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 		return fmt.Errorf("building append statement: %w", err)
 	}
 
-	stmt, err := tx.Prepare(stmtQuery)
+	stmt, err := tx.PrepareContext(ctx, stmtQuery)
 	if err != nil {
 		return fmt.Errorf("preparing statement: %w", err)
 	}
@@ -294,7 +296,7 @@ type StreamLister interface {
 func (s *EventStore) ListStreams(ctx context.Context) ([]strategy.StreamMetadata, error) {
 	lister, ok := s.strategy.(StreamLister)
 	if !ok {
-		return nil, fmt.Errorf("strategy does not support listing streams")
+		return nil, errors.New("strategy does not support listing streams")
 	}
 
 	return lister.ListStreams(ctx, s.db)
@@ -340,7 +342,7 @@ type AllReader interface {
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)
 	if !ok {
-		return nil, fmt.Errorf("strategy does not support reading all events")
+		return nil, errors.New("strategy does not support reading all events")
 	}
 
 	rows, err := reader.ReadAll(ctx, s.db, opts)

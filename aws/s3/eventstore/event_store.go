@@ -17,8 +17,10 @@ type EventStore struct {
 	log      *slog.Logger
 }
 
-var _ eventstore.StreamReader = (*EventStore)(nil)
-var _ eventstore.StreamWriter = (*EventStore)(nil)
+var (
+	_ eventstore.StreamReader = (*EventStore)(nil)
+	_ eventstore.StreamWriter = (*EventStore)(nil)
+)
 
 type TransactionHook interface {
 	HandleEvents(sessCtx context.Context, events []*eventstore.Event) error

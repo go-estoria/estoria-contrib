@@ -17,7 +17,7 @@ type streamIterator struct {
 
 // Next returns the next event from the iterator.
 // ctx is accepted for interface compatibility but is not used by this implementation.
-func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
+func (i *streamIterator) Next(_ context.Context) (*eventstore.Event, error) {
 	if i.closed {
 		return nil, eventstore.ErrStreamIteratorClosed
 	}

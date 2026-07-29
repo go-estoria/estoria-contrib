@@ -22,7 +22,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 		},
 	} {
 		t.Run(tStrat.name, func(t *testing.T) {
-			db, err := createKurrentContainer(t, t.Context())
+			db, err := createKurrentContainer(t)
 			if err != nil {
 				t.Fatalf("failed to create EventStoreDB container: %v", err)
 			}

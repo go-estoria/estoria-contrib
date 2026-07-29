@@ -1,7 +1,6 @@
 package strategy_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -11,8 +10,10 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-func createMongoDBContainer(t *testing.T, ctx context.Context) (*mongo.Client, error) {
+func createMongoDBContainer(t *testing.T) (*mongo.Client, error) {
 	t.Helper()
+
+	ctx := t.Context()
 
 	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))
 	if err != nil {

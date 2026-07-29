@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/go-estoria/estoria/snapshotstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 // An InstrumentedStore wraps an event store for OpenTelemetry instrumentation.

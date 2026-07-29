@@ -16,6 +16,9 @@ import (
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 )
 
+// Default metric and trace namespace for this store.
+const namespaceAggregateStore = "aggregatestore"
+
 const (
 	scope = "github.com/go-estoria/estoria-contrib/opentelemetry/aggregatestore"
 )
@@ -53,8 +56,8 @@ func NewInstrumentedStore[E estoria.Entity](inner aggregatestore.Store[E], opts 
 		inner:           inner,
 		tracingEnabled:  true,
 		metricsEnabled:  true,
-		metricNamespace: "aggregatestore",
-		traceNamespace:  "aggregatestore",
+		metricNamespace: namespaceAggregateStore,
+		traceNamespace:  namespaceAggregateStore,
 	}
 
 	for _, opt := range opts {
@@ -161,29 +164,32 @@ func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatesto
 
 // Create all of the necessary metric instruments.
 func (s *InstrumentedStore[E]) initializeMetrics() error {
-	if counter, err := s.meter.Int64Counter(s.metricNamespace+".load",
+	counter, err := s.meter.Int64Counter(s.metricNamespace+".load",
 		metric.WithDescription("The number of times the Load method was called"),
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("creating Load counter: %w", err)
-	} else {
-		s.loadCounter = counter
 	}
 
-	if counter, err := s.meter.Int64Counter(s.metricNamespace+".hydrate",
+	s.loadCounter = counter
+
+	counter, err = s.meter.Int64Counter(s.metricNamespace+".hydrate",
 		metric.WithDescription("The number of times the Hydrate method was called"),
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("creating Hydrate counter: %w", err)
-	} else {
-		s.hydrateCounter = counter
 	}
 
-	if counter, err := s.meter.Int64Counter(s.metricNamespace+".save",
+	s.hydrateCounter = counter
+
+	counter, err = s.meter.Int64Counter(s.metricNamespace+".save",
 		metric.WithDescription("The number of times the Save method was called"),
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("creating Save counter: %w", err)
-	} else {
-		s.saveCounter = counter
 	}
+
+	s.saveCounter = counter
 
 	return nil
 }

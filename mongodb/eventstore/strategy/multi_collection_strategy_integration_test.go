@@ -8,7 +8,6 @@ import (
 	// "github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
 	"github.com/gofrs/uuid/v5"
-
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -22,7 +21,7 @@ import (
 
 // 	ctx := context.Background()
 
-// 	mongoClient, err := createMongoDBContainer(t, ctx)
+// 	mongoClient, err := createMongoDBContainer(t)
 // 	if err != nil {
 // 		t.Fatalf("failed to create MongoDB container: %v", err)
 // 	}
@@ -240,9 +239,9 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
-	mongoClient, err := createMongoDBContainer(t, ctx)
+	mongoClient, err := createMongoDBContainer(t)
 	if err != nil {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
@@ -427,7 +426,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				database := mongoClient.Database("estoria")
 
 				t.Cleanup(func() {
-					if err := database.Drop(ctx); err != nil {
+					if err := database.Drop(context.WithoutCancel(ctx)); err != nil {
 						t.Fatalf("tc cleanup: failed to drop database %s: %v", database.Name(), err)
 					}
 				})
@@ -461,7 +460,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 					}
 				}
 
-				gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(context.Background(), tt.haveStreamID,
+				gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(t.Context(), tt.haveStreamID,
 					func(sessCtx context.Context, coll strategy.MongoCollection, offset, globalOffset int64) (any, error) {
 						for i := range tt.haveDocuments {
 							tt.haveDocuments[i]["offset"] = offset + int64(i) + 1
@@ -470,16 +469,17 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 						return coll.InsertMany(sessCtx, tt.haveDocuments)
 					},
 				)
-				if gotErr != nil {
+				switch {
+				case gotErr != nil:
 					if tt.wantErr == nil {
 						t.Fatalf("expected no error inserting events, but got: %v", gotErr)
-					} else if err.Error() != tt.wantErr.Error() {
+					} else if gotErr.Error() != tt.wantErr.Error() {
 						t.Fatalf("unexpected error inserting events, want: %v, got: %v", tt.wantErr, gotErr)
 					}
 					return
-				} else if tt.wantErr != nil {
+				case tt.wantErr != nil:
 					t.Fatalf("expected error inserting events, but got nil")
-				} else if gotResult == nil {
+				case gotResult == nil:
 					t.Fatalf("unexpected nil result")
 				}
 

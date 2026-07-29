@@ -1,7 +1,6 @@
 package eventstore_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -13,8 +12,10 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-func createPostgresContainer(t *testing.T, ctx context.Context) (*pgxpool.Pool, error) {
+func createPostgresContainer(t *testing.T) (*pgxpool.Pool, error) {
 	t.Helper()
+
+	ctx := t.Context()
 
 	postgresContainer, err := postgres.Run(ctx, "postgres:17",
 		postgres.WithUsername("username"),

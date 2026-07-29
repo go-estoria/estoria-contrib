@@ -57,29 +57,14 @@ func (i *multiStreamIterator) Next(ctx context.Context) (*eventstore.Event, erro
 			continue
 		}
 
-		if cursor.nextEvent == nil {
-			if cursor.cursor.Next(ctx) {
-				evt, err := i.marshaler.UnmarshalDocument(cursor.cursor.Decode)
-				if err != nil {
-					return nil, fmt.Errorf("parsing event document: %w", err)
-				}
-
-				cursor.nextEvent = evt
-			}
-
-			if err := cursor.cursor.Err(); err != nil {
-				return nil, fmt.Errorf("fetching document: %w", err)
-			} else if cursor.nextEvent == nil {
-				if err := cursor.cursor.Close(ctx); err != nil {
-					return nil, fmt.Errorf("closing cursor: %w", err)
-				}
-
-				cursor.closed = true
-				continue
-			}
+		hasEvent, err := cursor.advance(ctx, i.marshaler)
+		if err != nil {
+			return nil, err
+		} else if !hasEvent {
+			continue
 		}
 
-		if cursor.nextEvent != nil && cursor.nextEvent.GlobalOffset == i.currentGlobalOffset+1 {
+		if cursor.nextEvent.GlobalOffset == i.currentGlobalOffset+1 {
 			nextEvent = &cursor.nextEvent.Event
 			i.currentGlobalOffset++
 			cursor.nextEvent = nil
@@ -109,4 +94,36 @@ type multiStreamIteratorCursor struct {
 	cursor    MongoCursor
 	nextEvent *Event
 	closed    bool
+}
+
+// advance loads the cursor's next event unless it already holds one, closing the cursor
+// once it is exhausted. It reports whether the cursor still has an event to offer.
+func (c *multiStreamIteratorCursor) advance(ctx context.Context, marshaler DocumentMarshaler) (bool, error) {
+	if c.nextEvent != nil {
+		return true, nil
+	}
+
+	if c.cursor.Next(ctx) {
+		evt, err := marshaler.UnmarshalDocument(c.cursor.Decode)
+		if err != nil {
+			return false, fmt.Errorf("parsing event document: %w", err)
+		}
+
+		c.nextEvent = evt
+	}
+
+	if err := c.cursor.Err(); err != nil {
+		return false, fmt.Errorf("fetching document: %w", err)
+	}
+
+	if c.nextEvent == nil {
+		if err := c.cursor.Close(ctx); err != nil {
+			return false, fmt.Errorf("closing cursor: %w", err)
+		}
+
+		c.closed = true
+		return false, nil
+	}
+
+	return true, nil
 }

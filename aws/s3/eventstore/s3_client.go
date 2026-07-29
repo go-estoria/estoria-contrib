@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-func NewDefaultS3Client(ctx context.Context, awsConfig aws.Config) (*s3.Client, error) {
+func NewDefaultS3Client(_ context.Context, awsConfig aws.Config) (*s3.Client, error) {
 	client := s3.NewFromConfig(awsConfig,
 		func(o *s3.Options) {
 			o.BaseEndpoint = aws.String("http://localhost:9000")

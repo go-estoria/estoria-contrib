@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -45,11 +46,11 @@ var _ pgeventstore.TransactionHook = (*Outbox)(nil)
 // New creates a new Outbox using the provided pgx connection pool and item handler.
 func New(pool *pgxpool.Pool, handler ItemHandler, opts ...Option) (*Outbox, error) {
 	if pool == nil {
-		return nil, fmt.Errorf("pool is required")
+		return nil, errors.New("pool is required")
 	}
 
 	if handler == nil {
-		return nil, fmt.Errorf("handler is required")
+		return nil, errors.New("handler is required")
 	}
 
 	o := &Outbox{

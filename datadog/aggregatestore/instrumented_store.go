@@ -11,6 +11,9 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
+// Default metric and trace namespace for this store.
+const namespaceAggregateStore = "aggregatestore"
+
 // An InstrumentedStore wraps an aggregate store for DataDog instrumentation.
 //
 // The store wraps and emits metrics and traces for the Load, Hydrate, and Save methods.
@@ -37,8 +40,8 @@ func NewInstrumentedStore[E estoria.Entity](inner aggregatestore.Store[E], opts 
 	store := &InstrumentedStore[E]{
 		inner:           inner,
 		metricsEnabled:  true,
-		metricNamespace: "aggregatestore",
-		traceNamespace:  "aggregatestore",
+		metricNamespace: namespaceAggregateStore,
+		traceNamespace:  namespaceAggregateStore,
 	}
 
 	for _, opt := range opts {

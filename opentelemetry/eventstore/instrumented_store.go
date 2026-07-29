@@ -16,6 +16,9 @@ import (
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 )
 
+// Default metric and trace namespace for this store.
+const namespaceEventStore = "eventstore"
+
 const (
 	scope = "github.com/go-estoria/estoria-contrib/opentelemetry/eventstore"
 )
@@ -52,8 +55,8 @@ func NewInstrumentedStore(inner eventstore.Store, opts ...InstrumentedStoreOptio
 		inner:           inner,
 		tracingEnabled:  true,
 		metricsEnabled:  true,
-		metricNamespace: "eventstore",
-		traceNamespace:  "eventstore",
+		metricNamespace: namespaceEventStore,
+		traceNamespace:  namespaceEventStore,
 	}
 
 	for _, opt := range opts {
@@ -146,21 +149,23 @@ func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, even
 
 // Create all of the necessary metric instruments.
 func (s *InstrumentedStore) initializeMetrics() error {
-	if counter, err := s.meter.Int64Counter(s.metricNamespace+".stream.read",
+	counter, err := s.meter.Int64Counter(s.metricNamespace+".stream.read",
 		metric.WithDescription("The number of times the ReadStream method was called"),
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("creating ReadStream counter: %w", err)
-	} else {
-		s.readStreamCounter = counter
 	}
 
-	if counter, err := s.meter.Int64Counter(s.metricNamespace+".stream.append",
+	s.readStreamCounter = counter
+
+	counter, err = s.meter.Int64Counter(s.metricNamespace+".stream.append",
 		metric.WithDescription("The number of times the AppendStream method was called"),
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("creating AppendStream counter: %w", err)
-	} else {
-		s.appendStreamCounter = counter
 	}
+
+	s.appendStreamCounter = counter
 
 	return nil
 }

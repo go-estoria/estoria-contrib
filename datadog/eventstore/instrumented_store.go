@@ -6,10 +6,13 @@ import (
 	"fmt"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
+
+// Default metric and trace namespace for this store.
+const namespaceEventStore = "eventstore"
 
 // An InstrumentedStore wraps an event store for Datadog instrumentation.
 //
@@ -37,8 +40,8 @@ func NewInstrumentedStore(inner eventstore.Store, opts ...InstrumentedStoreOptio
 	store := &InstrumentedStore{
 		inner:           inner,
 		metricsEnabled:  true,
-		metricNamespace: "eventstore",
-		traceNamespace:  "eventstore",
+		metricNamespace: namespaceEventStore,
+		traceNamespace:  namespaceEventStore,
 	}
 
 	for _, opt := range opts {

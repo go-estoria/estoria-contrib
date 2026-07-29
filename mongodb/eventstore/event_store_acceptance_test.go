@@ -18,9 +18,9 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
-	mongoClient, err := createMongoDBContainer(t, ctx)
+	mongoClient, err := createMongoDBContainer(t)
 	if err != nil {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 				t.Helper()
 				collection := db.Collection("events")
 				t.Cleanup(func() {
-					if err := collection.Drop(ctx); err != nil {
+					if err := collection.Drop(context.WithoutCancel(ctx)); err != nil {
 						t.Fatalf("tc cleanup: failed to drop collection: %v", err)
 					}
 				})
@@ -70,7 +70,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 	} {
 		database := mongoClient.Database("estoria")
 		t.Cleanup(func() {
-			if err := database.Drop(ctx); err != nil {
+			if err := database.Drop(context.WithoutCancel(ctx)); err != nil {
 				t.Fatalf("tc cleanup: failed to drop database: %v", err)
 			}
 		})

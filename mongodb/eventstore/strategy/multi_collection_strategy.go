@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-estoria/estoria"
@@ -74,12 +75,13 @@ func CollectionPerStreamID() CollectionSelector {
 
 // NewMultiCollectionStrategy creates a new MultiCollectionStrategy using the given client, database, and collection selector.
 func NewMultiCollectionStrategy(client MongoSessionStarter, database MongoDatabase, selector CollectionSelector, opts ...StrategyOption) (*MultiCollectionStrategy, error) {
-	if client == nil {
-		return nil, fmt.Errorf("client is required")
-	} else if database == nil {
-		return nil, fmt.Errorf("database is required")
-	} else if selector == nil {
-		return nil, fmt.Errorf("selector is required")
+	switch {
+	case client == nil:
+		return nil, errors.New("client is required")
+	case database == nil:
+		return nil, errors.New("database is required")
+	case selector == nil:
+		return nil, errors.New("selector is required")
 	}
 
 	config := newStrategyConfig()
@@ -131,8 +133,8 @@ func (s *MultiCollectionStrategy) GetAllCursor(
 		return nil, fmt.Errorf("listing collection names: %w", err)
 	}
 
-	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "global_offset")
-	filter := bson.D{}
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, fieldGlobalOffset)
+	filter := make(bson.D, 0, len(versionFilter))
 	filter = append(filter, versionFilter...)
 
 	cursors := make([]*mongo.Cursor, len(collectionNames))
@@ -155,11 +157,12 @@ func (s *MultiCollectionStrategy) GetStreamCursor(
 	streamID typeid.ID,
 	opts eventstore.ReadStreamOptions,
 ) (*mongo.Cursor, error) {
-	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, "offset")
-	filter := bson.D{
-		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.UUID.String()},
-	}
+	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, fieldOffset)
+	filter := make(bson.D, 0, 2+len(versionFilter))
+	filter = append(filter,
+		bson.E{Key: fieldStreamType, Value: streamID.Type},
+		bson.E{Key: fieldStreamID, Value: streamID.UUID.String()},
+	)
 	filter = append(filter, versionFilter...)
 	collection := s.database.Collection(s.selector.CollectionName(streamID))
 	cursor, err := collection.Find(ctx, filter, findOpts)
@@ -210,24 +213,24 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 
 // Finds the highest offset for the given stream.
 func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.ID) (int64, error) {
-	s.log.Debug("finding highest offset for stream", "stream_id", streamID)
+	s.log.Debug("finding highest offset for stream", fieldStreamID, streamID)
 	collection := s.database.Collection(s.selector.CollectionName(streamID))
 
-	opts := options.FindOne().SetSort(bson.D{{Key: "offset", Value: -1}})
+	opts := options.FindOne().SetSort(bson.D{{Key: fieldOffset, Value: -1}})
 	offsets := Offsets{}
 	if err := collection.FindOne(ctx, bson.D{
-		{Key: "stream_type", Value: streamID.Type},
-		{Key: "stream_id", Value: streamID.UUID.String()},
+		{Key: fieldStreamType, Value: streamID.Type},
+		{Key: fieldStreamID, Value: streamID.UUID.String()},
 	}, opts).Decode(&offsets); err != nil {
-		if err == mongo.ErrNoDocuments {
-			s.log.Debug("stream not found", "stream_id", streamID)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			s.log.Debug("stream not found", fieldStreamID, streamID)
 			return 0, nil
 		}
 
 		return 0, fmt.Errorf("finding highest stream offset: %w", err)
 	}
 
-	s.log.Debug("got highest offset for stream", "stream_id", streamID.String(), "offset", offsets.Offset)
+	s.log.Debug("got highest offset for stream", fieldStreamID, streamID.String(), fieldOffset, offsets.Offset)
 	return offsets.Offset, nil
 }
 
@@ -240,14 +243,14 @@ func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (i
 		return 0, fmt.Errorf("listing collection names: %w", err)
 	}
 
-	opts := options.FindOne().SetSort(bson.D{{Key: "global_offset", Value: -1}})
+	opts := options.FindOne().SetSort(bson.D{{Key: fieldGlobalOffset, Value: -1}})
 
 	highestGlobalOffset := int64(0)
 	for _, collectionName := range collectionNames {
 		collection := s.database.Collection(collectionName)
 		result := collection.FindOne(ctx, bson.D{}, opts)
 		if result.Err() != nil {
-			if result.Err() == mongo.ErrNoDocuments {
+			if errors.Is(result.Err(), mongo.ErrNoDocuments) {
 				s.log.Debug("collection for stream is empty", "collection", collectionName)
 				return 0, nil
 			}
@@ -259,13 +262,13 @@ func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (i
 			return 0, fmt.Errorf("decoding highest global offset in collection %s: %w", collectionName, err)
 		}
 
-		s.log.Debug("found highest global offset for collection", "collection", collectionName, "global_offset", offsets.GlobalOffset)
+		s.log.Debug("found highest global offset for collection", "collection", collectionName, fieldGlobalOffset, offsets.GlobalOffset)
 
 		if offsets.GlobalOffset > highestGlobalOffset {
 			highestGlobalOffset = offsets.GlobalOffset
 		}
 	}
 
-	s.log.Debug("got highest global offset for event store", "global_offset", highestGlobalOffset)
+	s.log.Debug("got highest global offset for event store", fieldGlobalOffset, highestGlobalOffset)
 	return highestGlobalOffset, nil
 }
