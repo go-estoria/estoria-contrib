@@ -163,6 +163,12 @@ linters:
         text: encoding/json.Marshal
       # Test files: skip low-value/noisy checks that don't apply to test code.
       # (staticcheck stays on in tests on purpose — it catches real bugs.)
+      # appendAssign guards against aliasing a shared backing array. Test fixtures are
+      # built per subtest from composite literals, so there is nothing to alias.
+      - linters:
+          - gocritic
+        text: appendAssign
+        path: _test\.go
       - linters:
           # A test is the root of its own context tree — t.Context() has no parent to
           # inherit from, which is exactly what contextcheck objects to.
