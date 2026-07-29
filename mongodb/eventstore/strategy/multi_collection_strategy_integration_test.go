@@ -21,7 +21,7 @@ import (
 
 // 	ctx := context.Background()
 
-// 	mongoClient, err := createMongoDBContainer(ctx, t)
+// 	mongoClient, err := createMongoDBContainer(t)
 // 	if err != nil {
 // 		t.Fatalf("failed to create MongoDB container: %v", err)
 // 	}
@@ -239,9 +239,9 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
-	mongoClient, err := createMongoDBContainer(ctx, t)
+	mongoClient, err := createMongoDBContainer(t)
 	if err != nil {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				database := mongoClient.Database("estoria")
 
 				t.Cleanup(func() {
-					if err := database.Drop(ctx); err != nil {
+					if err := database.Drop(context.WithoutCancel(ctx)); err != nil {
 						t.Fatalf("tc cleanup: failed to drop database %s: %v", database.Name(), err)
 					}
 				})

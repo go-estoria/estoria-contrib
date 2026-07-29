@@ -211,7 +211,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				t.Parallel()
 
 				// spin up the Postgres container
-				db, err := createPostgresContainer(t.Context(), t)
+				db, err := createPostgresContainer(t)
 				if err != nil {
 					t.Fatalf("failed to create Postgres container: %v", err)
 				}
@@ -316,7 +316,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 	newStore := func(t *testing.T, opts ...pgeventstore.EventStoreOption) *pgeventstore.EventStore {
 		t.Helper()
 
-		db, err := createPostgresContainer(t.Context(), t)
+		db, err := createPostgresContainer(t)
 		if err != nil {
 			t.Fatalf("failed to create Postgres container: %v", err)
 		}
@@ -750,7 +750,7 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				t.Parallel()
 
 				// spin up the Postgres container
-				db, err := createPostgresContainer(t.Context(), t)
+				db, err := createPostgresContainer(t)
 				if err != nil {
 					t.Fatalf("failed to create Postgres container: %v", err)
 				}

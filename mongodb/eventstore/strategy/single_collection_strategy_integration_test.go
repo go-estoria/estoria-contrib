@@ -19,9 +19,9 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
-	mongoClient, err := createMongoDBContainer(ctx, t)
+	mongoClient, err := createMongoDBContainer(t)
 	if err != nil {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}
@@ -190,9 +190,9 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
-	mongoClient, err := createMongoDBContainer(ctx, t)
+	mongoClient, err := createMongoDBContainer(t)
 	if err != nil {
 		t.Fatalf("failed to create MongoDB container: %v", err)
 	}

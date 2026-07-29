@@ -1,7 +1,6 @@
 package eventstore_test
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
@@ -27,8 +26,10 @@ func reversed[T any](s []T) []T {
 
 var kurrentSem = make(chan struct{}, 10) // limit concurrent KurrentDB containers
 
-func createKurrentContainer(ctx context.Context, t *testing.T) (*kurrentdb.Client, error) {
+func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 	t.Helper()
+
+	ctx := t.Context()
 
 	t.Log("waiting for available KurrentDB slot...")
 	kurrentSem <- struct{}{}

@@ -30,8 +30,10 @@ func collectingHandler(mu *sync.Mutex, items *[]*pgoutbox.Item) pgoutbox.ItemHan
 
 // appendEvents is a convenience wrapper that appends the given writable events to the stream
 // and fatals the test on error.
-func appendEvents(ctx context.Context, t *testing.T, es *pgeventstore.EventStore, streamID typeid.ID, events []*eventstore.WritableEvent) {
+func appendEvents(t *testing.T, es *pgeventstore.EventStore, streamID typeid.ID, events []*eventstore.WritableEvent) {
 	t.Helper()
+
+	ctx := t.Context()
 	if err := es.AppendStream(ctx, streamID, events, eventstore.AppendStreamOptions{}); err != nil {
 		t.Fatalf("AppendStream(%s): %v", streamID.String(), err)
 	}
@@ -39,8 +41,10 @@ func appendEvents(ctx context.Context, t *testing.T, es *pgeventstore.EventStore
 
 // newEventStore is a helper that creates an event store with the given strategy and hooks,
 // creating the DB schema and fataling the test on error.
-func newEventStore(ctx context.Context, t *testing.T, db *pgxpool.Pool, strat pgeventstore.Strategy, hooks ...pgeventstore.TransactionHook) *pgeventstore.EventStore {
+func newEventStore(t *testing.T, db *pgxpool.Pool, strat pgeventstore.Strategy, hooks ...pgeventstore.TransactionHook) *pgeventstore.EventStore {
 	t.Helper()
+
+	ctx := t.Context()
 	if _, err := db.Exec(ctx, strat.Schema()); err != nil {
 		t.Fatalf("creating event store schema: %v", err)
 	}
@@ -57,8 +61,10 @@ func newEventStore(ctx context.Context, t *testing.T, db *pgxpool.Pool, strat pg
 
 // newOutbox is a helper that creates an outbox with the given handler and options,
 // creating the DB schema and fataling the test on error.
-func newOutbox(ctx context.Context, t *testing.T, db *pgxpool.Pool, handler pgoutbox.ItemHandler, opts ...pgoutbox.Option) *pgoutbox.Outbox {
+func newOutbox(t *testing.T, db *pgxpool.Pool, handler pgoutbox.ItemHandler, opts ...pgoutbox.Option) *pgoutbox.Outbox {
 	t.Helper()
+
+	ctx := t.Context()
 	ob, err := pgoutbox.New(db, handler, opts...)
 	if err != nil {
 		t.Fatalf("creating outbox: %v", err)
@@ -118,7 +124,7 @@ func TestOutbox_HandleEvents(t *testing.T) {
 
 			ctx := t.Context()
 
-			db, err := createPostgresContainer(ctx, t)
+			db, err := createPostgresContainer(t)
 			if err != nil {
 				t.Fatalf("createPostgresContainer: %v", err)
 			}
@@ -255,11 +261,11 @@ func TestOutbox_ProcessNext(t *testing.T) {
 				var mu sync.Mutex
 				var received []*pgoutbox.Item
 
-				ob := newOutbox(ctx, t, db, collectingHandler(&mu, &received))
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, collectingHandler(&mu, &received))
+				es := newEventStore(t, db, strat, ob)
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "first", Data: []byte(`{"seq":1}`)},
 					{Type: "second", Data: []byte(`{"seq":2}`)},
 				})
@@ -314,7 +320,7 @@ func TestOutbox_ProcessNext(t *testing.T) {
 				t.Helper()
 
 				// Only the outbox table is needed; no event store required.
-				ob := newOutbox(ctx, t, db,
+				ob := newOutbox(t, db,
 					func(_ context.Context, _ *pgoutbox.Item) error { return nil },
 				)
 
@@ -329,13 +335,13 @@ func TestOutbox_ProcessNext(t *testing.T) {
 			run: func(t *testing.T, ctx context.Context, db *pgxpool.Pool, strat pgeventstore.Strategy) {
 				t.Helper()
 
-				ob := newOutbox(ctx, t, db,
+				ob := newOutbox(t, db,
 					func(_ context.Context, _ *pgoutbox.Item) error { return nil },
 				)
-				es := newEventStore(ctx, t, db, strat, ob)
+				es := newEventStore(t, db, strat, ob)
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "e", Data: []byte(`{}`)},
 					{Type: "e", Data: []byte(`{}`)},
 				})
@@ -376,11 +382,11 @@ func TestOutbox_ProcessNext(t *testing.T) {
 					return nil
 				}
 
-				ob := newOutbox(ctx, t, db, handler)
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, handler)
+				es := newEventStore(t, db, strat, ob)
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "important_event", Data: []byte(`{"value":"critical"}`)},
 				})
 
@@ -416,19 +422,19 @@ func TestOutbox_ProcessNext(t *testing.T) {
 				var mu sync.Mutex
 				var received []*pgoutbox.Item
 
-				ob := newOutbox(ctx, t, db, collectingHandler(&mu, &received))
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, collectingHandler(&mu, &received))
+				es := newEventStore(t, db, strat, ob)
 
 				streamA := typeid.NewV4("streamA")
 				streamB := typeid.NewV4("streamB")
 				streamC := typeid.NewV4("streamC")
 
 				// Interleave appends across streams.
-				appendEvents(ctx, t, es, streamA, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"A","n":1}`)}})
-				appendEvents(ctx, t, es, streamB, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"B","n":1}`)}})
-				appendEvents(ctx, t, es, streamC, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"C","n":1}`)}})
-				appendEvents(ctx, t, es, streamA, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"A","n":2}`)}})
-				appendEvents(ctx, t, es, streamB, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"B","n":2}`)}})
+				appendEvents(t, es, streamA, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"A","n":1}`)}})
+				appendEvents(t, es, streamB, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"B","n":1}`)}})
+				appendEvents(t, es, streamC, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"C","n":1}`)}})
+				appendEvents(t, es, streamA, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"A","n":2}`)}})
+				appendEvents(t, es, streamB, []*eventstore.WritableEvent{{Type: "e", Data: []byte(`{"s":"B","n":2}`)}})
 
 				const totalItems = 5
 				for i := 0; i < totalItems; i++ {
@@ -460,7 +466,7 @@ func TestOutbox_ProcessNext(t *testing.T) {
 
 			ctx := t.Context()
 
-			db, err := createPostgresContainer(ctx, t)
+			db, err := createPostgresContainer(t)
 			if err != nil {
 				t.Fatalf("createPostgresContainer: %v", err)
 			}
@@ -499,7 +505,7 @@ func TestOutbox_Run(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			db, err := createPostgresContainer(ctx, t)
+			db, err := createPostgresContainer(t)
 			if err != nil {
 				t.Fatalf("createPostgresContainer: %v", err)
 			}
@@ -533,7 +539,7 @@ func TestOutbox_Run(t *testing.T) {
 					Data: []byte(fmt.Sprintf(`{"n":%d}`, i+1)),
 				}
 			}
-			appendEvents(ctx, t, es, streamID, events)
+			appendEvents(t, es, streamID, events)
 
 			runErr := make(chan error, 1)
 			go func() {
@@ -606,11 +612,11 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 					return nil
 				}
 
-				ob := newOutbox(ctx, t, db, handler)
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, handler)
+				es := newEventStore(t, db, strat, ob)
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "retryable_event", Data: []byte(`{"x":1}`)},
 				})
 
@@ -669,11 +675,11 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				}
 
 				const maxRetries = 3
-				ob := newOutbox(ctx, t, db, handler, pgoutbox.WithMaxRetries(maxRetries))
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, handler, pgoutbox.WithMaxRetries(maxRetries))
+				es := newEventStore(t, db, strat, ob)
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "doomed_event", Data: []byte(`{}`)},
 				})
 
@@ -720,11 +726,11 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 					return errors.New("always fails")
 				}
 
-				ob := newOutbox(ctx, t, db, handler, pgoutbox.WithMaxRetries(0))
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, handler, pgoutbox.WithMaxRetries(0))
+				es := newEventStore(t, db, strat, ob)
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "infinite_retry_event", Data: []byte(`{}`)},
 				})
 
@@ -777,17 +783,17 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				}
 
 				const maxRetries = 1
-				ob := newOutbox(ctx, t, db, handler, pgoutbox.WithMaxRetries(maxRetries))
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, handler, pgoutbox.WithMaxRetries(maxRetries))
+				es := newEventStore(t, db, strat, ob)
 
 				// Two streams: A is poisoned at v1 and should halt; B is healthy and should drain.
 				streamA := typeid.NewV4("streamA")
 				streamB := typeid.NewV4("streamB")
-				appendEvents(ctx, t, es, streamA, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamA, []*eventstore.WritableEvent{
 					{Type: "poison", Data: []byte(`{}`)},       // v1 — will be dead-lettered
 					{Type: "after_poison", Data: []byte(`{}`)}, // v2 — must remain blocked
 				})
-				appendEvents(ctx, t, es, streamB, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamB, []*eventstore.WritableEvent{
 					{Type: "ok1", Data: []byte(`{}`)},
 					{Type: "ok2", Data: []byte(`{}`)},
 				})
@@ -871,11 +877,11 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 				}
 
 				// maxRetries=5 gives plenty of budget so the item won't be dead-lettered.
-				ob := newOutbox(ctx, t, db, handler, pgoutbox.WithMaxRetries(5))
-				es := newEventStore(ctx, t, db, strat, ob)
+				ob := newOutbox(t, db, handler, pgoutbox.WithMaxRetries(5))
+				es := newEventStore(t, db, strat, ob)
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "counted_event", Data: []byte(`{}`)},
 				})
 
@@ -923,7 +929,7 @@ func TestOutbox_RetryAndDeadLetter(t *testing.T) {
 
 			ctx := t.Context()
 
-			db, err := createPostgresContainer(ctx, t)
+			db, err := createPostgresContainer(t)
 			if err != nil {
 				t.Fatalf("createPostgresContainer: %v", err)
 			}
@@ -951,7 +957,7 @@ func TestOutbox_PerStreamOrdering(t *testing.T) {
 
 		ctx := t.Context()
 
-		db, err := createPostgresContainer(ctx, t)
+		db, err := createPostgresContainer(t)
 		if err != nil {
 			t.Fatalf("createPostgresContainer: %v", err)
 		}
@@ -972,8 +978,8 @@ func TestOutbox_PerStreamOrdering(t *testing.T) {
 			return nil
 		}
 
-		ob := newOutbox(ctx, t, db, handler)
-		es := newEventStore(ctx, t, db, strat, ob)
+		ob := newOutbox(t, db, handler)
+		es := newEventStore(t, db, strat, ob)
 
 		// Three streams with five events each, appended in interleaved order so the
 		// outbox rows for any single stream are spread across non-adjacent ids.
@@ -985,7 +991,7 @@ func TestOutbox_PerStreamOrdering(t *testing.T) {
 		const eventsPerStream = 5
 		for v := 1; v <= eventsPerStream; v++ {
 			for _, sid := range streams {
-				appendEvents(ctx, t, es, sid, []*eventstore.WritableEvent{
+				appendEvents(t, es, sid, []*eventstore.WritableEvent{
 					{Type: "e", Data: fmt.Appendf(nil, `{"v":%d}`, v)},
 				})
 			}
@@ -1066,14 +1072,14 @@ func TestOutbox_RunConcurrency(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		db, err := createPostgresContainer(ctx, t)
+		db, err := createPostgresContainer(t)
 		if err != nil {
 			t.Fatalf("createPostgresContainer: %v", err)
 		}
 
 		// Use a long poll interval so the first Run() stays alive long enough for
 		// the second call to arrive while running is still true.
-		ob := newOutbox(ctx, t, db,
+		ob := newOutbox(t, db,
 			func(_ context.Context, _ *pgoutbox.Item) error { return nil },
 			pgoutbox.WithPollInterval(10*time.Second),
 		)
@@ -1138,7 +1144,7 @@ func TestOutbox_Options(t *testing.T) {
 			run: func(t *testing.T, ctx context.Context) {
 				t.Helper()
 
-				db, err := createPostgresContainer(ctx, t)
+				db, err := createPostgresContainer(t)
 				if err != nil {
 					t.Fatalf("createPostgresContainer: %v", err)
 				}
@@ -1153,7 +1159,7 @@ func TestOutbox_Options(t *testing.T) {
 
 				const customTable = "my_custom_outbox"
 
-				ob := newOutbox(ctx, t, db,
+				ob := newOutbox(t, db,
 					collectingHandler(&mu, &received),
 					pgoutbox.WithTableName(customTable),
 				)
@@ -1175,7 +1181,7 @@ func TestOutbox_Options(t *testing.T) {
 				))
 
 				streamID := typeid.NewV4("mystream")
-				appendEvents(ctx, t, es, streamID, []*eventstore.WritableEvent{
+				appendEvents(t, es, streamID, []*eventstore.WritableEvent{
 					{Type: "custom_event", Data: []byte(`{"custom":true}`)},
 				})
 
@@ -1199,7 +1205,7 @@ func TestOutbox_Options(t *testing.T) {
 			run: func(t *testing.T, ctx context.Context) {
 				t.Helper()
 
-				db, err := createPostgresContainer(ctx, t)
+				db, err := createPostgresContainer(t)
 				if err != nil {
 					t.Fatalf("createPostgresContainer: %v", err)
 				}
@@ -1212,7 +1218,7 @@ func TestOutbox_Options(t *testing.T) {
 				var mu sync.Mutex
 				var received []*pgoutbox.Item
 
-				ob := newOutbox(ctx, t, db, collectingHandler(&mu, &received))
+				ob := newOutbox(t, db, collectingHandler(&mu, &received))
 				es := must(pgeventstore.New(db,
 					pgeventstore.WithStrategy(strat),
 					pgeventstore.WithAppendTransactionHooks(ob),
@@ -1235,8 +1241,8 @@ func TestOutbox_Options(t *testing.T) {
 					{Type: "payment_received", Data: []byte(`{"amount":99}`)},
 				}
 
-				appendEvents(ctx, t, es, streamX, writableX)
-				appendEvents(ctx, t, es, streamY, writableY)
+				appendEvents(t, es, streamX, writableX)
+				appendEvents(t, es, streamY, writableY)
 
 				var want []appendedEvent
 				for i, w := range writableX {
