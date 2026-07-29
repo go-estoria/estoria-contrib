@@ -75,7 +75,7 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts e
 	span.SetTag("options.after_version", opts.AfterVersion)
 
 	defer func() {
-		_ = s.meter.Incr(s.metricNamespace+".ReadStream", nil, 1)
+		s.meter.Incr(s.metricNamespace+".ReadStream", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -102,7 +102,7 @@ func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, even
 	}
 
 	defer func() {
-		_ = s.meter.Incr(s.metricNamespace+".AppendStream", nil, 1)
+		s.meter.Incr(s.metricNamespace+".AppendStream", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -180,7 +180,7 @@ type InstrumentedStreamIterator struct {
 func (i *InstrumentedStreamIterator) Next(ctx context.Context) (_ *eventstore.Event, e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, i.traceNamespace+".StreamIterator.Next")
 	defer func() {
-		_ = i.meter.Incr(i.nextMetric, nil, 1)
+		i.meter.Incr(i.nextMetric, nil, 1)
 		if errors.Is(e, eventstore.ErrEndOfEventStream) {
 			span.Finish()
 		} else {

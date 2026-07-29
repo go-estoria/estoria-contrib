@@ -88,6 +88,15 @@ linters:
     - whitespace
     - zerologlint
   settings:
+    errcheck:
+      # Metric emission is fire-and-forget: it happens in deferred cleanup, a failed
+      # send must not fail the operation being measured, and there is nothing useful
+      # to do with the error. Naming the methods here keeps errcheck meaningful
+      # everywhere else, without `_ =` noise on every instrumented call.
+      exclude-functions:
+        - (github.com/DataDog/datadog-go/v5/statsd.ClientInterface).Incr
+        - (github.com/DataDog/datadog-go/v5/statsd.ClientInterface).Gauge
+        - (github.com/DataDog/datadog-go/v5/statsd.ClientInterface).Timing
     misspell:
       # "strat" is this repo's abbreviation for a storage strategy, used throughout
       # the backend tests. misspell reads it as a typo of "start" and --fix will

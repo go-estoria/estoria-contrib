@@ -83,7 +83,7 @@ func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *agg
 	}
 
 	defer func() {
-		_ = s.meter.Incr(s.metricNamespace+".load", nil, 1)
+		s.meter.Incr(s.metricNamespace+".load", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -101,7 +101,7 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 	}
 
 	defer func() {
-		_ = s.meter.Incr(s.metricNamespace+".hydrate", nil, 1)
+		s.meter.Incr(s.metricNamespace+".hydrate", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
@@ -116,7 +116,7 @@ func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatesto
 	span.SetTag("aggregate.unsaved_events", int64(len(aggregate.State().UnsavedEvents())))
 
 	defer func() {
-		_ = s.meter.Incr(s.metricNamespace+".save", nil, 1)
+		s.meter.Incr(s.metricNamespace+".save", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 

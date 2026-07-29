@@ -78,7 +78,7 @@ func (s *InstrumentedStore) ReadSnapshot(ctx context.Context, aggregateID typeid
 			span.Finish(tracer.WithError(e))
 		}
 
-		_ = s.meter.Incr(s.metricNamespace+".ReadSnapshot", nil, 1)
+		s.meter.Incr(s.metricNamespace+".ReadSnapshot", nil, 1)
 	}()
 
 	return s.inner.ReadSnapshot(ctx, aggregateID, opts)
@@ -93,7 +93,7 @@ func (s *InstrumentedStore) WriteSnapshot(ctx context.Context, snap *snapshotsto
 	span.SetTag("snapshot.timestamp.nano", snap.Timestamp.UnixNano())
 
 	defer func() {
-		_ = s.meter.Incr(s.metricNamespace+".WriteSnapshot", nil, 1)
+		s.meter.Incr(s.metricNamespace+".WriteSnapshot", nil, 1)
 		span.Finish(tracer.WithError(e))
 	}()
 
