@@ -39,6 +39,8 @@ type Cache[E estoria.Entity] struct {
 	ttl       time.Duration
 }
 
+var _ aggregatestore.AggregateCache[estoria.Entity] = (*Cache[estoria.Entity])(nil)
+
 func New[E estoria.Entity](client *redis.Client, opts ...CacheOption[E]) *Cache[E] {
 	aggregateCache := &Cache[E]{
 		redis:     client,

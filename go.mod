@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.43.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.1
 	github.com/coocood/freecache v1.2.7
-	github.com/go-estoria/estoria v0.4.0
+	github.com/go-estoria/estoria v0.5.0
 	github.com/gofrs/uuid/v5 v5.4.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
