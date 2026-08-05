@@ -13,6 +13,8 @@ import (
 
 // Document field names shared by both strategies.
 const (
+	// fieldID is MongoDB's own document key, not one of ours.
+	fieldID           = "_id"
 	fieldStreamType   = "stream_type"
 	fieldStreamID     = "stream_id"
 	fieldOffset       = "offset"
@@ -94,7 +96,7 @@ func getListStreamsCursor(ctx context.Context, collection MongoCollection) (*mon
 			{Key: fieldOffset, Value: -1},  // Highest offset comes first within each stream.
 		}}},
 		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: "$stream_id"}, // Group key is stream_id.
+			{Key: fieldID, Value: "$" + fieldStreamID}, // Group key is stream_id.
 			{Key: fieldStreamType, Value: bson.D{{Key: opFirst, Value: "$stream_type"}}},
 			{Key: fieldOffset, Value: bson.D{{Key: opFirst, Value: "$offset"}}},
 			{Key: fieldGlobalOffset, Value: bson.D{{Key: opFirst, Value: "$global_offset"}}},

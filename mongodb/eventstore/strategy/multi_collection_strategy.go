@@ -211,6 +211,24 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 	return result, nil
 }
 
+// StreamExists reports whether any event has ever been written to the stream. It exists so
+// ReadStream can tell an absent stream from a filtered read that matched nothing.
+func (s *MultiCollectionStrategy) StreamExists(ctx context.Context, streamID typeid.ID) (bool, error) {
+	collection := s.database.Collection(s.selector.CollectionName(streamID))
+
+	err := collection.FindOne(ctx, bson.D{
+		{Key: fieldStreamType, Value: streamID.Type},
+		{Key: fieldStreamID, Value: streamID.UUID.String()},
+	}, options.FindOne().SetProjection(bson.D{{Key: fieldID, Value: 1}})).Err()
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("checking whether stream exists: %w", err)
+	}
+
+	return true, nil
+}
+
 // Finds the highest offset for the given stream.
 func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.ID) (int64, error) {
 	s.log.Debug("finding highest offset for stream", fieldStreamID, streamID)

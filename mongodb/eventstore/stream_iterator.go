@@ -20,10 +20,18 @@ type (
 type streamIterator struct {
 	cursor    MongoCursor
 	marshaler DocumentMarshaler
+
+	// primed reports that the cursor already sits on a document nobody has been handed yet.
+	// ReadStream advances it once to tell an absent stream from an empty filtered read, so
+	// the first call here must decode in place rather than skipping that document.
+	primed bool
 }
 
 func (i *streamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
-	if i.cursor.Next(ctx) {
+	advanced := i.primed || i.cursor.Next(ctx)
+	i.primed = false
+
+	if advanced {
 		evt, err := i.marshaler.UnmarshalDocument(i.cursor.Decode)
 		if err != nil {
 			return nil, fmt.Errorf("parsing event document: %w", err)

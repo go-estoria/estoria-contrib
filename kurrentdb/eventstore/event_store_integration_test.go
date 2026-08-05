@@ -157,7 +157,11 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			haveStreamID: streamIDs[0],
 			haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, AfterVersion: 2},
-			wantEvents:   reversed(eventsFor(streamIDs[0]))[2:],
+			// Reading backward, AfterVersion is an inclusive upper bound: versions 2 and 1.
+			// This previously read reversed(eventsFor(...))[2:], which is versions 3, 2, 1 —
+			// written to match the off-by-one this change fixes. Postgres and SQLite both
+			// spell the correct expectation this way.
+			wantEvents: reversed(eventsFor(streamIDs[0])[:2]),
 		},
 		{
 			name: "read stream (forward,count)",
@@ -193,7 +197,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			},
 			haveStreamID: streamIDs[0],
 			haveOpts:     eventstore.ReadStreamOptions{Direction: eventstore.Reverse, AfterVersion: 2, Count: 2},
-			wantEvents:   reversed(eventsFor(streamIDs[0]))[2:4],
+			wantEvents:   reversed(eventsFor(streamIDs[0])[:2]),
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

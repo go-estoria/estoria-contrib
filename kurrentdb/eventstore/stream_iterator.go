@@ -87,6 +87,7 @@ func (i *streamIterator) scanEventRecord() (*eventstore.Event, error) {
 		StreamVersion: int64(resolvedEvent.Event.EventNumber + 1),
 		Timestamp:     resolvedEvent.Event.CreatedDate,
 		Data:          resolvedEvent.Event.Data,
+		Metadata:      unmarshalMetadata(resolvedEvent.Event.UserMetadata),
 	}, nil
 }
 

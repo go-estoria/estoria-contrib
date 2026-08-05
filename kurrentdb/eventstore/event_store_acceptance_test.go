@@ -4,7 +4,8 @@ import (
 	"testing"
 
 	"github.com/go-estoria/estoria-contrib/kurrentdb/eventstore"
-	"github.com/go-estoria/estoria-contrib/tests"
+	coreeventstore "github.com/go-estoria/estoria/eventstore"
+	"github.com/go-estoria/estoria/eventstore/storetest"
 )
 
 func TestEventStore_AcceptanceTest(t *testing.T) {
@@ -32,9 +33,9 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 				t.Fatalf("tc setup: failed to create EventStore: %v", err)
 			}
 
-			if err := tests.EventStoreAcceptanceTest(t, eventStore); err != nil {
-				t.Errorf("acceptance test failed: %v", err)
-			}
+			storetest.RunEventStoreSuite(t, func(*testing.T) coreeventstore.Store {
+				return eventStore
+			})
 		})
 	}
 }

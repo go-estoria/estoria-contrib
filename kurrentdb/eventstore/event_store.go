@@ -2,6 +2,7 @@ package eventstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -57,7 +58,17 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 	}
 
 	if opts.AfterVersion > 0 {
-		readOpts.From = kurrentdb.StreamRevision{Value: uint64(opts.AfterVersion)}
+		// KurrentDB revisions are 0-based and stream versions are 1-based, and AfterVersion
+		// means different things by direction. Reading forward it is an exclusive lower
+		// bound, so the first event wanted is version AfterVersion+1, which is revision
+		// AfterVersion. Reading backward it is an inclusive upper bound, so the first event
+		// wanted is version AfterVersion, which is revision AfterVersion-1.
+		revision := uint64(opts.AfterVersion)
+		if opts.Direction == eventstore.Reverse {
+			revision--
+		}
+
+		readOpts.From = kurrentdb.StreamRevision{Value: revision}
 	}
 
 	count := uint64(opts.Count)
@@ -130,11 +141,17 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 			return fmt.Errorf("generating event ID: %w", err)
 		}
 
+		metadata, err := marshalMetadata(e.Metadata)
+		if err != nil {
+			return eventstore.EventMarshalingError{StreamID: streamID, Err: err}
+		}
+
 		streamEvents[i] = kurrentdb.EventData{
 			EventID:     guuid.UUID(eventID),
 			ContentType: kurrentdb.ContentTypeJson,
 			EventType:   e.Type,
 			Data:        e.Data,
+			Metadata:    metadata,
 		}
 	}
 
@@ -147,6 +164,39 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	return nil
+}
+
+// marshalMetadata encodes event metadata for KurrentDB's user-metadata slot, which is
+// untyped bytes. Nil and empty metadata both encode to nil so an event written without
+// metadata reads back with none, rather than with an empty map.
+func marshalMetadata(metadata map[string]string) ([]byte, error) {
+	if len(metadata) == 0 {
+		return nil, nil
+	}
+
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling event metadata: %w", err)
+	}
+
+	return encoded, nil
+}
+
+// unmarshalMetadata decodes what marshalMetadata wrote. KurrentDB's user-metadata slot is
+// writable by anything, so metadata that is absent or not a JSON object is reported as
+// absent rather than failing the read of an otherwise intact event.
+func unmarshalMetadata(encoded []byte) map[string]string {
+	if len(encoded) == 0 {
+		return nil
+	}
+
+	metadata := map[string]string{}
+	if err := json.Unmarshal(encoded, &metadata); err != nil {
+		estoria.GetLogger().Warn("ignoring unreadable event metadata", "error", err)
+		return nil
+	}
+
+	return metadata
 }
 
 // asVersionMismatch converts a KurrentDB wrong-expected-version error into a
@@ -162,13 +212,29 @@ func (s *EventStore) asVersionMismatch(
 		return false, nil
 	}
 
+	message := kdbErr.Unwrap().Error()
+
 	var expected, actual int
-	if _, scanErr := fmt.Fscanf(
-		strings.NewReader(kdbErr.Unwrap().Error()),
+
+	_, scanErr := fmt.Fscanf(
+		strings.NewReader(message),
 		"wrong expected version: expecting '%d' but got '%d'",
 		&expected,
 		&actual,
-	); scanErr != nil {
+	)
+	if scanErr != nil {
+		// StreamMustNotExist sends NoStream rather than a revision, and the server names it
+		// in words: "expecting 'no_stream' but got '1'". Parsing only the numeric form left
+		// that case reporting the raw KurrentDB error, so a caller could not tell a lost
+		// creation race from a transport failure.
+		_, scanErr = fmt.Fscanf(
+			strings.NewReader(message),
+			"wrong expected version: expecting 'no_stream' but got '%d'",
+			&actual,
+		)
+	}
+
+	if scanErr != nil {
 		s.log.Error("append to stream: failed to parse version mismatch error",
 			"stream_id", streamID.String(),
 			"expected_version", derefInt64(opts.ExpectVersion),
