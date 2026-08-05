@@ -55,6 +55,10 @@ type (
 
 		// ListStreams returns a list of cursors for iterating over stream metadata.
 		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
+
+		// StreamExists reports whether any event has ever been written to the stream,
+		// regardless of the options any particular read is filtered by.
+		StreamExists(ctx context.Context, streamID typeid.ID) (bool, error)
 	}
 
 	// A TransactionHook is a function that is executed within the transaction used for appending events.
@@ -252,9 +256,42 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		return nil, fmt.Errorf("getting stream iterator: %w", err)
 	}
 
+	// An empty result has two meanings: the stream holds no events at all, or the read was
+	// filtered and nothing matched. Only the first is ErrStreamNotFound, and callers depend
+	// on the difference — EventSourcedStore reports ErrAggregateNotFound on that error alone,
+	// so a store that never returns it hands back an empty aggregate for an ID that was
+	// never written.
+	primed := cursor.Next(ctx)
+	if !primed {
+		if err := cursor.Err(); err != nil {
+			_ = cursor.Close(ctx)
+			return nil, fmt.Errorf("reading stream events: %w", err)
+		}
+
+		// An unfiltered read that matched nothing saw the whole stream: it is absent. Only a
+		// filtered read has to pay for the extra existence query.
+		if opts.AfterVersion == 0 {
+			_ = cursor.Close(ctx)
+			return nil, eventstore.ErrStreamNotFound
+		}
+
+		exists, err := s.strategy.StreamExists(ctx, streamID)
+		if err != nil {
+			_ = cursor.Close(ctx)
+			return nil, err
+		} else if !exists {
+			_ = cursor.Close(ctx)
+			return nil, eventstore.ErrStreamNotFound
+		}
+	}
+
 	return &streamIterator{
 		cursor:    cursor,
 		marshaler: s.marshaler,
+		// True only when the advance above landed on a document. The iterator must deliver
+		// that one before advancing again; an exhausted cursor leaves this false and the
+		// iterator reports end-of-stream immediately.
+		primed: primed,
 	}, nil
 }
 

@@ -6,7 +6,8 @@ import (
 
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
-	"github.com/go-estoria/estoria-contrib/tests"
+	coreeventstore "github.com/go-estoria/estoria/eventstore"
+	"github.com/go-estoria/estoria/eventstore/storetest"
 	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -68,20 +69,24 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			},
 		},
 	} {
-		database := mongoClient.Database("estoria")
-		t.Cleanup(func() {
-			if err := database.Drop(context.WithoutCancel(ctx)); err != nil {
-				t.Fatalf("tc cleanup: failed to drop database: %v", err)
+		// Each strategy runs as its own subtest so the suite's clause names nest under the
+		// strategy that failed them; previously all three shared one flat scope.
+		t.Run(tt.name, func(t *testing.T) {
+			database := mongoClient.Database("estoria")
+			t.Cleanup(func() {
+				if err := database.Drop(context.WithoutCancel(ctx)); err != nil {
+					t.Fatalf("tc cleanup: failed to drop database: %v", err)
+				}
+			})
+
+			eventStore, err := eventstore.New(mongoClient, tt.haveOpts(t, database)...)
+			if err != nil {
+				t.Fatalf("tc setup: failed to create EventStore: %v", err)
 			}
+
+			storetest.RunEventStoreSuite(t, func(*testing.T) coreeventstore.Store {
+				return eventStore
+			})
 		})
-
-		eventStore, err := eventstore.New(mongoClient, tt.haveOpts(t, database)...)
-		if err != nil {
-			t.Fatalf("tc setup: failed to create EventStore: %v", err)
-		}
-
-		if err := tests.EventStoreAcceptanceTest(t, eventStore); err != nil {
-			t.Errorf("acceptance test failed: %s: %v", tt.name, err)
-		}
 	}
 }
