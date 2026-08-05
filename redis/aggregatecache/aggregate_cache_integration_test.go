@@ -23,6 +23,10 @@ func (e mockEntity) EntityID() typeid.ID {
 }
 
 func TestCache_GetAggregate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
 	t.Parallel()
 
 	for _, tt := range []struct {
@@ -102,6 +106,10 @@ func TestCache_GetAggregate(t *testing.T) {
 }
 
 func TestCache_PutAggregate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
 	t.Parallel()
 
 	for _, tt := range []struct {

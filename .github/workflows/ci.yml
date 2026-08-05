@@ -40,9 +40,10 @@ jobs:
   #     here as service containers;
   #   - pure unit tests (bigcache/freecache/datadog/otel/strategies) — no deps.
   # Running the full `go test ./...` with Docker + these services covers every
-  # package deterministically. (We don't use `-short` or the make itest/atest
-  # targets here: the redis/valkey cache tests are neither Short-guarded nor
-  # Integration-named, so those selectors would silently miss or break them.)
+  # package deterministically. CI deliberately omits `-short`, which exists for
+  # local runs without the services up. The make itest/atest targets aren't used
+  # here either: they select by test name, and the redis/valkey cache tests are
+  # named TestCache_*, so `make itest` (-run Integration) matches none of them.
   test:
     name: Test
     runs-on: ubuntu-latest
