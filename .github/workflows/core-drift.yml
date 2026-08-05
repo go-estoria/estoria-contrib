@@ -1,0 +1,92 @@
+name: Core Drift
+
+# Builds and tests this repo against go-estoria/estoria's main branch instead of the
+# released version pinned in go.mod.
+#
+# This is the check whose absence caused the AggregateCache break: core changed the
+# interface, the four aggregate caches here stopped satisfying it, and nothing noticed for
+# months because each package's own tests exercise its concrete type and never construct a
+# CachedStore. Nothing built this repo against unreleased core, so the drift was invisible
+# until someone synced.
+#
+# It runs on a schedule as well as on pull requests. Changes to core do not trigger CI here,
+# so on PR triggers alone drift would only surface whenever somebody happened to open a
+# contrib PR — which could be long after the change that caused it.
+#
+# A red run here does not mean this PR is broken. It means this repo and core main disagree,
+# which is expected between a breaking core release and the commit here that adopts it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Daily. Offset off the hour to avoid GitHub's scheduling congestion at :00.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Core Drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Mirrors the CI Test job's services. A drift job that runs a smaller suite than CI
+    # gives false confidence: it would pass while the acceptance suites — the part that
+    # actually pins core's contract — never ran.
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      valkey:
+        image: valkey/valkey:8
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out estoria core at main
+        uses: actions/checkout@v7
+        with:
+          repository: go-estoria/estoria
+          ref: main
+          # A dot-prefixed directory on purpose: Go's ./... pattern skips paths beginning
+          # with "." or "_", so core's own packages stay out of this repo's build and test
+          # runs even though the module sits inside the workspace.
+          path: .core-main
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Resolve against core main
+        # The replace is applied here and never committed: gomoddirectives rejects a local
+        # replace in a merged go.mod, and pinning a released version is the point of the
+        # file. Tidy follows because core main may require dependencies this repo's go.sum
+        # does not carry yet.
+        run: |
+          go mod edit -replace github.com/go-estoria/estoria=./.core-main
+          go mod tidy
+      # Separate steps so each is its own gate. A build failure is the signal this job
+      # exists to give, and folding it into the test run would let "nothing compiled, so no
+      # tests failed" report as success.
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -timeout 20m ./...
