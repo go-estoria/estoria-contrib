@@ -13,11 +13,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Lint is intentionally NOT a required status check yet: this repo has no lint
-  # history and the full core linter set will surface many findings. Leave it
-  # off branch protection's required list until a cleanup pass is done, then
-  # promote it to a hard gate. It still runs and reports status so failures are
-  # visible.
+  # The cleanup pass this comment used to defer to is done: #24 cleared every finding and
+  # lint has reported zero since. No job here is a required check, because main carries no
+  # branch protection at all — so what gates a merge is whoever is reading the PR, not this
+  # file. Promoting Lint, Test, and Core Drift to hard gates is a repository setting.
   lint:
     name: Lint
     runs-on: ubuntu-latest

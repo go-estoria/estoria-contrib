@@ -24,7 +24,15 @@ func reversed[T any](s []T) []T {
 	return r
 }
 
-var kurrentSem = make(chan struct{}, 10) // limit concurrent KurrentDB containers
+// Limits how many KurrentDB containers start at once.
+//
+// This was 10, which oversubscribes a 2-core runner badly: ten single-node clusters
+// electing leaders simultaneously each take roughly ten times as long as one alone, and
+// runs were exceeding even the three-minute startup timeout below. Lowering it does not
+// cost wall-clock time, because the suite is bounded by total container-seconds rather
+// than by how many run at once — four waves of four starting quickly beats two waves of
+// ten all crawling.
+var kurrentSem = make(chan struct{}, 4)
 
 func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 	t.Helper()
