@@ -24,6 +24,10 @@ func (e mockEntity) EntityID() typeid.ID {
 func TestCache_GetAggregate(t *testing.T) {
 	t.Parallel()
 
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
 	for _, tt := range []struct {
 		name            string
 		haveValkey      func(*testing.T) valkey.Client
@@ -117,6 +121,10 @@ func TestCache_GetAggregate(t *testing.T) {
 
 func TestCache_PutAggregate(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
 
 	for _, tt := range []struct {
 		name          string

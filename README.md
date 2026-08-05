@@ -12,12 +12,12 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 
 | Name | Description | Outbox Support |
 |------|-------------| -------------- |
-| [AWS S3](./aws/s3/eventstore) | Estoria streams map to subdirectories within a bucket. | No |
 | [DataDog](./datadog/eventstore) | Wraps an event store for DataDog-compatible telemetry. | No |
-| [EventStoreDB](./eventstoredb/eventstore) | Estoria streams map 1:1 to EventStoreDB streams. | N/A |
+| [KurrentDB](./kurrentdb/eventstore) | Estoria streams map 1:1 to KurrentDB streams. | N/A |
 | [MongoDB](./mongodb/eventstore) | Estoria streams map to databases, collections, or a single collection for all streams, depending on the strategy chosen. | Yes |
 | [OpenTelemetry](./opentelemetry/eventstore) | Wraps an event store for OpenTelemetry-compatible telemetry. | N/A |
-| [SQL](./sql/eventstore) | Estoria streams use a single table for all events. | Yes |
+| [Postgres](./postgres/eventstore) | Estoria streams use a single table for all events. | Yes |
+| [SQLite](./sqlite/eventstore) | Estoria streams use a single table for all events. | No |
 
 ## Aggregate Stores
 
@@ -39,7 +39,6 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 
 | Name | Description |
 |------|-------------|
-| [AWS S3](./aws/s3/snapshotstore) | Snapshots are stored as JSON files in S3, and snapshot data is encoded in base64. |
 | [DataDog](./datadog/snapshotstore) | Wraps a snapshot store for DataDog-compatible telemetry. |
 | [OpenTelemetry](./opentelemetry/snapshotstore) | Wraps a snapshot store for OpenTelemetry-compatible telemetry. |
 
