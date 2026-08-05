@@ -158,3 +158,9 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+// LOCAL ONLY — pre-release verification against unreleased core.
+// estoria's AggregateCache moved to typeid.ID; contrib's caches already had that signature
+// and have been unusable since the v0.3.0 bump in #4. Replace with a go.mod version bump
+// once core v0.5.0 is tagged. MUST NOT be merged.
+replace github.com/go-estoria/estoria => ../estoria

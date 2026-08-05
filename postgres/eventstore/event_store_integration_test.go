@@ -72,8 +72,8 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			create: func(t *testing.T) pgeventstore.Strategy {
 				t.Helper()
 				return must(strategy.NewDefaultStrategy(
-					strategy.WithEventsTableName("event"),
-					strategy.WithStreamsTableName("stream"),
+					strategy.WithEventsTableName("custom_event"),
+					strategy.WithStreamsTableName("custom_stream"),
 				))
 			},
 		},
@@ -660,8 +660,8 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			create: func(t *testing.T) pgeventstore.Strategy {
 				t.Helper()
 				return must(strategy.NewDefaultStrategy(
-					strategy.WithEventsTableName("event"),
-					strategy.WithStreamsTableName("stream"),
+					strategy.WithEventsTableName("custom_event"),
+					strategy.WithStreamsTableName("custom_stream"),
 				))
 			},
 		},

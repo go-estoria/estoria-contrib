@@ -44,6 +44,8 @@ type Cache[E estoria.Entity] struct {
 	ttlSeconds int
 }
 
+var _ aggregatestore.AggregateCache[estoria.Entity] = (*Cache[estoria.Entity])(nil)
+
 func New[E estoria.Entity](cache FreeCache, opts ...CacheOption[E]) *Cache[E] {
 	aggregateCache := &Cache[E]{
 		cache:      cache,

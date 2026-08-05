@@ -47,6 +47,8 @@ type SnapshotStore struct {
 	log           estoria.Logger
 }
 
+var _ snapshotstore.SnapshotStore = (*SnapshotStore)(nil)
+
 func New(s3Client S3) *SnapshotStore {
 	return &SnapshotStore{
 		s3:            s3Client,
