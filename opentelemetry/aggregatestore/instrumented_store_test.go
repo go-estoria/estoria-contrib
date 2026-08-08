@@ -5,9 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/aggregatestore"
-	"github.com/go-estoria/estoria/typeid"
+	"github.com/go-estoria/estoria/eventstore/memory"
 	"github.com/gofrs/uuid/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -20,55 +19,70 @@ import (
 )
 
 // mockAggregateStore is a mock for aggregatestore.Store.
-type mockAggregateStore[E estoria.Entity] struct {
-	NewFn     func(uuid.UUID) *aggregatestore.Aggregate[E]
-	LoadFn    func(context.Context, uuid.UUID, *aggregatestore.LoadOptions) (*aggregatestore.Aggregate[E], error)
-	HydrateFn func(context.Context, *aggregatestore.Aggregate[E], *aggregatestore.HydrateOptions) error
-	SaveFn    func(context.Context, *aggregatestore.Aggregate[E], *aggregatestore.SaveOptions) error
+type mockAggregateStore[S any] struct {
+	NewFn     func(uuid.UUID) *aggregatestore.Aggregate[S]
+	LoadFn    func(context.Context, uuid.UUID, *aggregatestore.LoadOptions) (*aggregatestore.Aggregate[S], error)
+	HydrateFn func(context.Context, *aggregatestore.Aggregate[S], *aggregatestore.HydrateOptions) error
+	SaveFn    func(context.Context, *aggregatestore.Aggregate[S], *aggregatestore.SaveOptions) error
 }
 
-func (s *mockAggregateStore[E]) New(id uuid.UUID) *aggregatestore.Aggregate[E] {
+func (s *mockAggregateStore[S]) AggregateType() string {
+	return "mockentity"
+}
+
+func (s *mockAggregateStore[S]) New(id uuid.UUID) *aggregatestore.Aggregate[S] {
 	if s.NewFn != nil {
 		return s.NewFn(id)
 	}
 	return nil
 }
 
-func (s *mockAggregateStore[E]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (*aggregatestore.Aggregate[E], error) {
+func (s *mockAggregateStore[S]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (*aggregatestore.Aggregate[S], error) {
 	if s.LoadFn != nil {
 		return s.LoadFn(ctx, id, opts)
 	}
 	return nil, errors.New("LoadFn not set")
 }
 
-func (s *mockAggregateStore[E]) Hydrate(ctx context.Context, agg *aggregatestore.Aggregate[E], opts *aggregatestore.HydrateOptions) error {
+func (s *mockAggregateStore[S]) Hydrate(ctx context.Context, agg *aggregatestore.Aggregate[S], opts *aggregatestore.HydrateOptions) error {
 	if s.HydrateFn != nil {
 		return s.HydrateFn(ctx, agg, opts)
 	}
 	return errors.New("HydrateFn not set")
 }
 
-func (s *mockAggregateStore[E]) Save(ctx context.Context, agg *aggregatestore.Aggregate[E], opts *aggregatestore.SaveOptions) error {
+func (s *mockAggregateStore[S]) Save(ctx context.Context, agg *aggregatestore.Aggregate[S], opts *aggregatestore.SaveOptions) error {
 	if s.SaveFn != nil {
 		return s.SaveFn(ctx, agg, opts)
 	}
 	return errors.New("SaveFn not set")
 }
 
-// mockEntity is a minimal estoria.Entity used to parameterize the store in tests.
-type mockEntity struct {
-	id typeid.ID
-}
+// mockEntity is a minimal state type used to parameterize the store in tests.
+type mockEntity struct{}
 
-func (e mockEntity) EntityID() typeid.ID { return e.id }
-
-func newMockAggregate(t *testing.T, version int64) *aggregatestore.Aggregate[mockEntity] {
+// newMockAggregate builds an aggregate the way stores do: through a real
+// EventSourcedStore over an in-memory event store, since aggregates can no
+// longer be constructed directly.
+func newMockAggregate(t *testing.T) *aggregatestore.Aggregate[mockEntity] {
 	t.Helper()
+
+	eventStore, err := memory.NewEventStore()
+	if err != nil {
+		t.Fatalf("creating event store: %v", err)
+	}
+
+	store, err := aggregatestore.New(eventStore, "mockentity", func(uuid.UUID) mockEntity { return mockEntity{} })
+	if err != nil {
+		t.Fatalf("creating store: %v", err)
+	}
+
 	u, err := uuid.NewV4()
 	if err != nil {
 		t.Fatalf("generating uuid: %v", err)
 	}
-	return aggregatestore.NewAggregate(mockEntity{id: typeid.New("mockentity", u)}, version)
+
+	return store.New(u)
 }
 
 // testProviders builds an OTel tracer provider (with an in-memory span recorder)
@@ -306,6 +320,20 @@ func TestInstrumentedStoreOptions(t *testing.T) {
 	}
 }
 
+func TestInstrumentedStore_AggregateType(t *testing.T) {
+	t.Parallel()
+
+	_, _, providerOpts := testProviders(t)
+	store, err := NewInstrumentedStore(&mockAggregateStore[mockEntity]{}, providerOpts...)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	if got := store.AggregateType(); got != "mockentity" {
+		t.Errorf("expected aggregate type %q from the inner store, got %q", "mockentity", got)
+	}
+}
+
 func TestInstrumentedStore_New(t *testing.T) {
 	t.Parallel()
 
@@ -315,7 +343,7 @@ func TestInstrumentedStore_New(t *testing.T) {
 	}{
 		{
 			name:     "delegates to inner and returns the aggregate",
-			innerAgg: aggregatestore.NewAggregate(mockEntity{id: typeid.NewV4("mockentity")}, 0),
+			innerAgg: newMockAggregate(t),
 		},
 		{
 			name:     "returns nil when inner returns nil",
@@ -433,7 +461,7 @@ func TestInstrumentedStore_Load(t *testing.T) {
 					if tt.innerReturnErr != nil {
 						return nil, tt.innerReturnErr
 					}
-					return aggregatestore.NewAggregate(mockEntity{id: typeid.New("mockentity", id)}, 1), nil
+					return newMockAggregate(t), nil
 				},
 			}
 
@@ -567,7 +595,7 @@ func TestInstrumentedStore_Hydrate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			agg := newMockAggregate(t, 3)
+			agg := newMockAggregate(t)
 
 			var gotAgg *aggregatestore.Aggregate[mockEntity]
 			var gotOpts *aggregatestore.HydrateOptions
@@ -706,7 +734,7 @@ func TestInstrumentedStore_Save(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			agg := newMockAggregate(t, 2)
+			agg := newMockAggregate(t)
 
 			var gotAgg *aggregatestore.Aggregate[mockEntity]
 			var gotOpts *aggregatestore.SaveOptions
@@ -772,10 +800,10 @@ func TestInstrumentedStore_Save(t *testing.T) {
 				t.Errorf("expected aggregate.version %d, got %d", agg.Version(), kv.Value.AsInt64())
 			}
 
-			if kv, ok := findAttribute(attrs, "aggregate.unsaved_events"); !ok {
-				t.Errorf("expected aggregate.unsaved_events attribute")
-			} else if kv.Value.AsInt64() != 0 {
-				t.Errorf("expected aggregate.unsaved_events 0, got %d", kv.Value.AsInt64())
+			// The aggregate.unsaved_events attribute was removed along with the
+			// public UnsavedEvents accessor; its absence is part of the contract.
+			if kv, ok := findAttribute(attrs, "aggregate.unsaved_events"); ok {
+				t.Errorf("expected aggregate.unsaved_events attribute to be unset, got %d", kv.Value.AsInt64())
 			}
 
 			if tt.wantErr != nil {

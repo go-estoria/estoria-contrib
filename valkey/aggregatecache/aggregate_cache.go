@@ -12,37 +12,20 @@ import (
 	"github.com/valkey-io/valkey-go"
 )
 
-type Snapshot[E estoria.Entity] struct {
-	Entity  E     `json:"e"`
-	Version int64 `json:"v"`
+// A Cache is an aggregate cache backed by Valkey, storing aggregate state and
+// version keyed by aggregate ID.
+type Cache[S any] struct {
+	valkey     valkey.Client
+	stateCodec estoria.StateCodec[S]
 }
 
-type SnapshotMarshaler[E estoria.Entity] interface {
-	Marshal(snapshot Snapshot[E]) ([]byte, error)
-	Unmarshal(data []byte, snapshot *Snapshot[E]) error
-}
+var _ aggregatestore.AggregateCache[struct{}] = (*Cache[struct{}])(nil)
 
-type JSONSnapshotMarshaler[E estoria.Entity] struct{}
-
-func (m JSONSnapshotMarshaler[E]) Marshal(snapshot Snapshot[E]) ([]byte, error) {
-	return json.Marshal(snapshot)
-}
-
-func (m JSONSnapshotMarshaler[E]) Unmarshal(data []byte, snapshot *Snapshot[E]) error {
-	return json.Unmarshal(data, snapshot)
-}
-
-type Cache[E estoria.Entity] struct {
-	valkey    valkey.Client
-	marshaler SnapshotMarshaler[E]
-}
-
-var _ aggregatestore.AggregateCache[estoria.Entity] = (*Cache[estoria.Entity])(nil)
-
-func New[E estoria.Entity](client valkey.Client, opts ...CacheOption[E]) *Cache[E] {
-	aggregateCache := &Cache[E]{
-		valkey:    client,
-		marshaler: JSONSnapshotMarshaler[E]{},
+// New creates a new Cache using the given Valkey client.
+func New[S any](client valkey.Client, opts ...CacheOption[S]) *Cache[S] {
+	aggregateCache := &Cache[S]{
+		valkey:     client,
+		stateCodec: estoria.JSONStateCodec[S]{},
 	}
 
 	for _, opt := range opts {
@@ -52,10 +35,20 @@ func New[E estoria.Entity](client valkey.Client, opts ...CacheOption[E]) *Cache[
 	return aggregateCache
 }
 
-func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.Aggregate[E], error) {
+// cacheEntry is the stored envelope: state bytes as produced by the state codec,
+// plus the aggregate version. The envelope itself is always JSON; the state bytes
+// pass through opaquely, so a non-JSON state codec is safe.
+type cacheEntry struct {
+	State   []byte `json:"s"`
+	Version int64  `json:"v"`
+}
+
+// GetAggregate returns the cached state and version for an aggregate, or nil
+// with a nil error if the aggregate is not in the cache.
+func (c *Cache[S]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.CachedAggregate[S], error) {
 	res := c.valkey.Do(ctx, c.valkey.B().Get().Key(aggregateID.String()).Build())
 	if err := res.Error(); errors.Is(err, valkey.Nil) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // a nil entry with a nil error is the cache-miss contract
 	} else if err != nil {
 		return nil, fmt.Errorf("getting data from Valkey: %w", err)
 	}
@@ -65,36 +58,44 @@ func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*ag
 		return nil, fmt.Errorf("getting data from Valkey: %w", err)
 	}
 
-	snapshot := Snapshot[E]{}
-	if err := c.marshaler.Unmarshal(data, &snapshot); err != nil {
-		return nil, fmt.Errorf("unmarshaling data: %w", err)
+	entry := cacheEntry{}
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return nil, fmt.Errorf("unmarshaling cache entry: %w", err)
 	}
 
-	return aggregatestore.NewAggregate(snapshot.Entity, snapshot.Version), nil
+	var state S
+	if err := c.stateCodec.UnmarshalState(entry.State, &state); err != nil {
+		return nil, fmt.Errorf("unmarshaling state: %w", err)
+	}
+
+	return &aggregatestore.CachedAggregate[S]{State: state, Version: entry.Version}, nil
 }
 
-func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.Aggregate[E]) error {
-	snapshot := Snapshot[E]{
-		Entity:  aggregate.Entity(),
-		Version: aggregate.Version(),
-	}
-
-	data, err := c.marshaler.Marshal(snapshot)
+// PutAggregate stores an aggregate's state and version in the cache.
+func (c *Cache[S]) PutAggregate(ctx context.Context, aggregateID typeid.ID, entry aggregatestore.CachedAggregate[S]) error {
+	stateData, err := c.stateCodec.MarshalState(entry.State)
 	if err != nil {
-		return fmt.Errorf("marshaling snapshot: %w", err)
+		return fmt.Errorf("marshaling state: %w", err)
 	}
 
-	if err := c.valkey.Do(ctx, c.valkey.B().Set().Key(aggregate.ID().String()).Value(string(data)).Build()).Error(); err != nil {
+	data, err := json.Marshal(cacheEntry{State: stateData, Version: entry.Version})
+	if err != nil {
+		return fmt.Errorf("marshaling cache entry: %w", err)
+	}
+
+	if err := c.valkey.Do(ctx, c.valkey.B().Set().Key(aggregateID.String()).Value(string(data)).Build()).Error(); err != nil {
 		return fmt.Errorf("setting data in Valkey: %w", err)
 	}
 
 	return nil
 }
 
-type CacheOption[E estoria.Entity] func(*Cache[E])
+// A CacheOption configures a Cache.
+type CacheOption[S any] func(*Cache[S])
 
-func WithMarshaler[E estoria.Entity](marshaler SnapshotMarshaler[E]) CacheOption[E] {
-	return func(c *Cache[E]) {
-		c.marshaler = marshaler
+// WithStateCodec sets the codec used to encode and decode aggregate state.
+func WithStateCodec[S any](codec estoria.StateCodec[S]) CacheOption[S] {
+	return func(c *Cache[S]) {
+		c.stateCodec = codec
 	}
 }

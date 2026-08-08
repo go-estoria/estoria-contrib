@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/aggregatestore"
 	"github.com/gofrs/uuid/v5"
 	"go.opentelemetry.io/otel"
@@ -35,8 +34,8 @@ const (
 //
 // The store emits metrics under the "aggregatestore" namespace by default. The
 // namespace can be customized using the WithMetricNamespace option.
-type InstrumentedStore[E estoria.Entity] struct {
-	inner          aggregatestore.Store[E]
+type InstrumentedStore[S any] struct {
+	inner          aggregatestore.Store[S]
 	tracingEnabled bool
 	tracer         trace.Tracer
 	metricsEnabled bool
@@ -51,8 +50,8 @@ type InstrumentedStore[E estoria.Entity] struct {
 }
 
 // NewInstrumentedStore creates a new instrumented aggregate store.
-func NewInstrumentedStore[E estoria.Entity](inner aggregatestore.Store[E], opts ...InstrumentedStoreOption[E]) (*InstrumentedStore[E], error) {
-	store := &InstrumentedStore[E]{
+func NewInstrumentedStore[S any](inner aggregatestore.Store[S], opts ...InstrumentedStoreOption[S]) (*InstrumentedStore[S], error) {
+	store := &InstrumentedStore[S]{
 		inner:           inner,
 		tracingEnabled:  true,
 		metricsEnabled:  true,
@@ -89,15 +88,20 @@ func NewInstrumentedStore[E estoria.Entity](inner aggregatestore.Store[E], opts 
 	return store, nil
 }
 
-var _ aggregatestore.Store[estoria.Entity] = &InstrumentedStore[estoria.Entity]{}
+var _ aggregatestore.Store[struct{}] = &InstrumentedStore[struct{}]{}
+
+// AggregateType returns the aggregate type name of the inner store.
+func (s *InstrumentedStore[S]) AggregateType() string {
+	return s.inner.AggregateType()
+}
 
 // New creates a new aggregate with the given ID.
-func (s *InstrumentedStore[E]) New(id uuid.UUID) *aggregatestore.Aggregate[E] {
+func (s *InstrumentedStore[S]) New(id uuid.UUID) *aggregatestore.Aggregate[S] {
 	return s.inner.New(id)
 }
 
 // Load loads an aggregate by ID while capturing telemetry.
-func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[E], e error) {
+func (s *InstrumentedStore[S]) Load(ctx context.Context, id uuid.UUID, opts *aggregatestore.LoadOptions) (_ *aggregatestore.Aggregate[S], e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Load", trace.WithAttributes(
 		attribute.String("aggregate.uuid", id.String()),
 	))
@@ -120,7 +124,7 @@ func (s *InstrumentedStore[E]) Load(ctx context.Context, id uuid.UUID, opts *agg
 }
 
 // Hydrate hydrates an aggregate while capturing telemetry.
-func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts *aggregatestore.HydrateOptions) (e error) {
+func (s *InstrumentedStore[S]) Hydrate(ctx context.Context, aggregate *aggregatestore.Aggregate[S], opts *aggregatestore.HydrateOptions) (e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Hydrate", trace.WithAttributes(
 		attribute.String("aggregate.id", aggregate.ID().String()),
 		attribute.Int64("aggregate.version", aggregate.Version()),
@@ -143,11 +147,10 @@ func (s *InstrumentedStore[E]) Hydrate(ctx context.Context, aggregate *aggregate
 }
 
 // Save saves an aggregate while capturing telemetry.
-func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatestore.Aggregate[E], opts *aggregatestore.SaveOptions) (e error) {
+func (s *InstrumentedStore[S]) Save(ctx context.Context, aggregate *aggregatestore.Aggregate[S], opts *aggregatestore.SaveOptions) (e error) {
 	ctx, span := s.tracer.Start(ctx, s.traceNamespace+".Save", trace.WithAttributes(
 		attribute.String("aggregate.id", aggregate.ID().String()),
 		attribute.Int64("aggregate.version", aggregate.Version()),
-		attribute.Int64("aggregate.unsaved_events", int64(len(aggregate.State().UnsavedEvents()))),
 	))
 	defer func() {
 		span.RecordError(e)
@@ -163,7 +166,7 @@ func (s *InstrumentedStore[E]) Save(ctx context.Context, aggregate *aggregatesto
 }
 
 // Create all of the necessary metric instruments.
-func (s *InstrumentedStore[E]) initializeMetrics() error {
+func (s *InstrumentedStore[S]) initializeMetrics() error {
 	counter, err := s.meter.Int64Counter(s.metricNamespace+".load",
 		metric.WithDescription("The number of times the Load method was called"),
 	)
@@ -195,21 +198,21 @@ func (s *InstrumentedStore[E]) initializeMetrics() error {
 }
 
 // An InstrumentedStoreOption configures an instrumented store.
-type InstrumentedStoreOption[E estoria.Entity] func(*InstrumentedStore[E]) error
+type InstrumentedStoreOption[S any] func(*InstrumentedStore[S]) error
 
 // WithTracingEnabled enables or disables tracing for the store.
 //
 // By default, tracing is enabled.
-func WithTracingEnabled[E estoria.Entity](enabled bool) InstrumentedStoreOption[E] {
-	return func(s *InstrumentedStore[E]) error {
+func WithTracingEnabled[S any](enabled bool) InstrumentedStoreOption[S] {
+	return func(s *InstrumentedStore[S]) error {
 		s.tracingEnabled = enabled
 		return nil
 	}
 }
 
 // WithTracerProvider sets the OTEL tracer provider for the store.
-func WithTracerProvider[E estoria.Entity](provider trace.TracerProvider) InstrumentedStoreOption[E] {
-	return func(s *InstrumentedStore[E]) error {
+func WithTracerProvider[S any](provider trace.TracerProvider) InstrumentedStoreOption[S] {
+	return func(s *InstrumentedStore[S]) error {
 		s.tracer = provider.Tracer(scope)
 		return nil
 	}
@@ -218,16 +221,16 @@ func WithTracerProvider[E estoria.Entity](provider trace.TracerProvider) Instrum
 // WithMetricsEnabled enables or disables metrics for the store.
 //
 // By default, metrics are enabled.
-func WithMetricsEnabled[E estoria.Entity](enabled bool) InstrumentedStoreOption[E] {
-	return func(s *InstrumentedStore[E]) error {
+func WithMetricsEnabled[S any](enabled bool) InstrumentedStoreOption[S] {
+	return func(s *InstrumentedStore[S]) error {
 		s.metricsEnabled = enabled
 		return nil
 	}
 }
 
 // WithMeterProvider sets the OTEL meter provider for the store.
-func WithMeterProvider[E estoria.Entity](provider metric.MeterProvider) InstrumentedStoreOption[E] {
-	return func(s *InstrumentedStore[E]) error {
+func WithMeterProvider[S any](provider metric.MeterProvider) InstrumentedStoreOption[S] {
+	return func(s *InstrumentedStore[S]) error {
 		s.meter = provider.Meter(scope)
 		return nil
 	}
@@ -245,8 +248,8 @@ func WithMeterProvider[E estoria.Entity](provider metric.MeterProvider) Instrume
 // Overriding the default namespace is useful when you are layering multiple
 // aggregate stores and want to instrument each one while differentiating between
 // them in telemetry.
-func WithMetricNamespace[E estoria.Entity](namespace string) InstrumentedStoreOption[E] {
-	return func(s *InstrumentedStore[E]) error {
+func WithMetricNamespace[S any](namespace string) InstrumentedStoreOption[S] {
+	return func(s *InstrumentedStore[S]) error {
 		s.metricNamespace = namespace
 		return nil
 	}
@@ -264,8 +267,8 @@ func WithMetricNamespace[E estoria.Entity](namespace string) InstrumentedStoreOp
 // Overriding the default namespace is useful when you are layering multiple
 // aggregate stores and want to instrument each one while differentiating between
 // them in telemetry.
-func WithTraceNamespace[E estoria.Entity](namespace string) InstrumentedStoreOption[E] {
-	return func(s *InstrumentedStore[E]) error {
+func WithTraceNamespace[S any](namespace string) InstrumentedStoreOption[S] {
+	return func(s *InstrumentedStore[S]) error {
 		s.traceNamespace = namespace
 		return nil
 	}
