@@ -13,39 +13,22 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type Snapshot[E estoria.Entity] struct {
-	Entity  E     `json:"e"`
-	Version int64 `json:"v"`
+// A Cache is an aggregate cache backed by Redis, storing aggregate state and
+// version keyed by aggregate ID.
+type Cache[S any] struct {
+	redis      *redis.Client
+	stateCodec estoria.StateCodec[S]
+	ttl        time.Duration
 }
 
-type SnapshotMarshaler[E estoria.Entity] interface {
-	Marshal(snapshot Snapshot[E]) ([]byte, error)
-	Unmarshal(data []byte, snapshot *Snapshot[E]) error
-}
+var _ aggregatestore.AggregateCache[struct{}] = (*Cache[struct{}])(nil)
 
-type JSONSnapshotMarshaler[E estoria.Entity] struct{}
-
-func (m JSONSnapshotMarshaler[E]) Marshal(snapshot Snapshot[E]) ([]byte, error) {
-	return json.Marshal(snapshot)
-}
-
-func (m JSONSnapshotMarshaler[E]) Unmarshal(data []byte, snapshot *Snapshot[E]) error {
-	return json.Unmarshal(data, snapshot)
-}
-
-type Cache[E estoria.Entity] struct {
-	redis     *redis.Client
-	marshaler SnapshotMarshaler[E]
-	ttl       time.Duration
-}
-
-var _ aggregatestore.AggregateCache[estoria.Entity] = (*Cache[estoria.Entity])(nil)
-
-func New[E estoria.Entity](client *redis.Client, opts ...CacheOption[E]) *Cache[E] {
-	aggregateCache := &Cache[E]{
-		redis:     client,
-		marshaler: JSONSnapshotMarshaler[E]{},
-		ttl:       5 * time.Minute,
+// New creates a new Cache using the given Redis client.
+func New[S any](client *redis.Client, opts ...CacheOption[S]) *Cache[S] {
+	aggregateCache := &Cache[S]{
+		redis:      client,
+		stateCodec: estoria.JSONStateCodec[S]{},
+		ttl:        5 * time.Minute,
 	}
 
 	for _, opt := range opts {
@@ -55,10 +38,20 @@ func New[E estoria.Entity](client *redis.Client, opts ...CacheOption[E]) *Cache[
 	return aggregateCache
 }
 
-func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.Aggregate[E], error) {
+// cacheEntry is the stored envelope: state bytes as produced by the state codec,
+// plus the aggregate version. The envelope itself is always JSON; the state bytes
+// pass through opaquely, so a non-JSON state codec is safe.
+type cacheEntry struct {
+	State   []byte `json:"s"`
+	Version int64  `json:"v"`
+}
+
+// GetAggregate returns the cached state and version for an aggregate, or nil
+// with a nil error if the aggregate is not in the cache.
+func (c *Cache[S]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*aggregatestore.CachedAggregate[S], error) {
 	res := c.redis.Get(ctx, aggregateID.String())
 	if err := res.Err(); errors.Is(err, redis.Nil) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // a nil entry with a nil error is the cache-miss contract
 	} else if err != nil {
 		return nil, fmt.Errorf("getting data from Redis: %w", err)
 	}
@@ -68,44 +61,51 @@ func (c *Cache[E]) GetAggregate(ctx context.Context, aggregateID typeid.ID) (*ag
 		return nil, fmt.Errorf("getting data from Redis: %w", err)
 	}
 
-	snapshot := Snapshot[E]{}
-	if err := c.marshaler.Unmarshal(data, &snapshot); err != nil {
-		return nil, fmt.Errorf("unmarshaling data: %w", err)
+	entry := cacheEntry{}
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return nil, fmt.Errorf("unmarshaling cache entry: %w", err)
 	}
 
-	return aggregatestore.NewAggregate(snapshot.Entity, snapshot.Version), nil
+	var state S
+	if err := c.stateCodec.UnmarshalState(entry.State, &state); err != nil {
+		return nil, fmt.Errorf("unmarshaling state: %w", err)
+	}
+
+	return &aggregatestore.CachedAggregate[S]{State: state, Version: entry.Version}, nil
 }
 
-func (c *Cache[E]) PutAggregate(ctx context.Context, aggregate *aggregatestore.Aggregate[E]) error {
-	snapshot := Snapshot[E]{
-		Entity:  aggregate.Entity(),
-		Version: aggregate.Version(),
-	}
-
-	data, err := c.marshaler.Marshal(snapshot)
+// PutAggregate stores an aggregate's state and version in the cache.
+func (c *Cache[S]) PutAggregate(ctx context.Context, aggregateID typeid.ID, entry aggregatestore.CachedAggregate[S]) error {
+	stateData, err := c.stateCodec.MarshalState(entry.State)
 	if err != nil {
-		return fmt.Errorf("marshaling snapshot: %w", err)
+		return fmt.Errorf("marshaling state: %w", err)
 	}
 
-	if err := c.redis.Set(ctx, aggregate.ID().String(), data, c.ttl).Err(); err != nil {
+	data, err := json.Marshal(cacheEntry{State: stateData, Version: entry.Version})
+	if err != nil {
+		return fmt.Errorf("marshaling cache entry: %w", err)
+	}
+
+	if err := c.redis.Set(ctx, aggregateID.String(), data, c.ttl).Err(); err != nil {
 		return fmt.Errorf("setting data in Redis: %w", err)
 	}
 
 	return nil
 }
 
-type CacheOption[E estoria.Entity] func(*Cache[E])
+// A CacheOption configures a Cache.
+type CacheOption[S any] func(*Cache[S])
 
-// WithMarshaler sets the marshaler used to encode and decode aggregate data.
-func WithMarshaler[E estoria.Entity](marshaler SnapshotMarshaler[E]) CacheOption[E] {
-	return func(c *Cache[E]) {
-		c.marshaler = marshaler
+// WithStateCodec sets the codec used to encode and decode aggregate state.
+func WithStateCodec[S any](codec estoria.StateCodec[S]) CacheOption[S] {
+	return func(c *Cache[S]) {
+		c.stateCodec = codec
 	}
 }
 
 // WithTTL sets the time-to-live for cached aggregates.
-func WithTTL[E estoria.Entity](ttl time.Duration) CacheOption[E] {
-	return func(c *Cache[E]) {
+func WithTTL[S any](ttl time.Duration) CacheOption[S] {
+	return func(c *Cache[S]) {
 		c.ttl = ttl
 	}
 }
