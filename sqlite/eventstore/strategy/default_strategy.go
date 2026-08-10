@@ -103,6 +103,7 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.Re
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM %s
 		WHERE
@@ -137,6 +138,7 @@ func (s *DefaultStrategy) ScanEventRow(rows *sql.Rows) (*eventstore.Event, error
 		&timestamp,
 		&e.StreamVersion,
 		&e.Data,
+		&e.DataContentType,
 		&metadata,
 	); err != nil {
 		return nil, fmt.Errorf("scanning event row: %w", err)
@@ -213,9 +215,10 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`, quoteIdentifier(s.eventsTableName)), nil
 }
@@ -235,6 +238,7 @@ func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 		event.Timestamp.UTC().Format(timestampFormat),
 		event.StreamVersion,
 		event.Data,
+		event.DataContentType,
 		metadataArg,
 	}
 }
@@ -272,15 +276,16 @@ func WithStreamsTableName(name string) DefaultStrategyOption {
 func (s *DefaultStrategy) Schema() string {
 	return fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			stream_id     TEXT    NOT NULL,
-			stream_type   TEXT    NOT NULL,
-			event_id      TEXT    NOT NULL,
-			event_type    TEXT    NOT NULL,
-			stream_offset INTEGER NOT NULL,
-			timestamp     TEXT    NOT NULL,
-			data          BLOB,
-			metadata      BLOB,
+			id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			stream_id         TEXT    NOT NULL,
+			stream_type       TEXT    NOT NULL,
+			event_id          TEXT    NOT NULL,
+			event_type        TEXT    NOT NULL,
+			stream_offset     INTEGER NOT NULL,
+			timestamp         TEXT    NOT NULL,
+			data              BLOB,
+			data_content_type TEXT    NOT NULL DEFAULT '',
+			metadata          BLOB,
 
 			CONSTRAINT event_stream_offset_unique UNIQUE (stream_id, stream_type, stream_offset),
 
@@ -374,6 +379,7 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventsto
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM %s
 		%s

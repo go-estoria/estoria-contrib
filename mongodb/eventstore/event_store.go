@@ -296,7 +296,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) ([]*eventstore.Event, error) {
 	s.log.Debug("appending events to MongoDB stream",
 		"stream_id", streamID.String(),
 		"events", len(events),
@@ -304,8 +304,10 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	)
 
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
-		return errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
+		return nil, errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
 	}
+
+	written := make([]*eventstore.Event, len(events))
 
 	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID,
 		func(_ context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
@@ -325,29 +327,34 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 				}
 			}
 
-			now := time.Now().UTC()
+			// BSON datetimes hold milliseconds; truncate so the returned events carry
+			// the timestamp a subsequent read yields.
+			now := time.Now().UTC().Truncate(time.Millisecond)
 
-			fullEvents := make([]*Event, len(events))
 			docs := make([]any, len(events))
 			for i, we := range events {
-				fullEvents[i] = &Event{
+				globalPosition := globalOffset + int64(i) + 1
+				fullEvent := &Event{
 					Event: eventstore.Event{
-						ID:            typeid.NewV4(we.Type),
-						StreamID:      streamID,
-						StreamVersion: offset + int64(i) + 1,
-						Timestamp:     now,
-						Data:          we.Data,
-						Metadata:      we.Metadata,
+						ID:              typeid.NewV4(we.Type),
+						StreamID:        streamID,
+						StreamVersion:   offset + int64(i) + 1,
+						GlobalPosition:  &globalPosition,
+						Timestamp:       now,
+						Data:            we.Data,
+						DataContentType: we.DataContentType,
+						Metadata:        we.Metadata,
 					},
-					GlobalOffset: globalOffset + int64(i) + 1,
+					GlobalOffset: globalPosition,
 				}
 
-				doc, err := s.marshaler.MarshalDocument(fullEvents[i])
+				doc, err := s.marshaler.MarshalDocument(fullEvent)
 				if err != nil {
 					return nil, fmt.Errorf("marshaling event: %w", err)
 				}
 
 				docs[i] = doc
+				written[i] = &fullEvent.Event
 			}
 
 			result, err := collection.InsertMany(ctx, docs)
@@ -360,6 +367,9 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 			return result, nil
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
 
-	return err
+	return written, nil
 }

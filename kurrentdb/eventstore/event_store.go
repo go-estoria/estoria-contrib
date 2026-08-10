@@ -112,12 +112,16 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 }
 
 // AppendStream saves the given events to the event store.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) ([]*eventstore.Event, error) {
 	s.log.Debug("appending events to stream", "stream_id", streamID.String(), "events", len(events))
 
 	// Validate mutually exclusive options.
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
-		return errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
+		return nil, errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
+	}
+
+	if len(events) == 0 {
+		return nil, nil
 	}
 
 	appendOpts := kurrentdb.AppendToStreamOptions{}
@@ -138,65 +142,114 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	for i, e := range events {
 		eventID, err := uuid.NewV4()
 		if err != nil {
-			return fmt.Errorf("generating event ID: %w", err)
+			return nil, fmt.Errorf("generating event ID: %w", err)
 		}
 
-		metadata, err := marshalMetadata(e.Metadata)
+		envelope, err := marshalEnvelope(e)
 		if err != nil {
-			return eventstore.EventMarshalingError{StreamID: streamID, Err: err}
+			return nil, eventstore.EventMarshalingError{StreamID: streamID, Err: err}
 		}
 
 		streamEvents[i] = kurrentdb.EventData{
 			EventID:     guuid.UUID(eventID),
-			ContentType: kurrentdb.ContentTypeJson,
+			ContentType: nativeContentType(e.DataContentType),
 			EventType:   e.Type,
 			Data:        e.Data,
-			Metadata:    metadata,
+			Metadata:    envelope,
 		}
 	}
 
-	if _, err := s.kurrentDB.AppendToStream(ctx, streamID.String(), appendOpts, streamEvents...); err != nil {
+	result, err := s.kurrentDB.AppendToStream(ctx, streamID.String(), appendOpts, streamEvents...)
+	if err != nil {
 		if ok, mismatch := s.asVersionMismatch(err, streamID, opts); ok {
-			return mismatch
+			return nil, mismatch
 		}
 
-		return fmt.Errorf("appending to stream: %w", err)
+		return nil, fmt.Errorf("appending to stream: %w", err)
 	}
 
-	return nil
+	return s.readBack(ctx, streamID, result, len(events))
 }
 
-// marshalMetadata encodes event metadata for KurrentDB's user-metadata slot, which is
-// untyped bytes. Nil and empty metadata both encode to nil so an event written without
-// metadata reads back with none, rather than with an empty map.
-func marshalMetadata(metadata map[string]string) ([]byte, error) {
-	if len(metadata) == 0 {
+// readBack reads the just-appended range of a stream so AppendStream can return events
+// exactly as a subsequent read yields them: the write result carries no server-assigned
+// timestamps, so a read is the only source of the events of record.
+func (s *EventStore) readBack(ctx context.Context, streamID typeid.ID, result *kurrentdb.WriteResult, count int) ([]*eventstore.Event, error) {
+	lastVersion := int64(result.NextExpectedVersion) + 1
+
+	iter, err := s.ReadStream(ctx, streamID, eventstore.ReadStreamOptions{
+		AfterVersion: lastVersion - int64(count),
+		Count:        int64(count),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading back appended events: %w", err)
+	}
+
+	defer func() {
+		if err := iter.Close(ctx); err != nil {
+			s.log.Warn("closing read-back iterator", "stream_id", streamID.String(), "error", err)
+		}
+	}()
+
+	written, err := eventstore.Collect(ctx, iter)
+	if err != nil {
+		return nil, fmt.Errorf("reading back appended events: %w", err)
+	}
+
+	return written, nil
+}
+
+// nativeContentType maps a declared content type onto KurrentDB's native content types:
+// JSON for "application/json" and for the empty declaration, binary for everything else.
+func nativeContentType(declared string) kurrentdb.ContentType {
+	if declared == "" || declared == estoria.ContentTypeJSON {
+		return kurrentdb.ContentTypeJson
+	}
+
+	return kurrentdb.ContentTypeBinary
+}
+
+// An eventEnvelope is the JSON document stored in KurrentDB's user-metadata slot,
+// carrying an event's metadata and declared payload content type.
+type eventEnvelope struct {
+	DataContentType string            `json:"data_content_type,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
+}
+
+// marshalEnvelope encodes an event's metadata and content-type declaration for KurrentDB's
+// user-metadata slot, which is untyped bytes. An event carrying neither encodes to nil so
+// it reads back with none, rather than with an empty envelope.
+func marshalEnvelope(event *eventstore.WritableEvent) ([]byte, error) {
+	if len(event.Metadata) == 0 && event.DataContentType == "" {
 		return nil, nil
 	}
 
-	encoded, err := json.Marshal(metadata)
+	encoded, err := json.Marshal(eventEnvelope{
+		DataContentType: event.DataContentType,
+		Metadata:        event.Metadata,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("marshaling event metadata: %w", err)
+		return nil, fmt.Errorf("marshaling event envelope: %w", err)
 	}
 
 	return encoded, nil
 }
 
-// unmarshalMetadata decodes what marshalMetadata wrote. KurrentDB's user-metadata slot is
-// writable by anything, so metadata that is absent or not a JSON object is reported as
-// absent rather than failing the read of an otherwise intact event.
-func unmarshalMetadata(encoded []byte) map[string]string {
+// unmarshalEnvelope decodes what marshalEnvelope wrote. KurrentDB's user-metadata slot is
+// writable by anything, so bytes that do not decode as an envelope are reported as an
+// absent envelope rather than failing the read of an otherwise intact event.
+func unmarshalEnvelope(encoded []byte) eventEnvelope {
+	envelope := eventEnvelope{}
 	if len(encoded) == 0 {
-		return nil
+		return envelope
 	}
 
-	metadata := map[string]string{}
-	if err := json.Unmarshal(encoded, &metadata); err != nil {
-		estoria.GetLogger().Warn("ignoring unreadable event metadata", "error", err)
-		return nil
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		estoria.GetLogger().Warn("ignoring unreadable event envelope", "error", err)
+		return eventEnvelope{}
 	}
 
-	return metadata
+	return envelope
 }
 
 // asVersionMismatch converts a KurrentDB wrong-expected-version error into a

@@ -165,19 +165,19 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 }
 
 // AppendStream appends events to the specified stream.
-func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (retErr error) {
+func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (_ []*eventstore.Event, retErr error) {
 	if len(events) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	if streamID.Type == "" {
-		return errors.New("stream type is required")
+		return nil, errors.New("stream type is required")
 	}
 
 	if s.maxEventDataBytes > 0 {
 		for i, we := range events {
 			if len(we.Data) > s.maxEventDataBytes {
-				return fmt.Errorf("event %d data size %d exceeds maximum of %d bytes", i, len(we.Data), s.maxEventDataBytes)
+				return nil, fmt.Errorf("event %d data size %d exceeds maximum of %d bytes", i, len(we.Data), s.maxEventDataBytes)
 			}
 		}
 	}
@@ -186,7 +186,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 	tx, err := s.db.BeginTx(ctx, s.txOpts)
 	if err != nil {
-		return fmt.Errorf("beginning transaction: %w", err)
+		return nil, fmt.Errorf("beginning transaction: %w", err)
 	}
 
 	defer func() {
@@ -198,18 +198,18 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}()
 
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
-		return errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
+		return nil, errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
 	}
 
 	newMaxOffset, err := s.strategy.NextHighwaterMark(ctx, tx, streamID, len(events))
 	if err != nil {
-		return fmt.Errorf("getting highest offset: %w", err)
+		return nil, fmt.Errorf("getting highest offset: %w", err)
 	}
 
 	currentOffset := newMaxOffset - int64(len(events))
 
 	if opts.StreamMustNotExist && currentOffset > 0 {
-		return eventstore.StreamVersionMismatchError{
+		return nil, eventstore.StreamVersionMismatchError{
 			StreamID:        streamID,
 			ExpectedVersion: 0,
 			ActualVersion:   currentOffset,
@@ -217,7 +217,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	if opts.ExpectVersion != nil && *opts.ExpectVersion != currentOffset {
-		return eventstore.StreamVersionMismatchError{
+		return nil, eventstore.StreamVersionMismatchError{
 			StreamID:        streamID,
 			ExpectedVersion: *opts.ExpectVersion,
 			ActualVersion:   currentOffset,
@@ -226,12 +226,12 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 	stmtQuery, err := s.strategy.AppendStreamStatement()
 	if err != nil {
-		return fmt.Errorf("building append statement: %w", err)
+		return nil, fmt.Errorf("building append statement: %w", err)
 	}
 
 	stmt, err := tx.PrepareContext(ctx, stmtQuery)
 	if err != nil {
-		return fmt.Errorf("preparing statement: %w", err)
+		return nil, fmt.Errorf("preparing statement: %w", err)
 	}
 	defer func() {
 		if err := stmt.Close(); err != nil {
@@ -244,12 +244,13 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
 		fullEvents[i] = &eventstore.Event{
-			ID:            typeid.NewV4(we.Type),
-			StreamID:      streamID,
-			StreamVersion: currentOffset + int64(i) + 1,
-			Timestamp:     now,
-			Data:          we.Data,
-			Metadata:      we.Metadata,
+			ID:              typeid.NewV4(we.Type),
+			StreamID:        streamID,
+			StreamVersion:   currentOffset + int64(i) + 1,
+			Timestamp:       now,
+			Data:            we.Data,
+			DataContentType: we.DataContentType,
+			Metadata:        we.Metadata,
 		}
 
 		var globalPos int64
@@ -261,28 +262,28 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 				// expected and actual: we don't know the true actual version from the DB, and
 				// reporting ExpectedVersion=0 when no explicit ExpectVersion was specified would
 				// be misleading.
-				return eventstore.StreamVersionMismatchError{
+				return nil, eventstore.StreamVersionMismatchError{
 					StreamID:        streamID,
 					ExpectedVersion: currentOffset,
 					ActualVersion:   currentOffset,
 				}
 			}
-			return fmt.Errorf("executing statement: %w", err)
+			return nil, fmt.Errorf("executing statement: %w", err)
 		}
 		fullEvents[i].GlobalPosition = &globalPos
 	}
 
 	for _, hook := range s.appendTxHooks {
 		if err := hook.HandleEvents(ctx, tx, fullEvents); err != nil {
-			return fmt.Errorf("executing transaction hook: %w", err)
+			return nil, fmt.Errorf("executing transaction hook: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing transaction: %w", err)
+		return nil, fmt.Errorf("committing transaction: %w", err)
 	}
 
-	return nil
+	return fullEvents, nil
 }
 
 // StreamLister is an interface for strategies that support listing streams.

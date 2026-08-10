@@ -81,13 +81,16 @@ func (i *streamIterator) scanEventRecord() (*eventstore.Event, error) {
 		return nil, fmt.Errorf("converting UUID: %w", err)
 	}
 
+	envelope := unmarshalEnvelope(resolvedEvent.Event.UserMetadata)
+
 	return &eventstore.Event{
-		ID:            typeid.New(resolvedEvent.Event.EventType, uidV5),
-		StreamID:      streamID,
-		StreamVersion: int64(resolvedEvent.Event.EventNumber + 1),
-		Timestamp:     resolvedEvent.Event.CreatedDate,
-		Data:          resolvedEvent.Event.Data,
-		Metadata:      unmarshalMetadata(resolvedEvent.Event.UserMetadata),
+		ID:              typeid.New(resolvedEvent.Event.EventType, uidV5),
+		StreamID:        streamID,
+		StreamVersion:   int64(resolvedEvent.Event.EventNumber + 1),
+		Timestamp:       resolvedEvent.Event.CreatedDate,
+		Data:            resolvedEvent.Event.Data,
+		DataContentType: envelope.DataContentType,
+		Metadata:        envelope.Metadata,
 	}, nil
 }
 

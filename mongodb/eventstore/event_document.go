@@ -26,15 +26,16 @@ type Event struct {
 }
 
 type EventDocument struct {
-	StreamType   string            `bson:"stream_type"`
-	StreamID     string            `bson:"stream_id"`
-	EventType    string            `bson:"event_type"`
-	EventID      string            `bson:"event_id"`
-	Offset       int64             `bson:"offset"`
-	GlobalOffset int64             `bson:"global_offset"`
-	Timestamp    time.Time         `bson:"timestamp"`
-	EventData    []byte            `bson:"event_data"`
-	Metadata     map[string]string `bson:"metadata,omitempty"`
+	StreamType      string            `bson:"stream_type"`
+	StreamID        string            `bson:"stream_id"`
+	EventType       string            `bson:"event_type"`
+	EventID         string            `bson:"event_id"`
+	Offset          int64             `bson:"offset"`
+	GlobalOffset    int64             `bson:"global_offset"`
+	Timestamp       time.Time         `bson:"timestamp"`
+	EventData       []byte            `bson:"event_data"`
+	DataContentType string            `bson:"data_content_type,omitempty"`
+	Metadata        map[string]string `bson:"metadata,omitempty"`
 }
 
 type DefaultMarshaler struct{}
@@ -42,15 +43,16 @@ type DefaultMarshaler struct{}
 // MarshalDocument encodes an event into a document.
 func (DefaultMarshaler) MarshalDocument(event *Event) (any, error) {
 	return EventDocument{
-		StreamType:   event.StreamID.Type,
-		StreamID:     event.StreamID.UUID.String(),
-		EventType:    event.ID.Type,
-		EventID:      event.ID.UUID.String(),
-		Offset:       event.StreamVersion,
-		GlobalOffset: event.GlobalOffset,
-		Timestamp:    event.Timestamp,
-		EventData:    event.Data,
-		Metadata:     event.Metadata,
+		StreamType:      event.StreamID.Type,
+		StreamID:        event.StreamID.UUID.String(),
+		EventType:       event.ID.Type,
+		EventID:         event.ID.UUID.String(),
+		Offset:          event.StreamVersion,
+		GlobalOffset:    event.GlobalOffset,
+		Timestamp:       event.Timestamp,
+		EventData:       event.Data,
+		DataContentType: event.DataContentType,
+		Metadata:        event.Metadata,
 	}, nil
 }
 
@@ -74,13 +76,14 @@ func (DefaultMarshaler) UnmarshalDocument(decode DecodeDocumentFunc) (*Event, er
 	gp := doc.GlobalOffset
 	return &Event{
 		Event: eventstore.Event{
-			ID:             typeid.New(doc.EventType, eventID),
-			StreamID:       typeid.New(doc.StreamType, streamID),
-			StreamVersion:  doc.Offset,
-			GlobalPosition: &gp,
-			Timestamp:      doc.Timestamp,
-			Data:           doc.EventData,
-			Metadata:       doc.Metadata,
+			ID:              typeid.New(doc.EventType, eventID),
+			StreamID:        typeid.New(doc.StreamType, streamID),
+			StreamVersion:   doc.Offset,
+			GlobalPosition:  &gp,
+			Timestamp:       doc.Timestamp,
+			Data:            doc.EventData,
+			DataContentType: doc.DataContentType,
+			Metadata:        doc.Metadata,
 		},
 		GlobalOffset: doc.GlobalOffset,
 	}, nil

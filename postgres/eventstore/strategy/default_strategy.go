@@ -98,6 +98,7 @@ func (s *DefaultStrategy) ReadStreamQuery(streamID typeid.ID, opts eventstore.Re
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM %s
 		WHERE
@@ -131,6 +132,7 @@ func (s *DefaultStrategy) ScanEventRow(rows pgx.Rows) (*eventstore.Event, error)
 		&e.Timestamp,
 		&e.StreamVersion,
 		&e.Data,
+		&e.DataContentType,
 		&metadata,
 	); err != nil {
 		return nil, fmt.Errorf("scanning event row: %w", err)
@@ -202,9 +204,10 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`, quoteIdent(s.eventsTableName)), nil
 }
@@ -224,6 +227,7 @@ func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 		event.Timestamp,
 		event.StreamVersion,
 		event.Data,
+		event.DataContentType,
 		metadataArg,
 	}
 }
@@ -261,15 +265,16 @@ func WithStreamsTableName(name string) DefaultStrategyOption {
 func (s *DefaultStrategy) Schema() string {
 	return fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id            bigserial    PRIMARY KEY,
-			stream_id     uuid         NOT NULL,
-			stream_type   varchar(255) NOT NULL,
-			event_id      uuid         NOT NULL,
-			event_type    varchar(255) NOT NULL,
-			stream_offset bigint       NOT NULL,
-			timestamp     timestamptz  NOT NULL,
-			data          jsonb,
-			metadata      jsonb,
+			id                bigserial    PRIMARY KEY,
+			stream_id         uuid         NOT NULL,
+			stream_type       varchar(255) NOT NULL,
+			event_id          uuid         NOT NULL,
+			event_type        varchar(255) NOT NULL,
+			stream_offset     bigint       NOT NULL,
+			timestamp         timestamptz  NOT NULL,
+			data              jsonb,
+			data_content_type text         NOT NULL DEFAULT '',
+			metadata          jsonb,
 
 			CONSTRAINT event_stream_offset_unique UNIQUE (stream_id, stream_type, stream_offset),
 
@@ -363,6 +368,7 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, pool *pgxpool.Pool, opts 
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM %s
 		%s

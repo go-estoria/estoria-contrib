@@ -13,7 +13,7 @@ import (
 // mockEventStore is a hand-rolled mock for eventstore.Store
 type mockEventStore struct {
 	ReadStreamFn   func(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error)
-	AppendStreamFn func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error
+	AppendStreamFn func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) ([]*eventstore.Event, error)
 }
 
 func (m *mockEventStore) ReadStream(ctx context.Context, id typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
@@ -23,11 +23,11 @@ func (m *mockEventStore) ReadStream(ctx context.Context, id typeid.ID, opts even
 	return nil, errors.New("ReadStreamFn not set")
 }
 
-func (m *mockEventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+func (m *mockEventStore) AppendStream(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) ([]*eventstore.Event, error) {
 	if m.AppendStreamFn != nil {
 		return m.AppendStreamFn(ctx, streamID, events, opts)
 	}
-	return errors.New("AppendStreamFn not set")
+	return nil, errors.New("AppendStreamFn not set")
 }
 
 // mockStreamIterator is a hand-rolled mock for eventstore.StreamIterator
@@ -216,10 +216,11 @@ func TestInstrumentedStore_AppendStream_Success(t *testing.T) {
 		{Type: "test.event", Data: []byte("{}")},
 	}
 	expectedOpts := eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(5)}
+	expectedWritten := []*eventstore.Event{{StreamID: expectedID, StreamVersion: 6}}
 
 	appendCalled := false
 	inner := &mockEventStore{
-		AppendStreamFn: func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
+		AppendStreamFn: func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) ([]*eventstore.Event, error) {
 			appendCalled = true
 			if streamID != expectedID {
 				t.Errorf("expected id %v, got %v", expectedID, streamID)
@@ -230,7 +231,7 @@ func TestInstrumentedStore_AppendStream_Success(t *testing.T) {
 			if opts.ExpectVersion == nil || expectedOpts.ExpectVersion == nil || *opts.ExpectVersion != *expectedOpts.ExpectVersion {
 				t.Errorf("expected version %v, got %v", expectedOpts.ExpectVersion, opts.ExpectVersion)
 			}
-			return nil
+			return expectedWritten, nil
 		},
 	}
 
@@ -241,9 +242,13 @@ func TestInstrumentedStore_AppendStream_Success(t *testing.T) {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
-	err = store.AppendStream(context.Background(), expectedID, expectedEvents, expectedOpts)
+	written, err := store.AppendStream(context.Background(), expectedID, expectedEvents, expectedOpts)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+
+	if len(written) != 1 || written[0] != expectedWritten[0] {
+		t.Errorf("expected the inner store's written events returned, got %v", written)
 	}
 
 	if !appendCalled {
@@ -259,8 +264,8 @@ func TestInstrumentedStore_AppendStream_SpanName(t *testing.T) {
 	// Fix: new code uses traceNamespace+".AppendStream"
 
 	inner := &mockEventStore{
-		AppendStreamFn: func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
-			return nil
+		AppendStreamFn: func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) ([]*eventstore.Event, error) {
+			return nil, nil
 		},
 	}
 
@@ -280,7 +285,7 @@ func TestInstrumentedStore_AppendStream_SpanName(t *testing.T) {
 
 	// The actual span name would be customNamespace+".AppendStream"
 	// We verified the code uses the correct constant ".AppendStream" in the implementation
-	err = store.AppendStream(context.Background(), typeid.NewV4("test"), nil, eventstore.AppendStreamOptions{})
+	_, err = store.AppendStream(context.Background(), typeid.NewV4("test"), nil, eventstore.AppendStreamOptions{})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -292,8 +297,8 @@ func TestInstrumentedStore_AppendStream_ErrorPropagated(t *testing.T) {
 	expectedErr := errors.New("append stream failed")
 
 	inner := &mockEventStore{
-		AppendStreamFn: func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) error {
-			return expectedErr
+		AppendStreamFn: func(ctx context.Context, streamID typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) ([]*eventstore.Event, error) {
+			return nil, expectedErr
 		},
 	}
 
@@ -304,7 +309,7 @@ func TestInstrumentedStore_AppendStream_ErrorPropagated(t *testing.T) {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
-	err = store.AppendStream(context.Background(), typeid.NewV4("test"), nil, eventstore.AppendStreamOptions{})
+	_, err = store.AppendStream(context.Background(), typeid.NewV4("test"), nil, eventstore.AppendStreamOptions{})
 
 	if err == nil {
 		t.Errorf("expected error, got nil")

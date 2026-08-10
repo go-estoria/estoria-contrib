@@ -34,7 +34,7 @@ func appendEvents(t *testing.T, es *pgeventstore.EventStore, streamID typeid.ID,
 	t.Helper()
 
 	ctx := t.Context()
-	if err := es.AppendStream(ctx, streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+	if _, err := es.AppendStream(ctx, streamID, events, eventstore.AppendStreamOptions{}); err != nil {
 		t.Fatalf("AppendStream(%s): %v", streamID.String(), err)
 	}
 }
@@ -154,7 +154,7 @@ func TestOutbox_HandleEvents(t *testing.T) {
 			))
 
 			streamID := typeid.NewV4("mystream")
-			appendErr := es.AppendStream(ctx, streamID, tt.withEvents, eventstore.AppendStreamOptions{})
+			_, appendErr := es.AppendStream(ctx, streamID, tt.withEvents, eventstore.AppendStreamOptions{})
 
 			if tt.wantAppendErr {
 				if appendErr == nil {
