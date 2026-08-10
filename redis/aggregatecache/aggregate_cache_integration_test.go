@@ -2,9 +2,7 @@ package aggregatecache_test
 
 import (
 	"context"
-	"errors"
 	"testing"
-	"time"
 
 	"github.com/go-estoria/estoria-contrib/redis/aggregatecache"
 	"github.com/go-estoria/estoria/aggregatestore"
@@ -13,137 +11,65 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type mockEntity struct {
-	ID   uuid.UUID
-	Name string
+type mockState struct {
+	Name string `json:"name"`
 }
 
-func (e mockEntity) EntityID() typeid.ID {
-	return typeid.New("mockentity", e.ID)
+func newRedisClient(t *testing.T) *redis.Client {
+	t.Helper()
+	return redis.NewClient(&redis.Options{})
 }
 
-func TestCache_GetAggregate(t *testing.T) {
+func TestCache_GetAggregate_Miss(t *testing.T) {
 	t.Parallel()
 
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 
-	for _, tt := range []struct {
-		name            string
-		haveRedis       func(*testing.T) *redis.Client
-		haveMarshaler   aggregatecache.SnapshotMarshaler[mockEntity]
-		haveAggregateID typeid.ID
-		wantAggregate   *aggregatestore.Aggregate[mockEntity]
-		wantErr         error
-	}{
-		{
-			name: "returns nil when aggregate is not found",
-			haveRedis: func(t *testing.T) *redis.Client {
-				t.Helper()
-				client := redis.NewClient(&redis.Options{})
-				return client
-			},
-			haveMarshaler:   aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
-			haveAggregateID: typeid.New("type", uuid.Must(uuid.NewV4())),
-			wantAggregate:   nil,
-			wantErr:         nil,
-		},
-		{
-			name: "returns aggregate when found",
-			haveRedis: func(t *testing.T) *redis.Client {
-				t.Helper()
-				client := redis.NewClient(&redis.Options{})
-				snapshot := aggregatecache.Snapshot[mockEntity]{
-					Entity:  mockEntity{Name: "test"},
-					Version: 1,
-				}
+	cache := aggregatecache.New[mockState](newRedisClient(t))
 
-				data, err := aggregatecache.JSONSnapshotMarshaler[mockEntity]{}.Marshal(snapshot)
-				if err != nil {
-					t.Fatal(err)
-				}
+	entry, err := cache.GetAggregate(context.Background(), typeid.New("mockstate", uuid.Must(uuid.NewV4())))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-				if err := client.Set(context.Background(), "type_9fbcfd12-fffa-4e43-8168-9e107db5c800", data, time.Second).Err(); err != nil {
-					t.Fatal(err)
-				}
-
-				return client
-			},
-			haveMarshaler:   aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
-			haveAggregateID: typeid.New("type", uuid.Must(uuid.FromString("9fbcfd12-fffa-4e43-8168-9e107db5c800"))),
-			wantAggregate: func() *aggregatestore.Aggregate[mockEntity] {
-				return aggregatestore.NewAggregate(mockEntity{Name: "test"}, 1)
-			}(),
-			wantErr: nil,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cache := aggregatecache.New(tt.haveRedis(t), aggregatecache.WithMarshaler(tt.haveMarshaler))
-			aggregate, err := cache.GetAggregate(context.Background(), tt.haveAggregateID)
-
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Errorf("want error %v, got %v", tt.wantErr, err)
-				}
-
-				return
-			} else if tt.wantAggregate == nil {
-				return
-			}
-
-			if aggregate.Version() != tt.wantAggregate.Version() {
-				t.Errorf("want aggregate version %d, got %d", tt.wantAggregate.Version(), aggregate.Version())
-			}
-
-			if aggregate.Entity().Name != tt.wantAggregate.Entity().Name {
-				t.Errorf("want aggregate entity name %s, got %s", tt.wantAggregate.Entity().Name, aggregate.Entity().Name)
-			}
-		})
+	if entry != nil {
+		t.Errorf("want nil entry for a cache miss, got %+v", entry)
 	}
 }
 
-func TestCache_PutAggregate(t *testing.T) {
+func TestCache_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 
-	for _, tt := range []struct {
-		name          string
-		haveRedis     func(*testing.T) *redis.Client
-		haveMarshaler aggregatecache.SnapshotMarshaler[mockEntity]
-		haveAggregate *aggregatestore.Aggregate[mockEntity]
-		wantErr       error
-	}{
-		{
-			name: "puts aggregate in cache",
-			haveRedis: func(t *testing.T) *redis.Client {
-				t.Helper()
-				client := redis.NewClient(&redis.Options{})
-				return client
-			},
-			haveMarshaler: aggregatecache.JSONSnapshotMarshaler[mockEntity]{},
-			haveAggregate: func() *aggregatestore.Aggregate[mockEntity] {
-				return aggregatestore.NewAggregate(mockEntity{Name: "test"}, 1)
-			}(),
-			wantErr: nil,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	cache := aggregatecache.New[mockState](newRedisClient(t))
+	aggregateID := typeid.New("mockstate", uuid.Must(uuid.NewV4()))
 
-			cache := aggregatecache.New(tt.haveRedis(t), aggregatecache.WithMarshaler(tt.haveMarshaler))
-			err := cache.PutAggregate(context.Background(), tt.haveAggregate)
+	if err := cache.PutAggregate(context.Background(), aggregateID, aggregatestore.CachedAggregate[mockState]{
+		State:   mockState{Name: "test"},
+		Version: 42,
+	}); err != nil {
+		t.Fatalf("putting aggregate: %v", err)
+	}
 
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Errorf("want error %v, got %v", tt.wantErr, err)
-				}
-			}
-		})
+	entry, err := cache.GetAggregate(context.Background(), aggregateID)
+	if err != nil {
+		t.Fatalf("getting aggregate: %v", err)
+	}
+
+	if entry == nil {
+		t.Fatal("want a cached entry, got nil")
+	}
+
+	if entry.State.Name != "test" {
+		t.Errorf("want state name %q, got %q", "test", entry.State.Name)
+	}
+
+	if entry.Version != 42 {
+		t.Errorf("want version 42, got %d", entry.Version)
 	}
 }
