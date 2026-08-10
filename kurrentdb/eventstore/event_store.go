@@ -17,24 +17,33 @@ import (
 
 type KurrentClient interface {
 	ReadStream(context context.Context, streamID string, opts kurrentdb.ReadStreamOptions, count uint64) (*kurrentdb.ReadStream, error)
+	ReadAll(context context.Context, opts kurrentdb.ReadAllOptions, count uint64) (*kurrentdb.ReadStream, error)
 	AppendToStream(context context.Context, streamID string, opts kurrentdb.AppendToStreamOptions, events ...kurrentdb.EventData) (*kurrentdb.WriteResult, error)
 }
+
+// defaultReadAllWindowSize is how many raw $all records ReadAll fetches per server read.
+const defaultReadAllWindowSize = 1024
 
 type EventStore struct {
 	kurrentDB KurrentClient
 	log       estoria.Logger
+
+	streamPrefix      string
+	readAllWindowSize int64
 }
 
 var (
 	_ eventstore.StreamReader = (*EventStore)(nil)
 	_ eventstore.StreamWriter = (*EventStore)(nil)
+	_ eventstore.GlobalReader = (*EventStore)(nil)
 )
 
 // New creates a new event store using the given KurrentDB client.
 func New(kurrentDB KurrentClient, opts ...EventStoreOption) (*EventStore, error) {
 	eventStore := &EventStore{
-		kurrentDB: kurrentDB,
-		log:       estoria.GetLogger().WithGroup("eventstore"),
+		kurrentDB:         kurrentDB,
+		log:               estoria.GetLogger().WithGroup("eventstore"),
+		readAllWindowSize: defaultReadAllWindowSize,
 	}
 
 	for _, opt := range opts {
@@ -44,6 +53,81 @@ func New(kurrentDB KurrentClient, opts ...EventStoreOption) (*EventStore, error)
 	}
 
 	return eventStore, nil
+}
+
+// streamName returns the underlying KurrentDB stream name for an estoria stream ID,
+// applying the store's namespace prefix when one is configured.
+func (s *EventStore) streamName(streamID typeid.ID) string {
+	if s.streamPrefix != "" {
+		return s.streamPrefix + "." + streamID.String()
+	}
+
+	return streamID.String()
+}
+
+// estoriaStreamID reports whether a KurrentDB stream name identifies a stream this store
+// owns, returning the parsed stream ID when it does. The $-prefix check must precede
+// parsing: a metadata stream name like $$user_<uuid> would otherwise parse as a valid
+// stream ID. Name parsing is the only ownership signal available, so on a shared node,
+// streams written by other applications whose names parse as stream IDs are
+// indistinguishable from this store's; namespace stores with WithStreamPrefix to isolate
+// them.
+func (s *EventStore) estoriaStreamID(name string) (typeid.ID, bool) {
+	if strings.HasPrefix(name, "$") {
+		return typeid.ID{}, false
+	}
+
+	if s.streamPrefix != "" {
+		trimmed, found := strings.CutPrefix(name, s.streamPrefix+".")
+		if !found {
+			return typeid.ID{}, false
+		}
+
+		name = trimmed
+	}
+
+	id, err := typeid.Parse(name)
+	if err != nil {
+		return typeid.ID{}, false
+	}
+
+	return id, true
+}
+
+// ReadAll creates an iterator over events from all streams in ascending global order,
+// implementing eventstore.GlobalReader. Global positions are KurrentDB commit positions:
+// gaps are normal, repeats cannot occur. KurrentDB offers no server-side read filtering,
+// so the iterator scans the server's $all stream in windows and filters client-side to
+// this store's streams.
+func (s *EventStore) ReadAll(_ context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
+	if opts.AfterPosition < 0 {
+		return nil, errors.New("AfterPosition must not be negative")
+	} else if opts.Count < 0 {
+		return nil, errors.New("count must not be negative")
+	}
+
+	// An unbounded read is -1 rather than 0 so a raw record at commit position zero
+	// cannot be mistaken for one at the resume bound. The first window opens on the
+	// first Next, so a read with nothing to yield returns a working, empty iterator.
+	bound := int64(-1)
+	if opts.AfterPosition > 0 {
+		bound = opts.AfterPosition
+	}
+
+	remaining := int64(-1)
+	if opts.Count > 0 {
+		remaining = opts.Count
+	}
+
+	return &allStreamIterator{
+		client:     s.kurrentDB,
+		owns:       s.estoriaStreamID,
+		windowSize: s.readAllWindowSize,
+		bound:      bound,
+		cursor:     bound,
+		verified:   bound < 0,
+		remaining:  remaining,
+	}, nil
 }
 
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
@@ -77,7 +161,7 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		count = 1_000_000
 	}
 
-	result, err := s.kurrentDB.ReadStream(ctx, streamID.String(), readOpts, count)
+	result, err := s.kurrentDB.ReadStream(ctx, s.streamName(streamID), readOpts, count)
 	if err != nil {
 		s.log.Error("reading stream", "stream_id", streamID.String(), "error", err.Error())
 		if kdbErr, ok := kurrentdb.FromError(err); !ok && kdbErr != nil && kdbErr.Code() == kurrentdb.ErrorCodeResourceNotFound {
@@ -159,7 +243,7 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 		}
 	}
 
-	result, err := s.kurrentDB.AppendToStream(ctx, streamID.String(), appendOpts, streamEvents...)
+	result, err := s.kurrentDB.AppendToStream(ctx, s.streamName(streamID), appendOpts, streamEvents...)
 	if err != nil {
 		if ok, mismatch := s.asVersionMismatch(err, streamID, opts); ok {
 			return nil, mismatch

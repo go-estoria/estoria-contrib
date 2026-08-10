@@ -1,7 +1,9 @@
 .PHONY: itest itestv atest atestv
 
-ITEST_TIMEOUT ?= 60s
-ATEST_TIMEOUT ?= 30s
+# Each test function may wait up to three minutes for a KurrentDB container to elect a
+# leader (see testutil_test.go), so per-run budgets must sit well above that.
+ITEST_TIMEOUT ?= 20m
+ATEST_TIMEOUT ?= 20m
 
 # Run integration tests
 itest:

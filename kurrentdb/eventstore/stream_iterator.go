@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
+	"math"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
@@ -69,26 +69,37 @@ func (i *streamIterator) scanEventRecord() (*eventstore.Event, error) {
 		return nil, fmt.Errorf("receiving event: %w", err)
 	}
 
-	parts := strings.Split(resolvedEvent.Event.StreamID, "_")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid stream ID format: %s", resolvedEvent.Event.StreamID)
-	}
+	return eventFromResolved(resolvedEvent, i.streamID)
+}
 
-	streamID := typeid.New(parts[0], uuid.Must(uuid.FromString(parts[1])))
-
-	uidV5, err := uuid.FromBytes(resolvedEvent.Event.EventID[:])
+// eventFromResolved maps a KurrentDB resolved event onto an estoria event for the given
+// stream. The caller supplies the stream identity: per-stream reads address one known
+// stream, and $all reads derive it from the record's stream name before calling here.
+func eventFromResolved(resolved *kurrentdb.ResolvedEvent, streamID typeid.ID) (*eventstore.Event, error) {
+	eventID, err := uuid.FromBytes(resolved.Event.EventID[:])
 	if err != nil {
 		return nil, fmt.Errorf("converting UUID: %w", err)
 	}
 
-	envelope := unmarshalEnvelope(resolvedEvent.Event.UserMetadata)
+	var globalPosition *int64
+	if resolved.Commit != nil {
+		if *resolved.Commit > math.MaxInt64 {
+			return nil, fmt.Errorf("commit position %d overflows int64", *resolved.Commit)
+		}
+
+		position := int64(*resolved.Commit)
+		globalPosition = &position
+	}
+
+	envelope := unmarshalEnvelope(resolved.Event.UserMetadata)
 
 	return &eventstore.Event{
-		ID:              typeid.New(resolvedEvent.Event.EventType, uidV5),
+		ID:              typeid.New(resolved.Event.EventType, eventID),
 		StreamID:        streamID,
-		StreamVersion:   int64(resolvedEvent.Event.EventNumber + 1),
-		Timestamp:       resolvedEvent.Event.CreatedDate,
-		Data:            resolvedEvent.Event.Data,
+		StreamVersion:   int64(resolved.Event.EventNumber + 1),
+		GlobalPosition:  globalPosition,
+		Timestamp:       resolved.Event.CreatedDate,
+		Data:            resolved.Event.Data,
 		DataContentType: envelope.DataContentType,
 		Metadata:        envelope.Metadata,
 	}, nil
