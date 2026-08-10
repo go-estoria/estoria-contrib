@@ -341,27 +341,15 @@ func (s *DefaultStrategy) ListStreams(ctx context.Context, db *sql.DB) ([]Stream
 	return streams, nil
 }
 
-// ReadAll returns a SQL rows result set for reading all events in the event store.
-//
-// Note: When AfterVersion > 0, it is interpreted as a global position (the auto-incrementing
-// id column) rather than a stream version. This allows callers to resume reading from a known
-// global checkpoint. This semantic differs from ReadStreamQuery where AfterVersion refers to
-// stream versions.
-func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventstore.ReadStreamOptions) (*sql.Rows, error) {
-	direction, ok := directionSQL[opts.Direction]
-	if !ok {
-		direction = sortAscending
-	}
-
+// ReadAll returns a SQL rows result set for reading all events in the event store in
+// ascending global (id) order, with AfterPosition as an exclusive lower bound on id and
+// Count > 0 limiting the number of rows.
+func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventstore.ReadAllOptions) (*sql.Rows, error) {
 	var args []any
 	afterClause := ""
-	if opts.AfterVersion > 0 {
-		args = append(args, opts.AfterVersion)
-		if opts.Direction == eventstore.Reverse {
-			afterClause = "WHERE id <= ?"
-		} else {
-			afterClause = "WHERE id > ?"
-		}
+	if opts.AfterPosition > 0 {
+		args = append(args, opts.AfterPosition)
+		afterClause = "WHERE id > ?"
 	}
 
 	limitClause := ""
@@ -384,9 +372,9 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, db *sql.DB, opts eventsto
 		FROM %s
 		%s
 		ORDER BY
-			id %s
+			id ASC
 		%s
-	`, quoteIdentifier(s.eventsTableName), afterClause, direction, limitClause)
+	`, quoteIdentifier(s.eventsTableName), afterClause, limitClause)
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {

@@ -375,7 +375,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 
 		es := newStore(t)
 
-		iter, err := es.ReadAll(t.Context(), eventstore.ReadStreamOptions{})
+		iter, err := es.ReadAll(t.Context(), eventstore.ReadAllOptions{})
 		if err != nil {
 			t.Fatalf("ReadAll on empty store returned unexpected error: %v", err)
 		}
@@ -894,7 +894,7 @@ func TestEventStore_Integration_ListStreamsAndReadAll(t *testing.T) {
 	}
 
 	// ReadAll should return all 5 events ordered by global position.
-	iter, err := es.ReadAll(t.Context(), eventstore.ReadStreamOptions{})
+	iter, err := es.ReadAll(t.Context(), eventstore.ReadAllOptions{})
 	if err != nil {
 		t.Fatalf("ReadAll failed: %v", err)
 	}
@@ -922,11 +922,11 @@ func TestEventStore_Integration_ListStreamsAndReadAll(t *testing.T) {
 		}
 	}
 
-	// ReadAll with AfterVersion (interpreted as global position) skips earlier events.
+	// ReadAll with AfterPosition resumes after the exclusive global checkpoint.
 	checkpoint := *allEvents[1].GlobalPosition
-	iter2, err := es.ReadAll(t.Context(), eventstore.ReadStreamOptions{AfterVersion: checkpoint})
+	iter2, err := es.ReadAll(t.Context(), eventstore.ReadAllOptions{AfterPosition: checkpoint})
 	if err != nil {
-		t.Fatalf("ReadAll(AfterVersion) failed: %v", err)
+		t.Fatalf("ReadAll(AfterPosition) failed: %v", err)
 	}
 	var afterEvents []*eventstore.Event
 	for {

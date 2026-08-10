@@ -261,7 +261,9 @@ func WithStreamsTableName(name string) DefaultStrategyOption {
 	}
 }
 
-// Schema returns the complete SQL schema for the event store.
+// Schema returns the complete SQL schema for the event store. The uniqueness constraint's
+// name is derived from the events table name so that stores with different table names can
+// share a database.
 func (s *DefaultStrategy) Schema() string {
 	return fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -276,7 +278,7 @@ func (s *DefaultStrategy) Schema() string {
 			data_content_type text         NOT NULL DEFAULT '',
 			metadata          jsonb,
 
-			CONSTRAINT event_stream_offset_unique UNIQUE (stream_id, stream_type, stream_offset),
+			CONSTRAINT %s UNIQUE (stream_id, stream_type, stream_offset),
 
 			CHECK (stream_offset > 0)
 		);
@@ -288,7 +290,7 @@ func (s *DefaultStrategy) Schema() string {
 
 			PRIMARY KEY (stream_type, stream_id)
 		);
-	`, quoteIdent(s.eventsTableName), quoteIdent(s.streamsTableName))
+	`, quoteIdent(s.eventsTableName), quoteIdent(s.eventsTableName+"_stream_offset_unique"), quoteIdent(s.streamsTableName))
 }
 
 // ListStreams returns metadata for all streams in the event store.
@@ -330,27 +332,15 @@ func (s *DefaultStrategy) ListStreams(ctx context.Context, pool *pgxpool.Pool) (
 	return streams, nil
 }
 
-// ReadAll returns a SQL rows result set for reading all events in the event store.
-//
-// Note: When AfterVersion > 0, it is interpreted as a global position (the auto-incrementing
-// id column) rather than a stream version. This allows callers to resume reading from a known
-// global checkpoint. This semantic differs from ReadStreamQuery where AfterVersion refers to
-// stream versions.
-func (s *DefaultStrategy) ReadAll(ctx context.Context, pool *pgxpool.Pool, opts eventstore.ReadStreamOptions) (pgx.Rows, error) {
-	direction, ok := directionSQL[opts.Direction]
-	if !ok {
-		direction = sortAscending
-	}
-
+// ReadAll returns a SQL rows result set for reading all events in the event store in
+// ascending global (id) order, with AfterPosition as an exclusive lower bound on id and
+// Count > 0 limiting the number of rows.
+func (s *DefaultStrategy) ReadAll(ctx context.Context, pool *pgxpool.Pool, opts eventstore.ReadAllOptions) (pgx.Rows, error) {
 	var args []any
 	afterClause := ""
-	if opts.AfterVersion > 0 {
-		args = append(args, opts.AfterVersion)
-		if opts.Direction == eventstore.Reverse {
-			afterClause = "WHERE id <= $1"
-		} else {
-			afterClause = "WHERE id > $1"
-		}
+	if opts.AfterPosition > 0 {
+		args = append(args, opts.AfterPosition)
+		afterClause = "WHERE id > $1"
 	}
 
 	limitClause := ""
@@ -373,9 +363,9 @@ func (s *DefaultStrategy) ReadAll(ctx context.Context, pool *pgxpool.Pool, opts 
 		FROM %s
 		%s
 		ORDER BY
-			id %s
+			id ASC
 		%s
-	`, quoteIdent(s.eventsTableName), afterClause, direction, limitClause)
+	`, quoteIdent(s.eventsTableName), afterClause, limitClause)
 
 	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
