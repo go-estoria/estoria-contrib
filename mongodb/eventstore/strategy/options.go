@@ -8,16 +8,18 @@ import (
 )
 
 type strategyConfig struct {
-	log      estoria.Logger
-	sessOpts *options.SessionOptionsBuilder
-	txOpts   *options.TransactionOptionsBuilder
+	log                   estoria.Logger
+	sessOpts              *options.SessionOptionsBuilder
+	txOpts                *options.TransactionOptionsBuilder
+	streamsCollectionName string
 }
 
 func newStrategyConfig() *strategyConfig {
 	return &strategyConfig{
-		log:      estoria.DefaultLogger(),
-		sessOpts: DefaultSessionOptions(),
-		txOpts:   DefaultTransactionOptions(),
+		log:                   estoria.DefaultLogger(),
+		sessOpts:              DefaultSessionOptions(),
+		txOpts:                DefaultTransactionOptions(),
+		streamsCollectionName: DefaultStreamsCollectionName,
 	}
 }
 
@@ -73,6 +75,24 @@ func WithTransactionOptions(opts *options.TransactionOptionsBuilder) StrategyOpt
 		}
 
 		s.txOpts = opts
+		return nil
+	}
+}
+
+// WithStreamsCollectionName overrides the name of the collection a
+// MultiCollectionStrategy uses for stream and offset counter documents; a
+// SingleCollectionStrategy takes its streams collection as an explicit handle instead
+// and ignores this option. The name must not collide with any name the collection
+// selector can produce.
+//
+// By default, DefaultStreamsCollectionName is used.
+func WithStreamsCollectionName(name string) StrategyOption {
+	return func(s *strategyConfig) error {
+		if name == "" {
+			return errors.New("streams collection name cannot be empty")
+		}
+
+		s.streamsCollectionName = name
 		return nil
 	}
 }

@@ -460,7 +460,13 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 					}
 				}
 
-				gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(t.Context(), tt.haveStreamID,
+				seededDocs := make([][]bson.M, 0, len(tt.haveExistingDocuments))
+				for _, haveExistingDocs := range tt.haveExistingDocuments {
+					seededDocs = append(seededDocs, haveExistingDocs)
+				}
+				seedStreamDocs(ctx, t, database.Collection(strategy.DefaultStreamsCollectionName), seededDocs...)
+
+				gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(t.Context(), tt.haveStreamID, len(tt.haveDocuments),
 					func(sessCtx context.Context, coll strategy.MongoCollection, offset, globalOffset int64) (any, error) {
 						for i := range tt.haveDocuments {
 							tt.haveDocuments[i]["offset"] = offset + int64(i) + 1

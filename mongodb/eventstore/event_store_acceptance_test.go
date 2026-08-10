@@ -2,13 +2,13 @@ package eventstore_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
 	coreeventstore "github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/eventstore/storetest"
-	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -40,13 +40,10 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			name: "store with single collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				collection := db.Collection("events")
-				t.Cleanup(func() {
-					if err := collection.Drop(context.WithoutCancel(ctx)); err != nil {
-						t.Fatalf("tc cleanup: failed to drop collection: %v", err)
-					}
-				})
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, collection)
+				strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
+					db.Collection("events"),
+					db.Collection(strategy.DefaultStreamsCollectionName),
+				)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
@@ -54,14 +51,12 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			},
 		},
 		{
+			// One collection per stream, so multi-cursor reads are genuinely multi-cursor;
+			// a constant selector would collapse this case into the single-collection one.
 			name: "store with multi collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db,
-					strategy.CollectionSelectorFunc(func(typeid.ID) string {
-						return "events"
-					}),
-				)
+				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 				}
@@ -87,6 +82,96 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			storetest.RunEventStoreSuite(t, func(*testing.T) coreeventstore.Store {
 				return eventStore
 			})
+		})
+	}
+}
+
+// The global reader suite requires exclusive ownership of the store's history, so unlike
+// the suite above, every clause gets a fresh database.
+func TestEventStore_GlobalReaderAcceptanceTest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping acceptance test")
+	}
+
+	t.Parallel()
+
+	ctx := t.Context()
+
+	mongoClient, err := createMongoDBContainer(t)
+	if err != nil {
+		t.Fatalf("failed to create MongoDB container: %v", err)
+	}
+
+	dbCount := 0
+	newDatabase := func(t *testing.T) *mongo.Database {
+		t.Helper()
+		dbCount++
+		database := mongoClient.Database(fmt.Sprintf("estoria_global_%d", dbCount))
+		t.Cleanup(func() {
+			if err := database.Drop(context.WithoutCancel(ctx)); err != nil {
+				t.Fatalf("tc cleanup: failed to drop database: %v", err)
+			}
+		})
+		return database
+	}
+
+	newStore := func(t *testing.T, opts ...eventstore.EventStoreOption) storetest.GlobalStore {
+		t.Helper()
+		eventStore, err := eventstore.New(mongoClient, opts...)
+		if err != nil {
+			t.Fatalf("tc setup: failed to create EventStore: %v", err)
+		}
+		return eventStore
+	}
+
+	for _, tt := range []struct {
+		name     string
+		newStore storetest.NewGlobalStoreFunc
+	}{
+		{
+			// The default configuration hardwires the "estoria" database, so exclusivity
+			// comes from dropping it before each clause; the suite's clauses run
+			// sequentially.
+			name: "store with default options",
+			newStore: func(t *testing.T) storetest.GlobalStore {
+				t.Helper()
+				if err := mongoClient.Database(eventstore.DefaultDatabaseName).Drop(ctx); err != nil {
+					t.Fatalf("tc setup: failed to drop database: %v", err)
+				}
+				return newStore(t)
+			},
+		},
+		{
+			name: "store with single collection strategy",
+			newStore: func(t *testing.T) storetest.GlobalStore {
+				t.Helper()
+				db := newDatabase(t)
+				strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
+					db.Collection("events"),
+					db.Collection(strategy.DefaultStreamsCollectionName),
+				)
+				if err != nil {
+					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
+				}
+				return newStore(t, eventstore.WithStrategy(strat))
+			},
+		},
+		{
+			// One collection per stream, so global reads exercise the multi-cursor merge.
+			name: "store with multi collection strategy",
+			newStore: func(t *testing.T) storetest.GlobalStore {
+				t.Helper()
+				db := newDatabase(t)
+				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
+				if err != nil {
+					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
+				}
+				return newStore(t, eventstore.WithStrategy(strat))
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			storetest.RunGlobalReaderSuite(t, tt.newStore)
 		})
 	}
 }

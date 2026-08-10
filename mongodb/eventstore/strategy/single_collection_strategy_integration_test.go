@@ -149,7 +149,8 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, collection)
+			streams := mongoClient.Database("estoria").Collection("streams")
+			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, collection, streams)
 			if err != nil {
 				t.Fatalf("unexpected error creating strategy: %v", err)
 			}
@@ -327,9 +328,11 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			collection := mongoClient.Database("estoria").Collection("events-" + uuid.Must(uuid.NewV4()).String()[0:8])
+			suffix := uuid.Must(uuid.NewV4()).String()[0:8]
+			collection := mongoClient.Database("estoria").Collection("events-" + suffix)
+			streams := mongoClient.Database("estoria").Collection("streams-" + suffix)
 
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, collection)
+			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, collection, streams)
 			if err != nil {
 				t.Fatalf("tc setup: unexpected error creating strategy: %v", err)
 			}
@@ -343,7 +346,9 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 				}
 			}
 
-			gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(t.Context(), tt.haveStreamID,
+			seedStreamDocs(ctx, t, streams, tt.haveExistingDocuments)
+
+			gotResult, gotErr := haveStrategy.ExecuteInsertTransaction(t.Context(), tt.haveStreamID, len(tt.haveDocuments),
 				func(sessCtx context.Context, coll strategy.MongoCollection, offset, globalOffset int64) (any, error) {
 					for i := range tt.haveDocuments {
 						tt.haveDocuments[i]["offset"] = offset + int64(i) + 1

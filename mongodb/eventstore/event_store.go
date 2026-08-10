@@ -31,19 +31,21 @@ type (
 
 	// Strategy provides APIs for reading and writing events to an event store, enumerating streams, and marshaling events.
 	Strategy interface {
-		// ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
-		// The function is executed within a transaction and is invoked with a session context, a collection,
-		// the current offset of the stream, and the global offset.
+		// ExecuteInsertTransaction executes the given function within a new session suitable
+		// for inserting numEvents events. The function is executed within a transaction, after
+		// offset and global offset ranges have been reserved in it, and is invoked with a
+		// session context, a collection, and the offsets preceding each reserved range.
 		ExecuteInsertTransaction(
 			ctx context.Context,
 			streamID typeid.ID,
+			numEvents int,
 			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
 		) (any, error)
 
-		// GetAllCursor returns one or more Mongo cursors for all events in the event store, ordered by global offset.
+		// GetAllCursor returns one or more Mongo cursors for all events in the event store, each ordered by global offset.
 		GetAllCursor(
 			ctx context.Context,
-			opts eventstore.ReadStreamOptions,
+			opts eventstore.ReadAllOptions,
 		) ([]*mongo.Cursor, error)
 
 		// GetStreamCursor returns a Mongo cursor for events in the specified stream, ordered by stream offset.
@@ -81,6 +83,7 @@ type EventStore struct {
 var (
 	_ eventstore.StreamReader = (*EventStore)(nil)
 	_ eventstore.StreamWriter = (*EventStore)(nil)
+	_ eventstore.GlobalReader = (*EventStore)(nil)
 )
 
 // StreamInfo represents information about a single stream in the event store.
@@ -173,9 +176,11 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 	// use a single collection strategy by default
 	if eventStore.strategy == nil {
+		database := client.Database(DefaultDatabaseName)
 		strat, err := strategy.NewSingleCollectionStrategy(
 			client,
-			client.Database(DefaultDatabaseName).Collection(DefaultCollectionName),
+			database.Collection(DefaultCollectionName),
+			database.Collection(strategy.DefaultStreamsCollectionName),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
@@ -209,12 +214,14 @@ func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
 	return streams, nil
 }
 
-// ReadAll returns an iterator for reading all events in the event store.
-func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
+// ReadAll creates an iterator over events from all streams in ascending global order,
+// implementing eventstore.GlobalReader. Global positions are counter-allocated global
+// offsets: gaps can occur, repeats cannot. A read with nothing to yield returns an empty
+// iterator rather than an error.
+func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from MongoDB event store",
-		"after_version", opts.AfterVersion,
+		"after_position", opts.AfterPosition,
 		"count", opts.Count,
-		"direction", opts.Direction,
 	)
 
 	cursors, err := s.strategy.GetAllCursor(ctx, opts)
@@ -222,6 +229,8 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 		return nil, fmt.Errorf("getting all events iterator: %w", err)
 	}
 
+	// A single cursor is already bounded server-side; the merged iterator applies the
+	// count across cursors itself.
 	if len(cursors) == 1 {
 		return &streamIterator{
 			cursor:    cursors[0],
@@ -239,6 +248,7 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOpti
 	return &multiStreamIterator{
 		cursors:   iteratorCursors,
 		marshaler: s.marshaler,
+		limit:     opts.Count,
 	}, nil
 }
 
@@ -256,23 +266,17 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		return nil, fmt.Errorf("getting stream iterator: %w", err)
 	}
 
-	// An empty result has two meanings: the stream holds no events at all, or the read was
-	// filtered and nothing matched. Only the first is ErrStreamNotFound, and callers depend
-	// on the difference — EventSourcedStore reports ErrAggregateNotFound on that error alone,
-	// so a store that never returns it hands back an empty aggregate for an ID that was
-	// never written.
+	// An empty result has two meanings: the stream is absent, or it exists and the read
+	// matched nothing. Only the first is ErrStreamNotFound, and callers depend on the
+	// difference — EventSourcedStore reports ErrAggregateNotFound on that error alone, so
+	// a store that never returns it hands back an empty aggregate for an ID that was
+	// never written. The stream document is the authority; an empty unfiltered read is
+	// not proof of absence, since a truncated stream can hold no events yet exist.
 	primed := cursor.Next(ctx)
 	if !primed {
 		if err := cursor.Err(); err != nil {
 			_ = cursor.Close(ctx)
 			return nil, fmt.Errorf("reading stream events: %w", err)
-		}
-
-		// An unfiltered read that matched nothing saw the whole stream: it is absent. Only a
-		// filtered read has to pay for the extra existence query.
-		if opts.AfterVersion == 0 {
-			_ = cursor.Close(ctx)
-			return nil, eventstore.ErrStreamNotFound
 		}
 
 		exists, err := s.strategy.StreamExists(ctx, streamID)
@@ -309,8 +313,8 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 	written := make([]*eventstore.Event, len(events))
 
-	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID,
-		func(_ context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
+	_, err := s.strategy.ExecuteInsertTransaction(ctx, streamID, len(events),
+		func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error) {
 			if opts.StreamMustNotExist && offset > 0 {
 				return nil, eventstore.StreamVersionMismatchError{
 					StreamID:        streamID,
@@ -357,11 +361,17 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 				written[i] = &fullEvent.Event
 			}
 
-			result, err := collection.InsertMany(ctx, docs)
+			result, err := collection.InsertMany(sessCtx, docs)
 			if err != nil {
 				return result, fmt.Errorf("inserting events: %w", err)
 			} else if len(result.InsertedIDs) != len(docs) {
 				return result, fmt.Errorf("inserted %d events, but expected %d", len(result.InsertedIDs), len(docs))
+			}
+
+			for _, hook := range s.txHooks {
+				if err := hook.HandleEvents(sessCtx, written); err != nil {
+					return result, fmt.Errorf("executing transaction hook: %w", err)
+				}
 			}
 
 			return result, nil
