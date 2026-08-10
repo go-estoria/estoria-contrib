@@ -31,6 +31,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -58,6 +59,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "my_events"
 		WHERE
@@ -85,6 +87,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -113,6 +116,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -141,6 +145,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -169,6 +174,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -197,6 +203,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -226,6 +233,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -255,6 +263,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -320,9 +329,10 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`,
 		},
@@ -340,9 +350,10 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`,
 		},

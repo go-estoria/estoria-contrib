@@ -38,6 +38,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -65,6 +66,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "my_events"
 		WHERE
@@ -92,6 +94,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -120,6 +123,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -148,6 +152,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -176,6 +181,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -204,6 +210,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -233,6 +240,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -262,6 +270,7 @@ func TestDefaultStrategy_ReadStreamQuery(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		FROM "event"
 		WHERE
@@ -321,9 +330,10 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`,
 		},
@@ -341,9 +351,10 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			timestamp,
 			stream_offset,
 			data,
+			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`,
 		},

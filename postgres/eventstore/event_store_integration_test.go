@@ -230,7 +230,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 				// setup test-specific DB state
 				if len(tt.withEvents) > 0 {
 					for streamID, events := range tt.withEvents {
-						if err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+						if _, err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
 							t.Fatalf("failed to setup DB state: %v", err)
 						}
 					}
@@ -344,7 +344,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		es := newStore(t)
 		streamID := typeid.NewV4("test")
 
-		err := es.AppendStream(t.Context(), streamID, []*eventstore.WritableEvent{}, eventstore.AppendStreamOptions{})
+		_, err := es.AppendStream(t.Context(), streamID, []*eventstore.WritableEvent{}, eventstore.AppendStreamOptions{})
 		if err != nil {
 			t.Fatalf("AppendStream with empty slice returned unexpected error: %v", err)
 		}
@@ -363,7 +363,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		es := newStore(t)
 		streamID := typeid.NewV4("test")
 
-		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:1], eventstore.AppendStreamOptions{}); err != nil {
+		if _, err := es.AppendStream(t.Context(), streamID, writableEvents[0:1], eventstore.AppendStreamOptions{}); err != nil {
 			t.Fatalf("AppendStream failed: %v", err)
 		}
 
@@ -412,7 +412,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		es := newStore(t)
 		streamID := typeid.NewV4("test")
 
-		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:3], eventstore.AppendStreamOptions{}); err != nil {
+		if _, err := es.AppendStream(t.Context(), streamID, writableEvents[0:3], eventstore.AppendStreamOptions{}); err != nil {
 			t.Fatalf("AppendStream failed: %v", err)
 		}
 
@@ -460,7 +460,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		es := newStore(t)
 		emptyTypeID := typeid.New("", typeid.NewV4("ignored").UUID)
 
-		err := es.AppendStream(t.Context(), emptyTypeID, writableEvents[0:1], eventstore.AppendStreamOptions{})
+		_, err := es.AppendStream(t.Context(), emptyTypeID, writableEvents[0:1], eventstore.AppendStreamOptions{})
 		if err == nil {
 			t.Fatal("AppendStream with empty stream type returned nil error, expected an error")
 		}
@@ -501,7 +501,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		}
 
 		oversizedEvent := []*eventstore.WritableEvent{{Type: "event", Data: largeData}}
-		err := es.AppendStream(t.Context(), streamID, oversizedEvent, eventstore.AppendStreamOptions{})
+		_, err := es.AppendStream(t.Context(), streamID, oversizedEvent, eventstore.AppendStreamOptions{})
 		if err == nil {
 			t.Fatal("AppendStream with oversized data returned nil error, expected an error")
 		}
@@ -509,7 +509,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		// A correctly-sized event on the same stream must still succeed.
 		smallData := []byte(`{"key":"value"}`)
 		smallEvent := []*eventstore.WritableEvent{{Type: "event", Data: smallData}}
-		if err := es.AppendStream(t.Context(), streamID, smallEvent, eventstore.AppendStreamOptions{}); err != nil {
+		if _, err := es.AppendStream(t.Context(), streamID, smallEvent, eventstore.AppendStreamOptions{}); err != nil {
 			t.Errorf("AppendStream with data within limit returned unexpected error: %v", err)
 		}
 	})
@@ -521,7 +521,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		es := newStore(t)
 		streamID := typeid.NewV4("test")
 
-		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:1], eventstore.AppendStreamOptions{}); err != nil {
+		if _, err := es.AppendStream(t.Context(), streamID, writableEvents[0:1], eventstore.AppendStreamOptions{}); err != nil {
 			t.Fatalf("AppendStream failed: %v", err)
 		}
 
@@ -543,12 +543,12 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		streamID := typeid.NewV4("test")
 
 		// Append two events so the stream is at version 2.
-		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:2], eventstore.AppendStreamOptions{}); err != nil {
+		if _, err := es.AppendStream(t.Context(), streamID, writableEvents[0:2], eventstore.AppendStreamOptions{}); err != nil {
 			t.Fatalf("initial AppendStream failed: %v", err)
 		}
 
 		// Append with a wrong expected version (1 instead of 2).
-		err := es.AppendStream(t.Context(), streamID, writableEvents[2:3], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
+		_, err := es.AppendStream(t.Context(), streamID, writableEvents[2:3], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
 		if err == nil {
 			t.Fatal("AppendStream with wrong ExpectVersion returned nil error, expected StreamVersionMismatchError")
 		}
@@ -568,12 +568,12 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		streamID := typeid.NewV4("test")
 
 		// Append 3 events; stream is now at version 3.
-		if err := es.AppendStream(t.Context(), streamID, writableEvents[0:3], eventstore.AppendStreamOptions{}); err != nil {
+		if _, err := es.AppendStream(t.Context(), streamID, writableEvents[0:3], eventstore.AppendStreamOptions{}); err != nil {
 			t.Fatalf("initial AppendStream failed: %v", err)
 		}
 
 		// Attempt to append with a stale expected version (1 instead of 3); must fail.
-		err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
+		_, err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(1)})
 		if err == nil {
 			t.Fatal("AppendStream with wrong ExpectVersion returned nil error, expected an error")
 		}
@@ -583,7 +583,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 		}
 
 		// Retry with the correct expected version; must succeed.
-		if err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(3)}); err != nil {
+		if _, err := es.AppendStream(t.Context(), streamID, writableEvents[3:4], eventstore.AppendStreamOptions{ExpectVersion: eventstore.VersionPtr(3)}); err != nil {
 			t.Fatalf("corrected AppendStream failed after previous mismatch: %v", err)
 		}
 
@@ -769,13 +769,13 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 				// setup test-specific DB state
 				if len(tt.withEvents) > 0 {
 					for streamID, events := range tt.withEvents {
-						if err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+						if _, err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
 							t.Fatalf("failed to setup DB state: %v", err)
 						}
 					}
 				}
 
-				err = eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.haveEvents, tt.haveOpts)
+				_, err = eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.haveEvents, tt.haveOpts)
 				if err != nil {
 					if tt.wantErr == nil {
 						t.Fatalf("unexpected error reading stream: %v", err)

@@ -217,7 +217,7 @@ func TestEventStore_Integration_ReadStream(t *testing.T) {
 			// setup test-specific DB state
 			if len(tt.withEvents) > 0 {
 				for streamID, events := range tt.withEvents {
-					if err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+					if _, err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
 						t.Fatalf("failed to setup DB state: %v", err)
 					}
 				}
@@ -390,13 +390,13 @@ func TestEventStore_Integration_AppendStream(t *testing.T) {
 			// setup test-specific DB state
 			if len(tt.withEvents) > 0 {
 				for streamID, events := range tt.withEvents {
-					if err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
+					if _, err := eventStore.AppendStream(t.Context(), streamID, events, eventstore.AppendStreamOptions{}); err != nil {
 						t.Fatalf("failed to setup DB state: %v", err)
 					}
 				}
 			}
 
-			err = eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.haveEvents, tt.haveOpts)
+			_, err = eventStore.AppendStream(t.Context(), tt.haveStreamID, tt.haveEvents, tt.haveOpts)
 			if err != nil {
 				if tt.wantErr == nil {
 					t.Fatalf("unexpected error reading stream: %v", err)

@@ -26,6 +26,11 @@ const namespaceEventStore = "eventstore"
 //
 // The store emits metrics under the "eventstore" namespace by default. The
 // namespace can be customized using the WithMetricNamespace option.
+//
+// The store exposes only the eventstore.Store interface: optional capabilities of the
+// inner store (eventstore.GlobalReader, eventstore.StreamDeleter) are not surfaced, so
+// a type assertion on the wrapper reports them unsupported even when the inner store
+// implements them.
 type InstrumentedStore struct {
 	inner          eventstore.Store
 	metricsEnabled bool
@@ -93,7 +98,7 @@ func (s *InstrumentedStore) ReadStream(ctx context.Context, id typeid.ID, opts e
 }
 
 // AppendStream appends events to a stream while capturing telemetry.
-func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (e error) {
+func (s *InstrumentedStore) AppendStream(ctx context.Context, id typeid.ID, events []*eventstore.WritableEvent, opts eventstore.AppendStreamOptions) (_ []*eventstore.Event, e error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, s.traceNamespace+".AppendStream")
 	span.SetTag("stream.id", id.String())
 	span.SetTag("events.length", int64(len(events)))
