@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-estoria/estoria"
 	"github.com/go-estoria/estoria/eventstore"
@@ -29,8 +30,11 @@ import (
 //
 // Alongside the event collections, the database holds a streams collection (named
 // DefaultStreamsCollectionName unless overridden with WithStreamsCollectionName) with one
-// counter document per stream plus the global offset counter; it is excluded when event
-// collections are enumerated.
+// counter document per stream plus the global offset counter. When event collections are
+// enumerated, the streams collection and every collection whose name begins with an
+// underscore are excluded: typeid type names cannot begin with an underscore, so that
+// namespace is reserved for infrastructure collections (such as an outbox) sharing the
+// database.
 type MultiCollectionStrategy struct {
 	mongo    MongoSessionStarter
 	database MongoDatabase
@@ -128,17 +132,35 @@ func (s *MultiCollectionStrategy) EnsureIndexes(ctx context.Context) error {
 	return nil
 }
 
+// checkSelectedName rejects a selector-chosen collection name that a write path must not
+// touch: the streams collection, or any name in the reserved underscore namespace (which
+// event collection enumeration would then ignore, silently losing the stream's events
+// from global reads).
+func (s *MultiCollectionStrategy) checkSelectedName(collectionName string, streamID typeid.ID) error {
+	if collectionName == s.streamsCollectionName || strings.HasPrefix(collectionName, "_") {
+		return fmt.Errorf("collection selector chose reserved collection name %q for stream %s", collectionName, streamID)
+	}
+
+	return nil
+}
+
 // eventCollectionNames returns the names of the database's event collections, excluding
-// the streams collection.
+// the streams collection and the reserved underscore namespace.
 func (s *MultiCollectionStrategy) eventCollectionNames(ctx context.Context) ([]string, error) {
-	names, err := s.database.ListCollectionNames(ctx, bson.D{
-		{Key: "name", Value: bson.D{{Key: "$ne", Value: s.streamsCollectionName}}},
-	})
+	names, err := s.database.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
 		return nil, fmt.Errorf("listing collection names: %w", err)
 	}
 
-	return names, nil
+	eventCollections := make([]string, 0, len(names))
+	for _, name := range names {
+		if name == s.streamsCollectionName || strings.HasPrefix(name, "_") {
+			continue
+		}
+		eventCollections = append(eventCollections, name)
+	}
+
+	return eventCollections, nil
 }
 
 // ListStreams returns a list of cursors for iterating over stream metadata.
@@ -224,8 +246,8 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
 	collectionName := s.selector.CollectionName(streamID)
-	if collectionName == s.streamsCollectionName {
-		return nil, fmt.Errorf("collection selector chose the streams collection %q for stream %s", collectionName, streamID)
+	if err := s.checkSelectedName(collectionName, streamID); err != nil {
+		return nil, err
 	}
 
 	// Index creation cannot run inside the transaction, so it happens before the session starts.
@@ -267,6 +289,11 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 // stream's events live in the single collection its selector names, so the transaction
 // touches that collection and the streams collection.
 func (s *MultiCollectionStrategy) DeleteStream(ctx context.Context, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error {
+	collectionName := s.selector.CollectionName(streamID)
+	if err := s.checkSelectedName(collectionName, streamID); err != nil {
+		return err
+	}
+
 	session, err := s.mongo.StartSession(s.sessOpts)
 	if err != nil {
 		return fmt.Errorf("starting delete session: %w", err)
@@ -274,7 +301,7 @@ func (s *MultiCollectionStrategy) DeleteStream(ctx context.Context, streamID typ
 
 	defer session.EndSession(ctx)
 
-	events := s.database.Collection(s.selector.CollectionName(streamID))
+	events := s.database.Collection(collectionName)
 
 	if _, err := session.WithTransaction(ctx, func(ctx context.Context) (any, error) {
 		return nil, deleteStreamDocs(ctx, s.streams, events, streamID, opts)

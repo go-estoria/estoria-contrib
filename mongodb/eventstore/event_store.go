@@ -79,7 +79,15 @@ type (
 	TransactionHook interface {
 		HandleEvents(sessCtx context.Context, events []*eventstore.Event) error
 	}
+
+	// A TransactionHookFunc adapts a function to the TransactionHook interface.
+	TransactionHookFunc func(sessCtx context.Context, events []*eventstore.Event) error
 )
+
+// HandleEvents implements TransactionHook by invoking the function.
+func (f TransactionHookFunc) HandleEvents(sessCtx context.Context, events []*eventstore.Event) error {
+	return f(sessCtx, events)
+}
 
 // An EventStore stores and retrieves events using MongoDB as the underlying storage.
 type EventStore struct {
