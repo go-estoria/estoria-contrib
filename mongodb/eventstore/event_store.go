@@ -55,6 +55,12 @@ type (
 			opts eventstore.ReadStreamOptions,
 		) (*mongo.Cursor, error)
 
+		// DeleteStream deletes events from a stream within a transaction: all of them, and
+		// the stream itself, with zero options, or only events at or below ToVersion
+		// otherwise. Deleting a stream that was never written reports
+		// eventstore.ErrStreamNotFound.
+		DeleteStream(ctx context.Context, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error
+
 		// ListStreams returns a list of cursors for iterating over stream metadata.
 		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
 
@@ -81,9 +87,10 @@ type EventStore struct {
 }
 
 var (
-	_ eventstore.StreamReader = (*EventStore)(nil)
-	_ eventstore.StreamWriter = (*EventStore)(nil)
-	_ eventstore.GlobalReader = (*EventStore)(nil)
+	_ eventstore.StreamReader  = (*EventStore)(nil)
+	_ eventstore.StreamWriter  = (*EventStore)(nil)
+	_ eventstore.GlobalReader  = (*EventStore)(nil)
+	_ eventstore.StreamDeleter = (*EventStore)(nil)
 )
 
 // StreamInfo represents information about a single stream in the event store.
@@ -250,6 +257,23 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions
 		marshaler: s.marshaler,
 		limit:     opts.Count,
 	}, nil
+}
+
+// DeleteStream deletes events from a stream, implementing eventstore.StreamDeleter: with
+// zero options the entire stream is deleted and its ID may be reused from version 1, and
+// with ToVersion set the stream is truncated instead, retaining later events and the
+// stream's version counter.
+func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error {
+	if opts.ToVersion < 0 {
+		return errors.New("ToVersion must not be negative")
+	}
+
+	s.log.Debug("deleting events from MongoDB stream",
+		"stream_id", streamID.String(),
+		"to_version", opts.ToVersion,
+	)
+
+	return s.strategy.DeleteStream(ctx, streamID, opts)
 }
 
 // ReadStream returns an iterator for reading events from the specified stream.

@@ -140,6 +140,25 @@ func (s *SingleCollectionStrategy) ExecuteInsertTransaction(
 	return result, nil
 }
 
+// DeleteStream deletes events from a stream within a transaction: all of them, and the
+// stream itself, with zero options, or only events at or below ToVersion otherwise.
+func (s *SingleCollectionStrategy) DeleteStream(ctx context.Context, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error {
+	session, err := s.mongo.StartSession(s.sessOpts)
+	if err != nil {
+		return fmt.Errorf("starting delete session: %w", err)
+	}
+
+	defer session.EndSession(ctx)
+
+	if _, err := session.WithTransaction(ctx, func(ctx context.Context) (any, error) {
+		return nil, deleteStreamDocs(ctx, s.streams, s.collection, streamID, opts)
+	}, s.txOpts); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // StreamExists reports whether any event has ever been written to the stream. It exists so
 // ReadStream can tell an absent stream from a filtered read that matched nothing.
 func (s *SingleCollectionStrategy) StreamExists(ctx context.Context, streamID typeid.ID) (bool, error) {
