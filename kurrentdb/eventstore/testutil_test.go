@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,58 +44,78 @@ func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 	kurrentSem <- struct{}{}
 	t.Cleanup(func() { <-kurrentSem })
 
-	// random port to avoid collisions when running tests in parallel
-	portNum, err := getFreePort()
-	if err != nil {
-		return nil, fmt.Errorf("getting free port: %w", err)
-	}
-
-	portStr := strconv.Itoa(portNum)
-	port, err := network.ParsePort(portStr + "/tcp")
-	if err != nil {
-		return nil, fmt.Errorf("parsing port: %w", err)
-	}
-
 	hostIP, err := netip.ParseAddr("0.0.0.0")
 	if err != nil {
 		return nil, fmt.Errorf("parsing host IP: %w", err)
 	}
 
-	req := testcontainers.ContainerRequest{
-		// Pinned rather than :latest so a server release cannot change the readiness
-		// contract below with no change on our side. 26.1 was byte-identical to the
-		// :latest this replaced. Matches how the mongo and postgres suites pin.
-		Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:26.1",
-		ExposedPorts: []string{port.String()},
-		Env: map[string]string{
-			"KURRENTDB_CLUSTER_SIZE":               "1",
-			"KURRENTDB_RUN_PROJECTIONS":            "All",
-			"KURRENTDB_START_STANDARD_PROJECTIONS": "true",
-			"KURRENTDB_NODE_PORT":                  portStr,
-			"KURRENTDB_INSECURE":                   "true", // dev/test only
-			"KURRENTDB_ENABLE_ATOM_PUB_OVER_HTTP":  "true", // optional; only needed for the Admin UI/feeds
-		},
-		// bind host port -> container port so the node's advertised port is reachable
-		HostConfigModifier: func(hc *container.HostConfig) {
-			hc.PortBindings = network.PortMap{
-				port: []network.PortBinding{{HostIP: hostIP, HostPort: portStr}},
-			}
-		},
-		// testcontainers' default startup timeout is 60s, which this exceeded on CI once
-		// testcontainers-go moved to 0.43.0: up to 10 single-node clusters (see kurrentSem)
-		// elect leaders concurrently on a 2-core runner, and the log line simply arrives
-		// late. Failures looked like "matched 0 times, expected 1" with no test assertion
-		// involved. Three minutes is well inside the suite's 20m budget.
-		WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)").
-			WithStartupTimeout(3 * time.Minute),
-	}
+	// The host port must equal the container port (KURRENTDB_NODE_PORT is what the node
+	// advertises to clients), so it is picked here rather than left to Docker — and the
+	// free-port probe cannot hold the port through Docker's bind, so a concurrent bind
+	// can win it in between ("Bind for 0.0.0.0:<port> failed: port is already
+	// allocated" on CI). Retrying with a fresh port is the only correct response.
+	const maxStartAttempts = 3
+	var c testcontainers.Container
+	var port network.Port
+	for attempt := 1; ; attempt++ {
+		portNum, err := getFreePort()
+		if err != nil {
+			return nil, fmt.Errorf("getting free port: %w", err)
+		}
 
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("failed to start container: %v", err)
+		portStr := strconv.Itoa(portNum)
+		port, err = network.ParsePort(portStr + "/tcp")
+		if err != nil {
+			return nil, fmt.Errorf("parsing port: %w", err)
+		}
+
+		req := testcontainers.ContainerRequest{
+			// Pinned rather than :latest so a server release cannot change the readiness
+			// contract below with no change on our side. 26.1 was byte-identical to the
+			// :latest this replaced. Matches how the mongo and postgres suites pin.
+			Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:26.1",
+			ExposedPorts: []string{port.String()},
+			Env: map[string]string{
+				"KURRENTDB_CLUSTER_SIZE":               "1",
+				"KURRENTDB_RUN_PROJECTIONS":            "All",
+				"KURRENTDB_START_STANDARD_PROJECTIONS": "true",
+				"KURRENTDB_NODE_PORT":                  portStr,
+				"KURRENTDB_INSECURE":                   "true", // dev/test only
+				"KURRENTDB_ENABLE_ATOM_PUB_OVER_HTTP":  "true", // optional; only needed for the Admin UI/feeds
+			},
+			// bind host port -> container port so the node's advertised port is reachable
+			HostConfigModifier: func(hc *container.HostConfig) {
+				hc.PortBindings = network.PortMap{
+					port: []network.PortBinding{{HostIP: hostIP, HostPort: portStr}},
+				}
+			},
+			// testcontainers' default startup timeout is 60s, which this exceeded on CI once
+			// testcontainers-go moved to 0.43.0: up to 10 single-node clusters (see kurrentSem)
+			// elect leaders concurrently on a 2-core runner, and the log line simply arrives
+			// late. Failures looked like "matched 0 times, expected 1" with no test assertion
+			// involved. Three minutes is well inside the suite's 20m budget.
+			WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)").
+				WithStartupTimeout(3 * time.Minute),
+		}
+
+		c, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+		if err == nil {
+			break
+		}
+
+		// A created-but-unstarted container would otherwise leak.
+		if c != nil {
+			_ = testcontainers.TerminateContainer(c)
+		}
+
+		if attempt == maxStartAttempts || !strings.Contains(err.Error(), "port is already allocated") {
+			t.Fatalf("failed to start container: %v", err)
+		}
+
+		t.Logf("host port %s lost to a concurrent bind; retrying with a fresh port", portStr)
 	}
 
 	t.Cleanup(func() {
@@ -103,16 +124,15 @@ func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 		}
 	})
 
-	host, err := c.Host(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get host: %w", err)
-	}
 	mapped, err := c.MappedPort(ctx, port.String())
 	if err != nil {
 		return nil, fmt.Errorf("get mapped port: %w", err)
 	}
 
-	dsn := "kurrentdb://" + net.JoinHostPort(host, mapped.Port()) + "?tls=false"
+	// The container binds the IPv4 wildcard, so dial 127.0.0.1 explicitly: the
+	// testcontainers host is "localhost", which resolves to ::1 first on some runners,
+	// and CI has seen "connection refused [::1]" from exactly that.
+	dsn := "kurrentdb://" + net.JoinHostPort("127.0.0.1", mapped.Port()) + "?tls=false"
 
 	settings, err := kurrentdb.ParseConnectionString(dsn)
 	if err != nil {
@@ -130,13 +150,12 @@ func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 	return client, nil
 }
 
+// getFreePort reserves a host port on the IPv4 wildcard — the address Docker publishes
+// on. Probing localhost picked ports that were only known-free on loopback (and on hosts
+// where localhost resolves to ::1, only on IPv6), so a port could probe free here yet be
+// taken where Docker binds it.
 func getFreePort() (int, error) {
-	a, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
-	}
-
-	l, err := net.ListenTCP("tcp", a)
+	l, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4zero})
 	if err != nil {
 		return 0, err
 	}
