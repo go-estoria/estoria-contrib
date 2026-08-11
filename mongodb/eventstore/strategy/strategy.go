@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-estoria/estoria/eventstore"
@@ -43,9 +44,11 @@ type (
 		ListCollectionNames(ctx context.Context, filter any, opts ...options.Lister[options.ListCollectionsOptions]) ([]string, error)
 	}
 
-	// MongoCollection provides an API for querying and inserting documents into a MongoDB collection.
+	// MongoCollection provides an API for querying, inserting, and deleting documents in a MongoDB collection.
 	MongoCollection interface {
 		Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error)
+		DeleteMany(context.Context, any, ...options.Lister[options.DeleteManyOptions]) (*mongo.DeleteResult, error)
+		DeleteOne(context.Context, any, ...options.Lister[options.DeleteOneOptions]) (*mongo.DeleteResult, error)
 		Find(context.Context, any, ...options.Lister[options.FindOptions]) (*mongo.Cursor, error)
 		FindOne(context.Context, any, ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
 		FindOneAndUpdate(context.Context, any, any, ...options.Lister[options.FindOneAndUpdateOptions]) *mongo.SingleResult
@@ -115,6 +118,45 @@ func DefaultSessionOptions() *options.SessionOptionsBuilder {
 // when starting a new MongoDB transaction on a session.
 func DefaultTransactionOptions() *options.TransactionOptionsBuilder {
 	return options.Transaction().SetReadPreference(readpref.Primary())
+}
+
+// deleteStreamDocs deletes a stream's events and, on a full delete, its stream document,
+// within the caller's transaction. Whether the stream exists is decided by its stream
+// document, never by its event count — a truncated-empty stream holds no event documents
+// yet exists — and an absent document reports eventstore.ErrStreamNotFound. With
+// ToVersion 0 both the events and the stream document are deleted, so a subsequent
+// append recreates the stream from version 1; with ToVersion > 0 only events at or below
+// the bound are deleted and the document's last_offset survives, so appends continue
+// from the existing tip even when truncation emptied the stream.
+func deleteStreamDocs(ctx context.Context, streams, events MongoCollection, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error {
+	if err := streams.FindOne(ctx,
+		bson.D{{Key: fieldID, Value: streamID.String()}},
+		options.FindOne().SetProjection(bson.D{{Key: fieldID, Value: 1}}),
+	).Err(); errors.Is(err, mongo.ErrNoDocuments) {
+		return eventstore.ErrStreamNotFound
+	} else if err != nil {
+		return fmt.Errorf("querying stream: %w", err)
+	}
+
+	filter := bson.D{
+		{Key: fieldStreamType, Value: streamID.Type},
+		{Key: fieldStreamID, Value: streamID.UUID.String()},
+	}
+	if opts.ToVersion > 0 {
+		filter = append(filter, bson.E{Key: fieldOffset, Value: bson.D{{Key: "$lte", Value: opts.ToVersion}}})
+	}
+
+	if _, err := events.DeleteMany(ctx, filter); err != nil {
+		return fmt.Errorf("deleting events: %w", err)
+	}
+
+	if opts.ToVersion == 0 {
+		if _, err := streams.DeleteOne(ctx, bson.D{{Key: fieldID, Value: streamID.String()}}); err != nil {
+			return fmt.Errorf("deleting stream: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // findOptsFromReadAllOptions maps global-read options onto a Find: ascending global

@@ -51,9 +51,10 @@ type EventStore struct {
 }
 
 var (
-	_ eventstore.StreamReader = (*EventStore)(nil)
-	_ eventstore.StreamWriter = (*EventStore)(nil)
-	_ eventstore.GlobalReader = (*EventStore)(nil)
+	_ eventstore.StreamReader  = (*EventStore)(nil)
+	_ eventstore.StreamWriter  = (*EventStore)(nil)
+	_ eventstore.GlobalReader  = (*EventStore)(nil)
+	_ eventstore.StreamDeleter = (*EventStore)(nil)
 )
 
 // A TransactionHook is invoked during a write transaction, after the events have been written,
@@ -128,19 +129,16 @@ func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts ev
 		return nil, fmt.Errorf("querying stream events: %w", err)
 	}
 
-	// No rows has two meanings: the stream holds no events at all, or the read was filtered
-	// and nothing matched. Only the first is ErrStreamNotFound.
+	// No rows has two meanings: the stream is absent, or it exists and the read matched
+	// nothing. Only the first is ErrStreamNotFound, and the streams-table row is the
+	// authority: an empty unfiltered read is not proof of absence, since a truncated
+	// stream can hold no event rows yet exist.
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("preparing stream events results: %w", err)
 		}
 		rows.Close()
-
-		// An unfiltered read that matched nothing saw the whole stream: it is absent.
-		if opts.AfterVersion == 0 {
-			return nil, eventstore.ErrStreamNotFound
-		}
 
 		exists, err := s.streamExists(ctx, streamID)
 		if err != nil {
@@ -326,6 +324,55 @@ func (s *EventStore) streamExists(ctx context.Context, streamID typeid.ID) (bool
 // AllReader is an interface for strategies that support reading all events across all streams.
 type AllReader interface {
 	ReadAll(context.Context, *pgxpool.Pool, eventstore.ReadAllOptions) (pgx.Rows, error)
+}
+
+// StreamDeleter is an interface for strategies that support deleting events from streams.
+// Deletion touches the event and stream tables atomically, so unlike the read-only
+// optional interfaces it runs within a transaction the store owns, following
+// NextHighwaterMark's precedent.
+type StreamDeleter interface {
+	DeleteStream(ctx context.Context, tx pgx.Tx, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error
+}
+
+// DeleteStream deletes events from a stream, implementing eventstore.StreamDeleter: with
+// zero options the entire stream is deleted and its ID may be reused from version 1, and
+// with ToVersion set the stream is truncated instead, retaining later events and the
+// stream's version counter. Strategies that do not implement StreamDeleter return an
+// error.
+func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts eventstore.DeleteStreamOptions) (retErr error) {
+	deleter, ok := s.strategy.(StreamDeleter)
+	if !ok {
+		return errors.New("strategy does not support deleting streams")
+	}
+
+	if opts.ToVersion < 0 {
+		return errors.New("ToVersion must not be negative")
+	}
+
+	s.log.Debug("deleting events from Postgres stream", "stream_id", streamID.String(), "to_version", opts.ToVersion)
+
+	tx, err := s.pool.BeginTx(ctx, s.txOpts)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+
+	defer func() {
+		if retErr != nil {
+			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+				s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", retErr)
+			}
+		}
+	}()
+
+	if err := deleter.DeleteStream(ctx, tx, streamID, opts); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return nil
 }
 
 // ReadAll creates an iterator over events from all streams in ascending global order,

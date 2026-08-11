@@ -192,6 +192,62 @@ func (s *DefaultStrategy) StreamExists(ctx context.Context, pool *pgxpool.Pool, 
 	return true, nil
 }
 
+// DeleteStream deletes events from a stream within the given transaction. Whether the
+// stream exists is decided by its streams-table row, never by its event count — a
+// truncated-empty stream holds no event rows yet exists — and an absent row reports
+// eventstore.ErrStreamNotFound. With ToVersion 0 both the events and the streams-table
+// row are deleted, so a subsequent append recreates the stream from version 1; with
+// ToVersion > 0 only events at or below the bound are deleted and the row's last_offset
+// survives, so appends continue from the existing tip even when truncation emptied the
+// stream.
+func (s *DefaultStrategy) DeleteStream(ctx context.Context, tx pgx.Tx, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error {
+	var exists int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT 1
+		FROM %s
+		WHERE
+			stream_type = $1
+			AND stream_id = $2`,
+		quoteIdent(s.streamsTableName),
+	), streamID.Type, streamID.UUID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+		return eventstore.ErrStreamNotFound
+	} else if err != nil {
+		return fmt.Errorf("querying stream: %w", err)
+	}
+
+	versionClause := ""
+	args := []any{streamID.Type, streamID.UUID}
+	if opts.ToVersion > 0 {
+		versionClause = "AND stream_offset <= $3"
+		args = append(args, opts.ToVersion)
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE
+			stream_type = $1
+			AND stream_id = $2
+			%s`,
+		quoteIdent(s.eventsTableName), versionClause,
+	), args...); err != nil {
+		return fmt.Errorf("deleting events: %w", err)
+	}
+
+	if opts.ToVersion == 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			DELETE FROM %s
+			WHERE
+				stream_type = $1
+				AND stream_id = $2`,
+			quoteIdent(s.streamsTableName),
+		), streamID.Type, streamID.UUID); err != nil {
+			return fmt.Errorf("deleting stream: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // AppendStreamStatement returns a SQL statement for appending an event to a stream.
 // The statement uses RETURNING id to capture the generated global position.
 func (s *DefaultStrategy) AppendStreamStatement() (string, error) {

@@ -86,6 +86,76 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 	}
 }
 
+func TestEventStore_StreamDeleterAcceptanceTest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping acceptance test")
+	}
+
+	t.Parallel()
+
+	ctx := t.Context()
+
+	mongoClient, err := createMongoDBContainer(t)
+	if err != nil {
+		t.Fatalf("failed to create MongoDB container: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name     string
+		haveOpts func(*testing.T, *mongo.Database) []eventstore.EventStoreOption
+	}{
+		{
+			name: "store with default options",
+			haveOpts: func(*testing.T, *mongo.Database) []eventstore.EventStoreOption {
+				return []eventstore.EventStoreOption{}
+			},
+		},
+		{
+			name: "store with single collection strategy",
+			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
+				t.Helper()
+				strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
+					db.Collection("events"),
+					db.Collection(strategy.DefaultStreamsCollectionName),
+				)
+				if err != nil {
+					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
+				}
+				return []eventstore.EventStoreOption{eventstore.WithStrategy(strat)}
+			},
+		},
+		{
+			name: "store with multi collection strategy",
+			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
+				t.Helper()
+				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
+				if err != nil {
+					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
+				}
+				return []eventstore.EventStoreOption{eventstore.WithStrategy(strat)}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			database := mongoClient.Database("estoria")
+			t.Cleanup(func() {
+				if err := database.Drop(context.WithoutCancel(ctx)); err != nil {
+					t.Fatalf("tc cleanup: failed to drop database: %v", err)
+				}
+			})
+
+			eventStore, err := eventstore.New(mongoClient, tt.haveOpts(t, database)...)
+			if err != nil {
+				t.Fatalf("tc setup: failed to create EventStore: %v", err)
+			}
+
+			storetest.RunStreamDeleterSuite(t, func(*testing.T) storetest.DeleterStore {
+				return eventStore
+			})
+		})
+	}
+}
+
 // The global reader suite requires exclusive ownership of the store's history, so unlike
 // the suite above, every clause gets a fresh database.
 func TestEventStore_GlobalReaderAcceptanceTest(t *testing.T) {

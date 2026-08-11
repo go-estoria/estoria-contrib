@@ -24,6 +24,14 @@ type KurrentClient interface {
 // defaultReadAllWindowSize is how many raw $all records ReadAll fetches per server read.
 const defaultReadAllWindowSize = 1024
 
+// An EventStore stores and retrieves events using KurrentDB as the underlying storage.
+//
+// The store implements eventstore.GlobalReader but deliberately not
+// eventstore.StreamDeleter: estoria's full-delete contract makes a deleted stream's ID
+// reusable with versions restarting at 1, and neither KurrentDB deletion primitive can
+// honor that — a soft delete leaves appends continuing from the prior revision, and a
+// tombstone retires the stream name permanently. Claiming the interface with either
+// semantic would make type-assertion discovery lie.
 type EventStore struct {
 	kurrentDB KurrentClient
 	log       estoria.Logger
