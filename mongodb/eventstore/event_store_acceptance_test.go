@@ -47,6 +47,12 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
+				// The explicit deploy-time indexing flow; the multi-collection case uses
+				// auto-ensure and the default-options case runs unindexed, so all three
+				// arrangements stay covered.
+				if err := strat.EnsureIndexes(t.Context()); err != nil {
+					t.Fatalf("tc setup: failed to ensure indexes: %v", err)
+				}
 				return []eventstore.EventStoreOption{eventstore.WithStrategy(strat)}
 			},
 		},
@@ -56,7 +62,8 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			name: "store with multi collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
+				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID(),
+					strategy.WithAutoEnsureIndexes())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 				}
@@ -121,6 +128,12 @@ func TestEventStore_StreamDeleterAcceptanceTest(t *testing.T) {
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
+				// The explicit deploy-time indexing flow; the multi-collection case uses
+				// auto-ensure and the default-options case runs unindexed, so all three
+				// arrangements stay covered.
+				if err := strat.EnsureIndexes(t.Context()); err != nil {
+					t.Fatalf("tc setup: failed to ensure indexes: %v", err)
+				}
 				return []eventstore.EventStoreOption{eventstore.WithStrategy(strat)}
 			},
 		},
@@ -128,7 +141,8 @@ func TestEventStore_StreamDeleterAcceptanceTest(t *testing.T) {
 			name: "store with multi collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
+				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID(),
+					strategy.WithAutoEnsureIndexes())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 				}
@@ -223,6 +237,9 @@ func TestEventStore_GlobalReaderAcceptanceTest(t *testing.T) {
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
+				if err := strat.EnsureIndexes(t.Context()); err != nil {
+					t.Fatalf("tc setup: failed to ensure indexes: %v", err)
+				}
 				return newStore(t, eventstore.WithStrategy(strat))
 			},
 		},
@@ -232,7 +249,8 @@ func TestEventStore_GlobalReaderAcceptanceTest(t *testing.T) {
 			newStore: func(t *testing.T) storetest.GlobalStore {
 				t.Helper()
 				db := newDatabase(t)
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
+				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID(),
+					strategy.WithAutoEnsureIndexes())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 				}

@@ -21,6 +21,9 @@ type SingleCollectionStrategy struct {
 	collection MongoCollection
 	streams    MongoCollection
 
+	autoEnsureIndexes bool
+	indexes           *indexEnsurer
+
 	log      estoria.Logger
 	sessOpts options.Lister[options.SessionOptions]
 	txOpts   options.Lister[options.TransactionOptions]
@@ -48,6 +51,9 @@ func NewSingleCollectionStrategy(client MongoSessionStarter, events, streams Mon
 		collection: events,
 		streams:    streams,
 
+		autoEnsureIndexes: config.autoEnsureIndexes,
+		indexes:           newIndexEnsurer(),
+
 		log:      config.log,
 		sessOpts: config.sessOpts,
 		txOpts:   config.txOpts,
@@ -55,6 +61,16 @@ func NewSingleCollectionStrategy(client MongoSessionStarter, events, streams Mon
 
 	return strat, nil
 }
+
+// EnsureIndexes creates the events collection's unique indexes on
+// (stream_type, stream_id, offset) and on global_offset. It is idempotent.
+func (s *SingleCollectionStrategy) EnsureIndexes(ctx context.Context) error {
+	return s.indexes.ensureNow(ctx, singleEventCollectionKey, s.collection)
+}
+
+// singleEventCollectionKey is the index-ensurer cache key for a SingleCollectionStrategy's
+// sole event collection, whose real name the strategy never learns (it holds a handle).
+const singleEventCollectionKey = ""
 
 // ListStreams returns a list of cursors for iterating over stream metadata.
 func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
@@ -113,6 +129,13 @@ func (s *SingleCollectionStrategy) ExecuteInsertTransaction(
 	numEvents int,
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
+	// Index creation cannot run inside the transaction, so it happens before the session starts.
+	if s.autoEnsureIndexes {
+		if err := s.indexes.ensureOnce(ctx, singleEventCollectionKey, s.collection); err != nil {
+			return nil, fmt.Errorf("ensuring indexes: %w", err)
+		}
+	}
+
 	session, err := s.mongo.StartSession(s.sessOpts)
 	if err != nil {
 		return nil, fmt.Errorf("starting insert session: %w", err)

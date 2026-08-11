@@ -61,6 +61,11 @@ type (
 		// eventstore.ErrStreamNotFound.
 		DeleteStream(ctx context.Context, streamID typeid.ID, opts eventstore.DeleteStreamOptions) error
 
+		// EnsureIndexes creates the unique indexes on (stream_type, stream_id, offset) and
+		// on global_offset for the strategy's event collections. It is idempotent, and
+		// must run outside any transaction.
+		EnsureIndexes(ctx context.Context) error
+
 		// ListStreams returns a list of cursors for iterating over stream metadata.
 		ListStreams(ctx context.Context) ([]*mongo.Cursor, error)
 
@@ -276,6 +281,18 @@ func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts 
 	return s.strategy.DeleteStream(ctx, streamID, opts)
 }
 
+// EnsureIndexes creates the unique indexes the store's strategy defines for its event
+// collections: one on (stream_type, stream_id, offset), which serves per-stream reads and
+// backstops offset reservation, and one on global_offset, which serves global reads. It
+// is idempotent, and is an explicit initialization step (the analog of the SQL backends'
+// Schema()) because MongoDB cannot build indexes inside transactions. With a
+// MultiCollectionStrategy it covers only the event collections that exist when it is
+// called; a selector that creates collections on the fly needs the strategy's
+// WithAutoEnsureIndexes option instead.
+func (s *EventStore) EnsureIndexes(ctx context.Context) error {
+	return s.strategy.EnsureIndexes(ctx)
+}
+
 // ReadStream returns an iterator for reading events from the specified stream.
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from MongoDB stream",
@@ -387,6 +404,20 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 			result, err := collection.InsertMany(sessCtx, docs)
 			if err != nil {
+				// A duplicate key on a unique event index means a stored event already
+				// occupies a reserved offset, which the counters cannot produce on their
+				// own — it indicates documents they never accounted for, such as an
+				// un-backfilled legacy dataset. Surface the optimistic-concurrency
+				// failure it amounts to; the true stream tip is unknown here (the
+				// index, not a read, detected the conflict), so both versions report
+				// the offset the append was based on.
+				if mongo.IsDuplicateKeyError(err) {
+					return result, eventstore.StreamVersionMismatchError{
+						StreamID:        streamID,
+						ExpectedVersion: offset,
+						ActualVersion:   offset,
+					}
+				}
 				return result, fmt.Errorf("inserting events: %w", err)
 			} else if len(result.InsertedIDs) != len(docs) {
 				return result, fmt.Errorf("inserted %d events, but expected %d", len(result.InsertedIDs), len(docs))
