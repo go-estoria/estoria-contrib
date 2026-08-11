@@ -32,6 +32,33 @@ Appends reserve stream versions and global positions by incrementing these count
 
 The leading underscore in `_streams` and `_global` is reserved by construction: typeid type names cannot begin with an underscore, so no stream or selector-derived collection can collide with them. A custom `CollectionSelector` must not produce the streams collection's name.
 
+## Indexes
+
+The store defines two unique indexes on every event collection:
+
+- `uniq_stream_offset` on `(stream_type, stream_id, offset)` — serves per-stream reads and
+  backstops offset reservation: if a stored event already occupies a reserved offset, the
+  append fails with a `StreamVersionMismatchError` instead of writing a duplicate.
+- `uniq_global_offset` on `global_offset` — serves global reads in order.
+
+MongoDB cannot build indexes inside transactions, so index creation is an explicit
+initialization step (the analog of the SQL backends' `Schema()`):
+
+```go
+if err := store.EnsureIndexes(ctx); err != nil { ... }
+```
+
+`EnsureIndexes` is idempotent. With the multi-collection strategy it covers the event
+collections that exist when it is called; a selector that creates collections on the fly
+(such as `CollectionPerStreamID`) should instead use the strategy's
+`WithAutoEnsureIndexes` option, which ensures each collection's indexes before its first
+append, once per collection per process.
+
+The counters make duplicate offsets impossible among the documents they account for, so
+the unique indexes matter most as a guard against data they never accounted for — most
+notably an un-backfilled legacy dataset, where the restarted counters silently rewrite
+history; with the indexes in place those appends fail loudly instead.
+
 ## Upgrading From Derived Offsets
 
 Versions of this store before the streams collection derived offsets from `max()` over existing event documents. Databases written by those versions must be backfilled once before use with the current version — without the counter documents, appends restart versions and global positions at 1.

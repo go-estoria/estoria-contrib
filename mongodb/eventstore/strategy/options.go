@@ -12,6 +12,7 @@ type strategyConfig struct {
 	sessOpts              *options.SessionOptionsBuilder
 	txOpts                *options.TransactionOptionsBuilder
 	streamsCollectionName string
+	autoEnsureIndexes     bool
 }
 
 func newStrategyConfig() *strategyConfig {
@@ -75,6 +76,20 @@ func WithTransactionOptions(opts *options.TransactionOptionsBuilder) StrategyOpt
 		}
 
 		s.txOpts = opts
+		return nil
+	}
+}
+
+// WithAutoEnsureIndexes causes the strategy to ensure an event collection's indexes
+// before that collection's first append (once per collection per process), instead of
+// relying on an explicit EnsureIndexes call at deployment time. It is the only workable
+// arrangement when a collection selector creates collections on the fly, since
+// collections that do not exist yet cannot be indexed up front.
+//
+// By default, indexes are only created by explicit EnsureIndexes calls.
+func WithAutoEnsureIndexes() StrategyOption {
+	return func(s *strategyConfig) error {
+		s.autoEnsureIndexes = true
 		return nil
 	}
 }

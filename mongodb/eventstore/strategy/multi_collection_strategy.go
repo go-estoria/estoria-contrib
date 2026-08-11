@@ -38,6 +38,8 @@ type MultiCollectionStrategy struct {
 	streams  MongoCollection
 
 	streamsCollectionName string
+	autoEnsureIndexes     bool
+	indexes               *indexEnsurer
 
 	log      estoria.Logger
 	sessOpts options.Lister[options.SessionOptions]
@@ -96,6 +98,8 @@ func NewMultiCollectionStrategy(client MongoSessionStarter, database MongoDataba
 		streams:  database.Collection(config.streamsCollectionName),
 
 		streamsCollectionName: config.streamsCollectionName,
+		autoEnsureIndexes:     config.autoEnsureIndexes,
+		indexes:               newIndexEnsurer(),
 
 		log:      config.log,
 		sessOpts: config.sessOpts,
@@ -103,6 +107,25 @@ func NewMultiCollectionStrategy(client MongoSessionStarter, database MongoDataba
 	}
 
 	return strat, nil
+}
+
+// EnsureIndexes creates the unique indexes on (stream_type, stream_id, offset) and on
+// global_offset for every event collection currently in the database. It is idempotent,
+// but covers only collections that exist when it is called; a selector that creates
+// collections on the fly needs WithAutoEnsureIndexes for the collections it creates later.
+func (s *MultiCollectionStrategy) EnsureIndexes(ctx context.Context) error {
+	collectionNames, err := s.eventCollectionNames(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, name := range collectionNames {
+		if err := s.indexes.ensureNow(ctx, name, s.database.Collection(name)); err != nil {
+			return fmt.Errorf("collection %s: %w", name, err)
+		}
+	}
+
+	return nil
 }
 
 // eventCollectionNames returns the names of the database's event collections, excluding
@@ -203,6 +226,13 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 	collectionName := s.selector.CollectionName(streamID)
 	if collectionName == s.streamsCollectionName {
 		return nil, fmt.Errorf("collection selector chose the streams collection %q for stream %s", collectionName, streamID)
+	}
+
+	// Index creation cannot run inside the transaction, so it happens before the session starts.
+	if s.autoEnsureIndexes {
+		if err := s.indexes.ensureOnce(ctx, collectionName, s.database.Collection(collectionName)); err != nil {
+			return nil, fmt.Errorf("ensuring indexes on collection %s: %w", collectionName, err)
+		}
 	}
 
 	session, err := s.mongo.StartSession(s.sessOpts)

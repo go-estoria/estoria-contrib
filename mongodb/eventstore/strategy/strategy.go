@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
@@ -52,6 +53,7 @@ type (
 		Find(context.Context, any, ...options.Lister[options.FindOptions]) (*mongo.Cursor, error)
 		FindOne(context.Context, any, ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
 		FindOneAndUpdate(context.Context, any, any, ...options.Lister[options.FindOneAndUpdateOptions]) *mongo.SingleResult
+		Indexes() mongo.IndexView
 		InsertMany(context.Context, any, ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error)
 	}
 
@@ -59,6 +61,80 @@ type (
 		StartSession(opts ...options.Lister[options.SessionOptions]) (*mongo.Session, error)
 	}
 )
+
+// Names of the indexes ensured on every event collection.
+const (
+	uniqueStreamOffsetIndexName = "uniq_stream_offset"
+	uniqueGlobalOffsetIndexName = "uniq_global_offset"
+)
+
+// ensureEventCollectionIndexes creates an event collection's two unique indexes: one on
+// (stream_type, stream_id, offset), which serves per-stream reads and backstops offset
+// reservation, and one on global_offset, which serves global reads. Creation is
+// idempotent, but fails if a differently-specified index already uses either name, and
+// cannot run inside a transaction.
+func ensureEventCollectionIndexes(ctx context.Context, events MongoCollection) error {
+	if _, err := events.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: fieldStreamType, Value: 1},
+				{Key: fieldStreamID, Value: 1},
+				{Key: fieldOffset, Value: 1},
+			},
+			Options: options.Index().SetUnique(true).SetName(uniqueStreamOffsetIndexName),
+		},
+		{
+			Keys:    bson.D{{Key: fieldGlobalOffset, Value: 1}},
+			Options: options.Index().SetUnique(true).SetName(uniqueGlobalOffsetIndexName),
+		},
+	}); err != nil {
+		return fmt.Errorf("creating event collection indexes: %w", err)
+	}
+
+	return nil
+}
+
+// An indexEnsurer records which event collections have had their indexes ensured, so the
+// auto-ensure path costs one round trip per collection per process rather than one per
+// append.
+type indexEnsurer struct {
+	mu   sync.Mutex
+	done map[string]bool
+}
+
+func newIndexEnsurer() *indexEnsurer {
+	return &indexEnsurer{done: map[string]bool{}}
+}
+
+// ensureNow unconditionally (re)creates the named collection's indexes and records the fact.
+func (e *indexEnsurer) ensureNow(ctx context.Context, name string, events MongoCollection) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if err := ensureEventCollectionIndexes(ctx, events); err != nil {
+		return err
+	}
+
+	e.done[name] = true
+	return nil
+}
+
+// ensureOnce creates the named collection's indexes unless a prior call already has.
+func (e *indexEnsurer) ensureOnce(ctx context.Context, name string, events MongoCollection) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.done[name] {
+		return nil
+	}
+
+	if err := ensureEventCollectionIndexes(ctx, events); err != nil {
+		return err
+	}
+
+	e.done[name] = true
+	return nil
+}
 
 // reserveStreamOffsets atomically claims n consecutive per-stream offsets by incrementing
 // the stream document's counter, creating the document on a stream's first append. It
