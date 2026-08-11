@@ -30,7 +30,7 @@ plus a single global offset counter document:
 
 Appends reserve stream versions and global positions by incrementing these counters inside the append transaction, so concurrent appends never allocate duplicate offsets, and stream existence is answered by a stream document's presence. The global counter serializes appends store-wide; that is the price of a single global ordering authority.
 
-The leading underscore in `_streams` and `_global` is reserved by construction: typeid type names cannot begin with an underscore, so no stream or selector-derived collection can collide with them. A custom `CollectionSelector` must not produce the streams collection's name.
+The leading underscore in `_streams` and `_global` is reserved by construction: typeid type names cannot begin with an underscore, so no stream or selector-derived collection can collide with them. The whole underscore namespace is reserved this way — the multi-collection strategy's event collection enumeration ignores every `_`-prefixed collection, so infrastructure collections (such as the [outbox](../outbox)'s) can share the database without being swept into global reads. A custom `CollectionSelector` that produces the streams collection's name or an underscore-prefixed name is rejected on writes.
 
 ## Indexes
 
