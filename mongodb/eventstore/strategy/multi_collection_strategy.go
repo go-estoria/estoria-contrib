@@ -27,17 +27,17 @@ import (
 // collection becomes too large, and you want to partition events across multiple
 // collections.
 //
-// Known Limitations:
-//
-// Global Offset Concurrency: The global offset counter is computed outside the MongoDB
-// transaction in ExecuteInsertTransaction. This means concurrent writes to different streams
-// may compute the same global offset value, leading to duplicate offsets in the global event
-// sequence. Applications requiring strict global ordering should use SingleCollectionStrategy
-// instead, which computes the global offset atomically within a single-collection transaction.
+// Alongside the event collections, the database holds a streams collection (named
+// DefaultStreamsCollectionName unless overridden with WithStreamsCollectionName) with one
+// counter document per stream plus the global offset counter; it is excluded when event
+// collections are enumerated.
 type MultiCollectionStrategy struct {
 	mongo    MongoSessionStarter
 	database MongoDatabase
 	selector CollectionSelector
+	streams  MongoCollection
+
+	streamsCollectionName string
 
 	log      estoria.Logger
 	sessOpts options.Lister[options.SessionOptions]
@@ -93,6 +93,9 @@ func NewMultiCollectionStrategy(client MongoSessionStarter, database MongoDataba
 		mongo:    client,
 		database: database,
 		selector: selector,
+		streams:  database.Collection(config.streamsCollectionName),
+
+		streamsCollectionName: config.streamsCollectionName,
 
 		log:      config.log,
 		sessOpts: config.sessOpts,
@@ -102,11 +105,24 @@ func NewMultiCollectionStrategy(client MongoSessionStarter, database MongoDataba
 	return strat, nil
 }
 
-// ListStreams returns a list of cursors for iterating over stream metadata.
-func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
-	collections, err := s.database.ListCollectionNames(ctx, bson.D{})
+// eventCollectionNames returns the names of the database's event collections, excluding
+// the streams collection.
+func (s *MultiCollectionStrategy) eventCollectionNames(ctx context.Context) ([]string, error) {
+	names, err := s.database.ListCollectionNames(ctx, bson.D{
+		{Key: "name", Value: bson.D{{Key: "$ne", Value: s.streamsCollectionName}}},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("listing collection names: %w", err)
+	}
+
+	return names, nil
+}
+
+// ListStreams returns a list of cursors for iterating over stream metadata.
+func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
+	collections, err := s.eventCollectionNames(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	cursors := make([]*mongo.Cursor, len(collections))
@@ -123,19 +139,20 @@ func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cur
 	return cursors, nil
 }
 
-// GetAllCursor returns an iterator over all events in the event store, ordered by global offset.
+// GetAllCursor returns one cursor per event collection, each ordered by global offset.
+// A Count limit applies per cursor; bounding the merged total is the iterator's job.
 func (s *MultiCollectionStrategy) GetAllCursor(
 	ctx context.Context,
-	opts eventstore.ReadStreamOptions,
+	opts eventstore.ReadAllOptions,
 ) ([]*mongo.Cursor, error) {
-	collectionNames, err := s.database.ListCollectionNames(ctx, bson.D{})
+	collectionNames, err := s.eventCollectionNames(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listing collection names: %w", err)
+		return nil, err
 	}
 
-	findOpts, versionFilter := findOptsFromReadStreamOptions(opts, fieldGlobalOffset)
-	filter := make(bson.D, 0, len(versionFilter))
-	filter = append(filter, versionFilter...)
+	findOpts, positionFilter := findOptsFromReadAllOptions(opts)
+	filter := make(bson.D, 0, len(positionFilter))
+	filter = append(filter, positionFilter...)
 
 	cursors := make([]*mongo.Cursor, len(collectionNames))
 	for i, collectionName := range collectionNames {
@@ -173,14 +190,21 @@ func (s *MultiCollectionStrategy) GetStreamCursor(
 	return cursor, nil
 }
 
-// ExecuteInsertTransaction executes the given function within a new session suitable for inserting events.
-// The function is executed within a transaction and is invoked with a session context, a collection,
-// the current offset of the stream, and the global offset.
+// ExecuteInsertTransaction executes the given function within a new session suitable for
+// inserting numEvents events. The function is executed within a transaction, after offset
+// and global offset ranges have been reserved in it, and is invoked with a session
+// context, a collection, and the offsets preceding each reserved range.
 func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 	ctx context.Context,
 	streamID typeid.ID,
+	numEvents int,
 	inTxnFn func(sessCtx context.Context, coll MongoCollection, offset int64, globalOffset int64) (any, error),
 ) (any, error) {
+	collectionName := s.selector.CollectionName(streamID)
+	if collectionName == s.streamsCollectionName {
+		return nil, fmt.Errorf("collection selector chose the streams collection %q for stream %s", collectionName, streamID)
+	}
+
 	session, err := s.mongo.StartSession(s.sessOpts)
 	if err != nil {
 		return nil, fmt.Errorf("starting insert session: %w", err)
@@ -188,21 +212,18 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 
 	defer session.EndSession(ctx)
 
-	// cannot be done in the transaction; requires listing all collections
-	globalOffset, err := s.getHighestGlobalOffset(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting highest global offset: %w", err)
-	}
-
 	result, err := session.WithTransaction(ctx, func(ctx context.Context) (any, error) {
-		offset, err := s.getHighestOffset(ctx, streamID)
+		offset, err := reserveStreamOffsets(ctx, s.streams, streamID, numEvents)
 		if err != nil {
-			return nil, fmt.Errorf("getting highest offset: %w", err)
+			return nil, err
 		}
 
-		collection := s.database.Collection(s.selector.CollectionName(streamID))
+		globalOffset, err := reserveGlobalOffsets(ctx, s.streams, numEvents)
+		if err != nil {
+			return nil, err
+		}
 
-		return inTxnFn(ctx, collection, offset, globalOffset)
+		return inTxnFn(ctx, s.database.Collection(collectionName), offset, globalOffset)
 	}, s.txOpts)
 	if err != nil {
 		return nil, fmt.Errorf("executing transaction: %w", err)
@@ -214,12 +235,10 @@ func (s *MultiCollectionStrategy) ExecuteInsertTransaction(
 // StreamExists reports whether any event has ever been written to the stream. It exists so
 // ReadStream can tell an absent stream from a filtered read that matched nothing.
 func (s *MultiCollectionStrategy) StreamExists(ctx context.Context, streamID typeid.ID) (bool, error) {
-	collection := s.database.Collection(s.selector.CollectionName(streamID))
-
-	err := collection.FindOne(ctx, bson.D{
-		{Key: fieldStreamType, Value: streamID.Type},
-		{Key: fieldStreamID, Value: streamID.UUID.String()},
-	}, options.FindOne().SetProjection(bson.D{{Key: fieldID, Value: 1}})).Err()
+	err := s.streams.FindOne(ctx,
+		bson.D{{Key: fieldID, Value: streamID.String()}},
+		options.FindOne().SetProjection(bson.D{{Key: fieldID, Value: 1}}),
+	).Err()
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return false, nil
 	} else if err != nil {
@@ -227,66 +246,4 @@ func (s *MultiCollectionStrategy) StreamExists(ctx context.Context, streamID typ
 	}
 
 	return true, nil
-}
-
-// Finds the highest offset for the given stream.
-func (s *MultiCollectionStrategy) getHighestOffset(ctx context.Context, streamID typeid.ID) (int64, error) {
-	s.log.Debug("finding highest offset for stream", fieldStreamID, streamID)
-	collection := s.database.Collection(s.selector.CollectionName(streamID))
-
-	opts := options.FindOne().SetSort(bson.D{{Key: fieldOffset, Value: -1}})
-	offsets := Offsets{}
-	if err := collection.FindOne(ctx, bson.D{
-		{Key: fieldStreamType, Value: streamID.Type},
-		{Key: fieldStreamID, Value: streamID.UUID.String()},
-	}, opts).Decode(&offsets); err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			s.log.Debug("stream not found", fieldStreamID, streamID)
-			return 0, nil
-		}
-
-		return 0, fmt.Errorf("finding highest stream offset: %w", err)
-	}
-
-	s.log.Debug("got highest offset for stream", fieldStreamID, streamID.String(), fieldOffset, offsets.Offset)
-	return offsets.Offset, nil
-}
-
-// Finds the highest global offset among all events in the event store.
-func (s *MultiCollectionStrategy) getHighestGlobalOffset(ctx context.Context) (int64, error) {
-	s.log.Debug("finding highest global offset in event store")
-
-	collectionNames, err := s.database.ListCollectionNames(ctx, bson.D{})
-	if err != nil {
-		return 0, fmt.Errorf("listing collection names: %w", err)
-	}
-
-	opts := options.FindOne().SetSort(bson.D{{Key: fieldGlobalOffset, Value: -1}})
-
-	highestGlobalOffset := int64(0)
-	for _, collectionName := range collectionNames {
-		collection := s.database.Collection(collectionName)
-		result := collection.FindOne(ctx, bson.D{}, opts)
-		if result.Err() != nil {
-			if errors.Is(result.Err(), mongo.ErrNoDocuments) {
-				s.log.Debug("collection for stream is empty", "collection", collectionName)
-				return 0, nil
-			}
-			return 0, fmt.Errorf("finding highest global offset in collection %s: %w", collectionName, result.Err())
-		}
-
-		offsets := Offsets{}
-		if err := result.Decode(&offsets); err != nil {
-			return 0, fmt.Errorf("decoding highest global offset in collection %s: %w", collectionName, err)
-		}
-
-		s.log.Debug("found highest global offset for collection", "collection", collectionName, fieldGlobalOffset, offsets.GlobalOffset)
-
-		if offsets.GlobalOffset > highestGlobalOffset {
-			highestGlobalOffset = offsets.GlobalOffset
-		}
-	}
-
-	s.log.Debug("got highest global offset for event store", fieldGlobalOffset, highestGlobalOffset)
-	return highestGlobalOffset, nil
 }

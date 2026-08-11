@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-estoria/estoria/eventstore"
+	"github.com/go-estoria/estoria/typeid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -19,9 +20,21 @@ const (
 	fieldStreamID     = "stream_id"
 	fieldOffset       = "offset"
 	fieldGlobalOffset = "global_offset"
+	fieldLastOffset   = "last_offset"
 
 	opFirst = "$first"
 )
+
+// DefaultStreamsCollectionName is the default name of the collection holding stream
+// documents and the global offset counter. The leading underscore keeps it out of the
+// namespace either collection selector can produce, since typeid type names cannot begin
+// with an underscore.
+const DefaultStreamsCollectionName = "_streams"
+
+// globalCounterID is the _id of the streams collection's global offset counter document.
+// No stream document can collide with it: stream _ids are typeid strings, whose type
+// names cannot begin with an underscore.
+const globalCounterID = "_global"
 
 type (
 	// MongoDatabase provides an API for obtaining a collection handle.
@@ -35,6 +48,7 @@ type (
 		Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error)
 		Find(context.Context, any, ...options.Lister[options.FindOptions]) (*mongo.Cursor, error)
 		FindOne(context.Context, any, ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
+		FindOneAndUpdate(context.Context, any, any, ...options.Lister[options.FindOneAndUpdateOptions]) *mongo.SingleResult
 		InsertMany(context.Context, any, ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error)
 	}
 
@@ -43,14 +57,52 @@ type (
 	}
 )
 
-type Offsets struct {
-	Offset       int64 `bson:"offset"`
-	GlobalOffset int64 `bson:"global_offset"`
+// reserveStreamOffsets atomically claims n consecutive per-stream offsets by incrementing
+// the stream document's counter, creating the document on a stream's first append. It
+// returns the offset preceding the claimed range. Callers must invoke it inside the append
+// transaction so an aborted append rolls the reservation back.
+func reserveStreamOffsets(ctx context.Context, streams MongoCollection, streamID typeid.ID, n int) (int64, error) {
+	result := streams.FindOneAndUpdate(ctx,
+		bson.D{{Key: fieldID, Value: streamID.String()}},
+		bson.D{
+			{Key: "$inc", Value: bson.D{{Key: fieldLastOffset, Value: int64(n)}}},
+			{Key: "$setOnInsert", Value: bson.D{
+				{Key: fieldStreamType, Value: streamID.Type},
+				{Key: fieldStreamID, Value: streamID.UUID.String()},
+			}},
+		},
+		options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After),
+	)
+
+	var doc struct {
+		LastOffset int64 `bson:"last_offset"`
+	}
+	if err := result.Decode(&doc); err != nil {
+		return 0, fmt.Errorf("reserving stream offsets: %w", err)
+	}
+
+	return doc.LastOffset - int64(n), nil
 }
 
-// An InsertStreamEventsResult contains the result of inserting events into a stream.
-type InsertStreamEventsResult struct {
-	MongoResult *mongo.InsertManyResult
+// reserveGlobalOffsets atomically claims n consecutive global offsets by incrementing the
+// streams collection's counter document, returning the offset preceding the claimed range.
+// Callers must invoke it inside the append transaction so an aborted append rolls the
+// reservation back.
+func reserveGlobalOffsets(ctx context.Context, streams MongoCollection, n int) (int64, error) {
+	result := streams.FindOneAndUpdate(ctx,
+		bson.D{{Key: fieldID, Value: globalCounterID}},
+		bson.D{{Key: "$inc", Value: bson.D{{Key: fieldLastOffset, Value: int64(n)}}}},
+		options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After),
+	)
+
+	var doc struct {
+		LastOffset int64 `bson:"last_offset"`
+	}
+	if err := result.Decode(&doc); err != nil {
+		return 0, fmt.Errorf("reserving global offsets: %w", err)
+	}
+
+	return doc.LastOffset - int64(n), nil
 }
 
 // DefaultSessionOptions returns the default session options used by the event store
@@ -63,6 +115,23 @@ func DefaultSessionOptions() *options.SessionOptionsBuilder {
 // when starting a new MongoDB transaction on a session.
 func DefaultTransactionOptions() *options.TransactionOptionsBuilder {
 	return options.Transaction().SetReadPreference(readpref.Primary())
+}
+
+// findOptsFromReadAllOptions maps global-read options onto a Find: ascending global
+// offset order, an exclusive lower bound when AfterPosition is set, and a per-cursor
+// limit when Count is set.
+func findOptsFromReadAllOptions(opts eventstore.ReadAllOptions) (options.Lister[options.FindOptions], bson.D) {
+	findOpts := options.Find().SetSort(bson.D{{Key: fieldGlobalOffset, Value: 1}})
+	if opts.Count > 0 {
+		findOpts.SetLimit(opts.Count)
+	}
+
+	var filter bson.D
+	if opts.AfterPosition > 0 {
+		filter = bson.D{{Key: fieldGlobalOffset, Value: bson.D{{Key: "$gt", Value: opts.AfterPosition}}}}
+	}
+
+	return findOpts, filter
 }
 
 func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) (options.Lister[options.FindOptions], bson.D) {

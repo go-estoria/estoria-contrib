@@ -51,15 +51,26 @@ func (i *streamIterator) Close(ctx context.Context) error {
 	return i.cursor.Close(ctx)
 }
 
+// A multiStreamIterator merges per-collection cursors, each already ordered by global
+// offset, into one ascending sequence by always yielding the smallest offset on offer.
+// Offsets may carry gaps, so the merge never assumes adjacency.
 type multiStreamIterator struct {
-	cursors             []*multiStreamIteratorCursor
-	currentGlobalOffset int64
-	marshaler           DocumentMarshaler
+	cursors   []*multiStreamIteratorCursor
+	marshaler DocumentMarshaler
+
+	// limit caps the total yielded across all cursors (0 = unlimited); each cursor's
+	// server-side limit alone would allow up to limit events per collection.
+	limit   int64
+	yielded int64
 }
 
 // Next returns the next event among all streams, ordered by global offset.
 func (i *multiStreamIterator) Next(ctx context.Context) (*eventstore.Event, error) {
-	var nextEvent *eventstore.Event
+	if i.limit > 0 && i.yielded >= i.limit {
+		return nil, eventstore.ErrEndOfEventStream
+	}
+
+	var next *multiStreamIteratorCursor
 	for _, cursor := range i.cursors {
 		if cursor.closed {
 			continue
@@ -72,19 +83,20 @@ func (i *multiStreamIterator) Next(ctx context.Context) (*eventstore.Event, erro
 			continue
 		}
 
-		if cursor.nextEvent.GlobalOffset == i.currentGlobalOffset+1 {
-			nextEvent = &cursor.nextEvent.Event
-			i.currentGlobalOffset++
-			cursor.nextEvent = nil
-			break
+		if next == nil || cursor.nextEvent.GlobalOffset < next.nextEvent.GlobalOffset {
+			next = cursor
 		}
 	}
 
-	if nextEvent == nil {
+	if next == nil {
 		return nil, eventstore.ErrEndOfEventStream
 	}
 
-	return nextEvent, nil
+	event := &next.nextEvent.Event
+	next.nextEvent = nil
+	i.yielded++
+
+	return event, nil
 }
 
 // Close closes all cursors.

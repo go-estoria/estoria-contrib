@@ -389,7 +389,7 @@ func TestEventStore_Integration_ProductionReadiness(t *testing.T) {
 
 		es := newStore(t)
 
-		iter, err := es.ReadAll(t.Context(), eventstore.ReadStreamOptions{})
+		iter, err := es.ReadAll(t.Context(), eventstore.ReadAllOptions{})
 		if err != nil {
 			t.Fatalf("ReadAll on empty store returned unexpected error: %v", err)
 		}

@@ -10,14 +10,14 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 
 ## Event Stores
 
-| Name | Description | Outbox Support |
-|------|-------------| -------------- |
-| [DataDog](./datadog/eventstore) | Wraps an event store for DataDog-compatible telemetry. | No |
-| [KurrentDB](./kurrentdb/eventstore) | Estoria streams map 1:1 to KurrentDB streams. | N/A |
-| [MongoDB](./mongodb/eventstore) | Estoria streams map to databases, collections, or a single collection for all streams, depending on the strategy chosen. | Yes |
-| [OpenTelemetry](./opentelemetry/eventstore) | Wraps an event store for OpenTelemetry-compatible telemetry. | N/A |
-| [Postgres](./postgres/eventstore) | Estoria streams use a single table for all events. | Yes |
-| [SQLite](./sqlite/eventstore) | Estoria streams use a single table for all events. | No |
+| Name | Description | Outbox Support | Global Reads |
+|------|-------------| -------------- | ------------ |
+| [DataDog](./datadog/eventstore) | Wraps an event store for DataDog-compatible telemetry. | No | No |
+| [KurrentDB](./kurrentdb/eventstore) | Estoria streams map 1:1 to KurrentDB streams. | N/A | Yes |
+| [MongoDB](./mongodb/eventstore) | Estoria streams map to collections within a database, or to a single collection for all streams, depending on the strategy chosen. | Yes | Yes |
+| [OpenTelemetry](./opentelemetry/eventstore) | Wraps an event store for OpenTelemetry-compatible telemetry. | N/A | No |
+| [Postgres](./postgres/eventstore) | Estoria streams use a single table for all events. | Yes | Yes |
+| [SQLite](./sqlite/eventstore) | Estoria streams use a single table for all events. | No | Yes |
 
 ## Aggregate Stores
 

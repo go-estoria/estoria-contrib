@@ -52,6 +52,7 @@ type EventStore struct {
 var (
 	_ eventstore.StreamReader = (*EventStore)(nil)
 	_ eventstore.StreamWriter = (*EventStore)(nil)
+	_ eventstore.GlobalReader = (*EventStore)(nil)
 )
 
 // A TransactionHook is invoked during a write transaction, after the events have been written,
@@ -330,17 +331,15 @@ func (s *EventStore) streamExists(ctx context.Context, streamID typeid.ID) (bool
 
 // AllReader is an interface for strategies that support reading all events across all streams.
 type AllReader interface {
-	ReadAll(context.Context, *sql.DB, eventstore.ReadStreamOptions) (*sql.Rows, error)
+	ReadAll(context.Context, *sql.DB, eventstore.ReadAllOptions) (*sql.Rows, error)
 }
 
-// ReadAll returns an iterator for reading all events in the event store, across all streams.
-//
-// Unlike ReadStream, which returns ErrStreamNotFound for a non-existent stream, ReadAll
-// returns an empty iterator when there are no events. This is intentional: "no events in the
-// store" is a valid state, whereas "stream not found" is an error condition.
-//
-// Note that not all strategies may support reading all events, in which case an error will be returned.
-func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
+// ReadAll creates an iterator over events from all streams in ascending global order,
+// implementing eventstore.GlobalReader. Global positions are values of the events table's
+// auto-incrementing id column: gaps can occur, repeats cannot. A read with nothing to
+// yield returns an empty iterator rather than an error; strategies that do not implement
+// AllReader return an error.
+func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)
 	if !ok {
 		return nil, errors.New("strategy does not support reading all events")
