@@ -169,6 +169,33 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx pgx.Tx, stre
 	return newOffset, nil
 }
 
+// ReserveGlobalPositions reserves a contiguous range of numEvents global
+// positions within the transaction and returns the first. The reservation
+// updates the single allocator row, whose lock is then held until the
+// transaction commits or rolls back: a later reservation cannot proceed — and
+// so cannot become visible — while an earlier one is unresolved, which is
+// what makes published positions a stable prefix. A rolled-back reservation
+// is returned to the allocator rather than left as a gap.
+func (s *DefaultStrategy) ReserveGlobalPositions(ctx context.Context, tx pgx.Tx, numEvents int) (int64, error) {
+	var last int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(
+		`UPDATE %s SET last_position = last_position + $1 RETURNING last_position`,
+		quoteIdent(s.allocatorTableName()),
+	), numEvents).Scan(&last); errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("position allocator %q has no row; apply the current schema before writing", s.allocatorTableName())
+	} else if err != nil {
+		return 0, fmt.Errorf("updating position allocator: %w", err)
+	}
+
+	return last - int64(numEvents) + 1, nil
+}
+
+// allocatorTableName returns the name of the single-row table from which the
+// events table's global positions are reserved.
+func (s *DefaultStrategy) allocatorTableName() string {
+	return s.eventsTableName + "_position_allocator"
+}
+
 // StreamExists reports whether the given stream exists, regardless of how many events it
 // holds or which of them a read's options would match.
 //
@@ -248,11 +275,13 @@ func (s *DefaultStrategy) DeleteStream(ctx context.Context, tx pgx.Tx, streamID 
 	return nil
 }
 
-// AppendStreamStatement returns a SQL statement for appending an event to a stream.
-// The statement uses RETURNING id to capture the generated global position.
+// AppendStreamStatement returns a SQL statement for appending an event to a
+// stream. The event's global position is supplied explicitly as the first
+// argument, reserved via ReserveGlobalPositions within the same transaction.
 func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 	return fmt.Sprintf(`
 		INSERT INTO %s (
+			id,
 			event_id,
 			stream_type,
 			stream_id,
@@ -263,12 +292,12 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, quoteIdent(s.eventsTableName)), nil
 }
 
-// AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
+// AppendStreamExecArgs returns the arguments for executing the append
+// statement for the given event, whose GlobalPosition must already be set.
 func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 	var metadataArg any
 	if event.Metadata != nil {
@@ -276,6 +305,7 @@ func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 		metadataArg, _ = json.Marshal(event.Metadata)
 	}
 	return []any{
+		*event.GlobalPosition,
 		event.ID.UUID,
 		event.StreamID.Type,
 		event.StreamID.UUID,
@@ -317,13 +347,32 @@ func WithStreamsTableName(name string) DefaultStrategyOption {
 	}
 }
 
-// Schema returns the complete SQL schema for the event store. The uniqueness constraint's
-// name is derived from the events table name so that stores with different table names can
-// share a database.
+// Schema returns the complete SQL schema for the event store, idempotent for
+// both fresh databases and databases created by earlier versions of this
+// strategy. The uniqueness constraint's name is derived from the events table
+// name so that stores with different table names can share a database.
+//
+// Global positions come from the allocator table, one row per events table,
+// reserved inside each append transaction. For databases migrating from the
+// earlier bigserial schema, the allocator is seeded conservatively at or
+// above every position ever observable or allocated: the greater of MAX(id)
+// and the abandoned serial sequence's last_value, which PostgreSQL keeps at
+// or above every value it ever handed out; last_value counts as allocated
+// even when is_called is false, over-reserving by at most one. MAX(id) alone
+// would be unsafe — deleting a stream can remove the highest-positioned rows
+// while consumers hold checkpoints above the new maximum, and a reused
+// position below such a checkpoint would be skipped forever; skipping unused
+// sequence values is harmless. The bigserial default is then dropped, so
+// writers from earlier versions fail closed instead of bypassing the
+// allocator: drain them before migrating, and never run old and new writers
+// together.
 func (s *DefaultStrategy) Schema() string {
+	events := quoteIdent(s.eventsTableName)
+	allocator := quoteIdent(s.allocatorTableName())
+
 	return fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id                bigserial    PRIMARY KEY,
+			id                bigint       PRIMARY KEY,
 			stream_id         uuid         NOT NULL,
 			stream_type       varchar(255) NOT NULL,
 			event_id          uuid         NOT NULL,
@@ -346,7 +395,39 @@ func (s *DefaultStrategy) Schema() string {
 
 			PRIMARY KEY (stream_type, stream_id)
 		);
-	`, quoteIdent(s.eventsTableName), quoteIdent(s.eventsTableName+"_stream_offset_unique"), quoteIdent(s.streamsTableName))
+
+		CREATE TABLE IF NOT EXISTS %s (
+			only_row      boolean PRIMARY KEY DEFAULT true CHECK (only_row),
+			last_position bigint  NOT NULL
+		);
+
+		ALTER TABLE %s ALTER COLUMN id DROP DEFAULT;
+
+		DO $$
+		DECLARE
+			seq_name text := pg_get_serial_sequence('%s', 'id');
+			seq_high bigint := 0;
+		BEGIN
+			IF seq_name IS NOT NULL THEN
+				EXECUTE format('SELECT last_value FROM %%s', seq_name) INTO seq_high;
+			END IF;
+
+			INSERT INTO %s (only_row, last_position)
+			SELECT true, GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0), seq_high)
+			WHERE NOT EXISTS (SELECT 1 FROM %s);
+		END
+		$$;
+	`,
+		events,
+		quoteIdent(s.eventsTableName+"_stream_offset_unique"),
+		quoteIdent(s.streamsTableName),
+		allocator,
+		events,
+		events,
+		allocator,
+		events,
+		allocator,
+	)
 }
 
 // ListStreams returns metadata for all streams in the event store.

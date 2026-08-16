@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-estoria/estoria"
@@ -29,6 +30,14 @@ type Strategy interface {
 
 	// NextHighwaterMark returns the next highwater mark (i.e. the next highest stream version).
 	NextHighwaterMark(ctx context.Context, tx pgx.Tx, streamID typeid.ID, numEvents int) (int64, error)
+
+	// ReserveGlobalPositions reserves numEvents contiguous global positions
+	// within the transaction, returning the first. The reservation must stay
+	// exclusive until the transaction resolves, so that a later append cannot
+	// commit — and become visible — ahead of an earlier unresolved one:
+	// published positions form a stable prefix, per the core GlobalReader
+	// contract.
+	ReserveGlobalPositions(ctx context.Context, tx pgx.Tx, numEvents int) (int64, error)
 
 	// AppendStreamStatement returns a SQL statement for appending events to a stream.
 	AppendStreamStatement() (string, error)
@@ -224,6 +233,11 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 		}
 	}
 
+	firstPosition, err := s.strategy.ReserveGlobalPositions(ctx, tx, len(events))
+	if err != nil {
+		return nil, fmt.Errorf("reserving global positions: %w", err)
+	}
+
 	stmtQuery, err := s.strategy.AppendStreamStatement()
 	if err != nil {
 		return nil, fmt.Errorf("building append statement: %w", err)
@@ -235,26 +249,29 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
+		globalPosition := firstPosition + int64(i)
 		fullEvents[i] = &eventstore.Event{
 			ID:              typeid.NewV4(we.Type),
 			StreamID:        streamID,
 			StreamVersion:   currentOffset + int64(i) + 1,
+			GlobalPosition:  &globalPosition,
 			Timestamp:       now,
 			Data:            we.Data,
 			DataContentType: we.DataContentType,
 			Metadata:        we.Metadata,
 		}
 
-		var globalPos int64
-		if err := tx.QueryRow(ctx, stmtQuery, s.strategy.AppendStreamExecArgs(fullEvents[i])...).Scan(&globalPos); err != nil {
+		if _, err := tx.Exec(ctx, stmtQuery, s.strategy.AppendStreamExecArgs(fullEvents[i])...); err != nil {
 			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				// The only unique constraint on the events table is (stream_id, stream_type, stream_offset).
-				// A violation here means a concurrent writer inserted at the same offset.
-				// When a concurrent write races with this one, we report currentOffset as both
-				// expected and actual: we don't know the true actual version from the DB, and
-				// reporting ExpectedVersion=0 when no explicit ExpectVersion was specified would
-				// be misleading.
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "stream_offset") {
+				// The (stream_id, stream_type, stream_offset) constraint arbitrates
+				// concurrent writers to one stream; the id primary key is also unique,
+				// but allocator reservations cannot collide, so the constraint name
+				// separates a lost stream race from corruption. When a concurrent
+				// write races with this one, we report currentOffset as both expected
+				// and actual: we don't know the true actual version from the DB, and
+				// reporting ExpectedVersion=0 when no explicit ExpectVersion was
+				// specified would be misleading.
 				return nil, eventstore.StreamVersionMismatchError{
 					StreamID:        streamID,
 					ExpectedVersion: currentOffset,
@@ -263,7 +280,6 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 			}
 			return nil, fmt.Errorf("executing statement: %w", err)
 		}
-		fullEvents[i].GlobalPosition = &globalPos
 	}
 
 	for _, hook := range s.appendTxHooks {
@@ -376,9 +392,12 @@ func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts 
 }
 
 // ReadAll creates an iterator over events from all streams in ascending global order,
-// implementing eventstore.GlobalReader. Global positions are values of the events table's
-// auto-incrementing id column: gaps can occur, repeats cannot. A read with nothing to
-// yield returns an empty iterator rather than an error; strategies that do not implement
+// implementing eventstore.GlobalReader. Global positions are reserved from a
+// transactional allocator held exclusive until the reserving transaction resolves
+// (see Strategy.ReserveGlobalPositions), so events become visible in position order:
+// a position absent from a read is permanently dead, never still in flight, and
+// resuming after a yielded position is gap-free. A read with nothing to yield
+// returns an empty iterator rather than an error; strategies that do not implement
 // AllReader return an error.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)

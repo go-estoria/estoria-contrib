@@ -323,6 +323,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			name: "default table name",
 			wantStmt: `
 		INSERT INTO "event" (
+			id,
 			event_id,
 			stream_type,
 			stream_id,
@@ -333,8 +334,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`,
 		},
 		{
@@ -344,6 +344,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			},
 			wantStmt: `
 		INSERT INTO "my_events" (
+			id,
 			event_id,
 			stream_type,
 			stream_id,
@@ -354,8 +355,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`,
 		},
 	} {
