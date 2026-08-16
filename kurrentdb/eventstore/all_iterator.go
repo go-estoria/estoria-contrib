@@ -14,10 +14,10 @@ import (
 )
 
 // An allStreamIterator yields a store's events from the server's $all stream in ascending
-// commit-position order. KurrentDB cannot filter reads server-side, so the iterator
-// fetches raw records in windows and filters them through the store's ownership
-// predicate; every raw record advances the cursor, so every window makes progress and the
-// scan terminates.
+// commit-position order, up to a frontier fixed when the read was created. KurrentDB
+// cannot filter reads server-side, so the iterator fetches raw records in windows and
+// filters them through the store's ownership predicate; every raw record advances the
+// cursor, so every window makes progress and the scan terminates.
 type allStreamIterator struct {
 	client KurrentClient
 	owns   func(streamName string) (typeid.ID, bool)
@@ -26,6 +26,13 @@ type allStreamIterator struct {
 
 	// bound is the exclusive lower bound on yielded positions, or -1 for none.
 	bound int64
+
+	// frontier is the inclusive upper bound on yielded positions: the server-wide $all
+	// head commit position captured before ReadAll returned. Records commit only above
+	// every position already readable, so the first raw record above the frontier proves
+	// the read complete — the iterator exhausts there and stays exhausted, and commits
+	// racing the drain can never extend it.
+	frontier int64
 
 	// cursor is where the next window resumes: the last raw record position seen, or -1
 	// to read from the start of $all. The wire protocol's From position is inclusive, so
@@ -123,6 +130,16 @@ func (i *allStreamIterator) Next(ctx context.Context) (*eventstore.Event, error)
 		}
 
 		position := int64(*resolved.Commit)
+		if position > i.frontier {
+			// $all is scanned in ascending order, so everything at or below the
+			// frontier has been seen: the read is complete, terminally.
+			i.window.Close()
+			i.window = nil
+			i.done = true
+
+			return nil, eventstore.ErrEndOfEventStream
+		}
+
 		if position <= i.cursor {
 			continue
 		}

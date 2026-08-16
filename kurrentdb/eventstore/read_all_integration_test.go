@@ -132,6 +132,14 @@ func TestEventStore_Integration_ReadAll(t *testing.T) {
 		assertEventIDs(t, coreeventstore.ReadAllOptions{}, written)
 		assertEventIDs(t, coreeventstore.ReadAllOptions{AfterPosition: *written[3].GlobalPosition}, written[4:])
 		assertEventIDs(t, coreeventstore.ReadAllOptions{Count: 4}, written[:4])
+
+		// A resume position between records — a synthetic checkpoint, not one a read
+		// yielded — is rejected by the server (its chunk reader misparses the bytes at
+		// that offset as a record header, surfacing as InvalidPosition with a nonsense
+		// length). The iterator must recover by rescanning from the start of $all with
+		// the bound still applied. The position must lie below the frontier: at or past
+		// it, the read is born exhausted and the server is never consulted.
+		assertEventIDs(t, coreeventstore.ReadAllOptions{AfterPosition: *written[1].GlobalPosition + 1}, written[2:])
 	})
 
 	// Pins what the phase-0 spike established: events written in one append batch carry

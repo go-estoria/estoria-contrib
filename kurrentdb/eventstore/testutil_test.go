@@ -37,6 +37,13 @@ var kurrentSem = make(chan struct{}, 4)
 
 func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 	t.Helper()
+	return createKurrentContainerWithEnv(t, nil)
+}
+
+// createKurrentContainerWithEnv starts a KurrentDB container with the standard
+// configuration plus the given environment overrides, which take precedence.
+func createKurrentContainerWithEnv(t *testing.T, envOverrides map[string]string) (*kurrentdb.Client, error) {
+	t.Helper()
 
 	ctx := t.Context()
 
@@ -69,20 +76,25 @@ func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 			return nil, fmt.Errorf("parsing port: %w", err)
 		}
 
+		env := map[string]string{
+			"KURRENTDB_CLUSTER_SIZE":               "1",
+			"KURRENTDB_RUN_PROJECTIONS":            "All",
+			"KURRENTDB_START_STANDARD_PROJECTIONS": "true",
+			"KURRENTDB_NODE_PORT":                  portStr,
+			"KURRENTDB_INSECURE":                   "true", // dev/test only
+			"KURRENTDB_ENABLE_ATOM_PUB_OVER_HTTP":  "true", // optional; only needed for the Admin UI/feeds
+		}
+		for k, v := range envOverrides {
+			env[k] = v
+		}
+
 		req := testcontainers.ContainerRequest{
 			// Pinned rather than :latest so a server release cannot change the readiness
 			// contract below with no change on our side. 26.1 was byte-identical to the
 			// :latest this replaced. Matches how the mongo and postgres suites pin.
 			Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:26.1",
 			ExposedPorts: []string{port.String()},
-			Env: map[string]string{
-				"KURRENTDB_CLUSTER_SIZE":               "1",
-				"KURRENTDB_RUN_PROJECTIONS":            "All",
-				"KURRENTDB_START_STANDARD_PROJECTIONS": "true",
-				"KURRENTDB_NODE_PORT":                  portStr,
-				"KURRENTDB_INSECURE":                   "true", // dev/test only
-				"KURRENTDB_ENABLE_ATOM_PUB_OVER_HTTP":  "true", // optional; only needed for the Admin UI/feeds
-			},
+			Env:          env,
 			// bind host port -> container port so the node's advertised port is reachable
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.PortBindings = network.PortMap{
