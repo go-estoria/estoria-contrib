@@ -54,8 +54,8 @@ func legacyBigserialSchema(events, streams string) string {
 // TestSchema_MigratesLegacyBigserial pins the migration from the bigserial
 // schema: the allocator must seed at or above every position ever observable
 // or allocated — the greater of MAX(id) and the sequence high-water — the
-// migration must be reapplication-safe without reseeding, and old-style
-// writers relying on the dropped default must fail closed.
+// migration must be reapplication-safe without reseeding or exclusive locks,
+// and old-style writers relying on the dropped default must fail closed.
 func TestSchema_MigratesLegacyBigserial(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -147,9 +147,52 @@ func TestSchema_MigratesLegacyBigserial(t *testing.T) {
 			t.Fatalf("want a resume above the old high-water to yield exactly the new event, got %d events", len(resumed))
 		}
 
-		// Reapplication is idempotent: no reseed, no exclusive-lock ALTER.
-		if _, err := db.Exec(t.Context(), strat.Schema()); err != nil {
-			t.Fatalf("reapplying schema: %v", err)
+		// Reapplication is idempotent: no reseed and no exclusive lock.
+		// Deleting the newest event first drops both database-derived floors —
+		// MAX(id) to 3 and the sequence high-water at 5 — below the allocator
+		// at 6, so any reseed moves the allocator and fails the assertions
+		// below. Reapplying while another session holds ACCESS SHARE on the
+		// events table, under a short lock timeout, proves no ACCESS EXCLUSIVE
+		// is taken: the guarded migration skips the default drop, where an
+		// unconditional ALTER would block and time out.
+		if _, err := db.Exec(t.Context(), fmt.Sprintf(
+			`DELETE FROM %s WHERE id = 6`, pgx.Identifier{events}.Sanitize(),
+		)); err != nil {
+			t.Fatalf("deleting the newest event: %v", err)
+		}
+
+		lockTx, err := db.Begin(t.Context())
+		if err != nil {
+			t.Fatalf("beginning the lock-holding transaction: %v", err)
+		}
+		defer func() { _ = lockTx.Rollback(t.Context()) }()
+
+		if _, err := lockTx.Exec(t.Context(), fmt.Sprintf(
+			`LOCK TABLE %s IN ACCESS SHARE MODE`, pgx.Identifier{events}.Sanitize(),
+		)); err != nil {
+			t.Fatalf("taking ACCESS SHARE on the events table: %v", err)
+		}
+
+		reapplyTx, err := db.Begin(t.Context())
+		if err != nil {
+			t.Fatalf("beginning the reapplication transaction: %v", err)
+		}
+		defer func() { _ = reapplyTx.Rollback(t.Context()) }()
+
+		if _, err := reapplyTx.Exec(t.Context(), `SET LOCAL lock_timeout = '1s'`); err != nil {
+			t.Fatalf("setting lock timeout: %v", err)
+		}
+
+		if _, err := reapplyTx.Exec(t.Context(), strat.Schema()); err != nil {
+			t.Fatalf("want reapplication to take no exclusive lock while a reader holds ACCESS SHARE, got: %v", err)
+		}
+
+		if err := reapplyTx.Commit(t.Context()); err != nil {
+			t.Fatalf("committing the reapplication: %v", err)
+		}
+
+		if err := lockTx.Rollback(t.Context()); err != nil {
+			t.Fatalf("releasing the ACCESS SHARE lock: %v", err)
 		}
 
 		var lastPosition int64

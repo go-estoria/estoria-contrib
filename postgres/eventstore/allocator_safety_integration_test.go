@@ -49,10 +49,11 @@ func TestAppendStream_HookPanicReleasesAllocator(t *testing.T) {
 		panic("hook exploded")
 	})
 
-	// The panicking store gets its own pool, deliberately left unclosed:
-	// under this regression's failure mode — no rollback on the panic path —
-	// the leaked transaction's connection would deadlock pool.Close during
-	// cleanup and hang the binary past every guard. Process exit reclaims it.
+	// The panicking store gets its own pool, closed only on the passing path
+	// below: under this regression's failure mode — no rollback on the panic
+	// path — the leaked transaction's connection would deadlock pool.Close
+	// and hang the binary past every guard, so every failing path must exit
+	// without closing and let process exit reclaim it.
 	panickingPool, err := pgxpool.New(t.Context(), connString)
 	if err != nil {
 		t.Fatalf("creating pool for the panicking store: %v", err)
@@ -72,8 +73,12 @@ func TestAppendStream_HookPanicReleasesAllocator(t *testing.T) {
 
 	func() {
 		defer func() {
-			if recover() == nil {
+			recovered := recover()
+			if recovered == nil {
 				t.Fatal("want the hook panic to propagate out of AppendStream")
+			}
+			if recovered != "hook exploded" {
+				t.Fatalf("want the hook's own panic value to propagate unchanged, got %v", recovered)
 			}
 		}()
 
@@ -88,6 +93,10 @@ func TestAppendStream_HookPanicReleasesAllocator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("want a writer to proceed after the panicked append rolled back, got %v", err)
 	}
+
+	// Safe only now that the rollback under test demonstrably ran: the pool
+	// holds no leaked connection.
+	panickingPool.Close()
 
 	if got := *written[0].GlobalPosition; got != 1 {
 		t.Errorf("want the panicked append's returned reservation at position 1, got %d", got)

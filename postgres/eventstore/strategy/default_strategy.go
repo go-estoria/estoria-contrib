@@ -64,33 +64,39 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 }
 
 // validateDerivedIdentifiers rejects configurations whose relation names —
-// configured or derived — would not survive PostgreSQL intact. Identifiers
-// longer than 63 bytes are silently truncated, which can alias the position
-// allocator to the events table itself or collide constraint names across
-// stores; and the configured tables must not collide with each other or with
-// the derived relations.
+// configured or derived — would not survive PostgreSQL intact. The tables,
+// their primary-key indexes, and the stream-offset constraint's backing index
+// all share one relation namespace: identifiers longer than 63 bytes are
+// silently truncated, and a configured name equal to a generated one makes
+// CREATE TABLE IF NOT EXISTS silently adopt the wrong relation, so every name
+// the schema creates must fit and be pairwise distinct.
 func (s *DefaultStrategy) validateDerivedIdentifiers() error {
 	const maxIdentifierBytes = 63
 
-	for what, name := range map[string]string{
-		"events table":             s.eventsTableName,
-		"streams table":            s.streamsTableName,
-		"position allocator table": s.allocatorTableName(),
-		"stream-offset constraint": s.StreamOffsetUniqueConstraintName(),
-	} {
-		if len(name) > maxIdentifierBytes {
-			return fmt.Errorf("%s name %q is %d bytes; PostgreSQL truncates identifiers to %d bytes, which would silently alias relations — use a shorter events table name",
-				what, name, len(name), maxIdentifierBytes)
+	relations := []struct{ role, name string }{
+		{"events table", s.eventsTableName},
+		{"streams table", s.streamsTableName},
+		{"position allocator table", s.allocatorTableName()},
+		{"stream-offset constraint", s.StreamOffsetUniqueConstraintName()},
+		{"events table primary key", s.eventsTableName + "_pkey"},
+		{"streams table primary key", s.streamsTableName + "_pkey"},
+		{"position allocator primary key", s.allocatorTableName() + "_pkey"},
+	}
+
+	for _, rel := range relations {
+		if len(rel.name) > maxIdentifierBytes {
+			return fmt.Errorf("%s name %q is %d bytes; PostgreSQL truncates identifiers to %d bytes, which would silently alias relations — use a shorter table name",
+				rel.role, rel.name, len(rel.name), maxIdentifierBytes)
 		}
 	}
 
-	switch {
-	case s.streamsTableName == s.eventsTableName:
-		return errors.New("events and streams tables must be distinct")
-	case s.streamsTableName == s.allocatorTableName():
-		return fmt.Errorf("streams table %q collides with the events table's position allocator", s.streamsTableName)
-	case s.streamsTableName == s.StreamOffsetUniqueConstraintName():
-		return fmt.Errorf("streams table %q collides with the stream-offset constraint", s.streamsTableName)
+	for i, rel := range relations {
+		for _, other := range relations[i+1:] {
+			if rel.name == other.name {
+				return fmt.Errorf("%s %q collides with the %s: every relation the schema creates must be named distinctly",
+					rel.role, rel.name, other.role)
+			}
+		}
 	}
 
 	return nil
@@ -412,7 +418,10 @@ func WithStreamsTableName(name string) DefaultStrategyOption {
 // would be unsafe — deleting a stream can remove the highest-positioned rows
 // while consumers hold checkpoints above the new maximum, and a reused
 // position below such a checkpoint would be skipped forever; skipping unused
-// sequence values is harmless. The bigserial default is then dropped, so
+// sequence values is harmless. Neither floor sees rows that were written with
+// explicit ids — never advancing the sequence — and later deleted; operators
+// who cannot rule such rows out must raise the allocator's last_position by
+// hand before new writers start. The bigserial default is then dropped, so
 // writers from earlier versions fail closed instead of bypassing the
 // allocator: drain them before migrating, and never run old and new writers
 // together.

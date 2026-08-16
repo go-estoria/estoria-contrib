@@ -387,8 +387,10 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 
 func TestNewDefaultStrategy_RejectsHazardousIdentifiers(t *testing.T) {
 	// The longest safe events table name leaves exactly 63 bytes for the
-	// derived stream-offset constraint, the longest derived identifier.
-	longest := strings.Repeat("e", 63-len("_stream_offset_unique"))
+	// allocator table's primary-key index, the longest events-derived
+	// identifier; the longest safe streams table name leaves 63 for its own.
+	longestEvents := strings.Repeat("e", 63-len("_position_allocator_pkey"))
+	longestStreams := strings.Repeat("s", 63-len("_pkey"))
 
 	for _, tt := range []struct {
 		name    string
@@ -397,11 +399,20 @@ func TestNewDefaultStrategy_RejectsHazardousIdentifiers(t *testing.T) {
 	}{
 		{
 			name: "longest safe events table name is accepted",
-			opts: []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longest)},
+			opts: []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longestEvents)},
 		},
 		{
-			name:    "events table name whose derived constraint would truncate",
-			opts:    []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longest + "e")},
+			name:    "events table name whose derived identifiers would truncate",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longestEvents + "e")},
+			wantErr: "truncates identifiers",
+		},
+		{
+			name: "longest safe streams table name is accepted",
+			opts: []strategy.DefaultStrategyOption{strategy.WithStreamsTableName(longestStreams)},
+		},
+		{
+			name:    "streams table name whose primary key would truncate",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithStreamsTableName(longestStreams + "s")},
 			wantErr: "truncates identifiers",
 		},
 		{
@@ -427,6 +438,24 @@ func TestNewDefaultStrategy_RejectsHazardousIdentifiers(t *testing.T) {
 				strategy.WithStreamsTableName("orders_stream_offset_unique"),
 			},
 			wantErr: "constraint",
+		},
+		{
+			name:    "streams table colliding with the events table's primary key index",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithStreamsTableName("event_pkey")},
+			wantErr: "primary key",
+		},
+		{
+			name:    "events table colliding with the streams table's primary key index",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithEventsTableName("stream_pkey")},
+			wantErr: "primary key",
+		},
+		{
+			name: "streams table colliding with the position allocator's primary key index",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders_position_allocator_pkey"),
+			},
+			wantErr: "primary key",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
