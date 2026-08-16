@@ -56,7 +56,44 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 		}
 	}
 
+	if err := strategy.validateDerivedIdentifiers(); err != nil {
+		return nil, err
+	}
+
 	return strategy, nil
+}
+
+// validateDerivedIdentifiers rejects configurations whose relation names —
+// configured or derived — would not survive PostgreSQL intact. Identifiers
+// longer than 63 bytes are silently truncated, which can alias the position
+// allocator to the events table itself or collide constraint names across
+// stores; and the configured tables must not collide with each other or with
+// the derived relations.
+func (s *DefaultStrategy) validateDerivedIdentifiers() error {
+	const maxIdentifierBytes = 63
+
+	for what, name := range map[string]string{
+		"events table":             s.eventsTableName,
+		"streams table":            s.streamsTableName,
+		"position allocator table": s.allocatorTableName(),
+		"stream-offset constraint": s.StreamOffsetUniqueConstraintName(),
+	} {
+		if len(name) > maxIdentifierBytes {
+			return fmt.Errorf("%s name %q is %d bytes; PostgreSQL truncates identifiers to %d bytes, which would silently alias relations — use a shorter events table name",
+				what, name, len(name), maxIdentifierBytes)
+		}
+	}
+
+	switch {
+	case s.streamsTableName == s.eventsTableName:
+		return errors.New("events and streams tables must be distinct")
+	case s.streamsTableName == s.allocatorTableName():
+		return fmt.Errorf("streams table %q collides with the events table's position allocator", s.streamsTableName)
+	case s.streamsTableName == s.StreamOffsetUniqueConstraintName():
+		return fmt.Errorf("streams table %q collides with the stream-offset constraint", s.streamsTableName)
+	}
+
+	return nil
 }
 
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
@@ -196,6 +233,16 @@ func (s *DefaultStrategy) allocatorTableName() string {
 	return s.eventsTableName + "_position_allocator"
 }
 
+// StreamOffsetUniqueConstraintName returns the name of the unique constraint
+// on (stream_id, stream_type, stream_offset), which arbitrates concurrent
+// writers to one stream. The store classifies a unique violation on exactly
+// this constraint as a lost stream race; any other — the id primary key above
+// all — surfaces as corruption. Construction guarantees the name fits
+// PostgreSQL's identifier limit, so the physical constraint name matches.
+func (s *DefaultStrategy) StreamOffsetUniqueConstraintName() string {
+	return s.eventsTableName + "_stream_offset_unique"
+}
+
 // StreamExists reports whether the given stream exists, regardless of how many events it
 // holds or which of them a read's options would match.
 //
@@ -277,7 +324,9 @@ func (s *DefaultStrategy) DeleteStream(ctx context.Context, tx pgx.Tx, streamID 
 
 // AppendStreamStatement returns a SQL statement for appending an event to a
 // stream. The event's global position is supplied explicitly as the first
-// argument, reserved via ReserveGlobalPositions within the same transaction.
+// argument, reserved via ReserveGlobalPositions within the same transaction,
+// and returned so the store can verify the persisted position equals the
+// reservation.
 func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 	return fmt.Sprintf(`
 		INSERT INTO %s (
@@ -293,6 +342,7 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 			metadata
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id
 	`, quoteIdent(s.eventsTableName)), nil
 }
 
@@ -366,6 +416,12 @@ func WithStreamsTableName(name string) DefaultStrategyOption {
 // writers from earlier versions fail closed instead of bypassing the
 // allocator: drain them before migrating, and never run old and new writers
 // together.
+//
+// The one-time default drop takes a brief ACCESS EXCLUSIVE lock on the
+// events table, so the first application against an existing database
+// belongs inside the writer drain window (operators may bound it further
+// with lock_timeout). Reapplying the schema skips the alteration — the drop
+// runs only while a default exists — and takes no exclusive lock.
 func (s *DefaultStrategy) Schema() string {
 	events := quoteIdent(s.eventsTableName)
 	allocator := quoteIdent(s.allocatorTableName())
@@ -401,13 +457,18 @@ func (s *DefaultStrategy) Schema() string {
 			last_position bigint  NOT NULL
 		);
 
-		ALTER TABLE %s ALTER COLUMN id DROP DEFAULT;
-
 		DO $$
 		DECLARE
 			seq_name text := pg_get_serial_sequence('%s', 'id');
 			seq_high bigint := 0;
 		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM pg_attribute
+				WHERE attrelid = '%s'::regclass AND attname = 'id' AND atthasdef
+			) THEN
+				EXECUTE 'ALTER TABLE %s ALTER COLUMN id DROP DEFAULT';
+			END IF;
+
 			IF seq_name IS NOT NULL THEN
 				EXECUTE format('SELECT last_value FROM %%s', seq_name) INTO seq_high;
 			END IF;
@@ -419,9 +480,10 @@ func (s *DefaultStrategy) Schema() string {
 		$$;
 	`,
 		events,
-		quoteIdent(s.eventsTableName+"_stream_offset_unique"),
+		quoteIdent(s.StreamOffsetUniqueConstraintName()),
 		quoteIdent(s.streamsTableName),
 		allocator,
+		events,
 		events,
 		events,
 		allocator,

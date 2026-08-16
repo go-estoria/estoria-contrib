@@ -335,6 +335,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			metadata
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id
 	`,
 		},
 		{
@@ -356,6 +357,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			metadata
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id
 	`,
 		},
 	} {
@@ -378,6 +380,68 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 
 			if normalizeSQL(gotStmt) != normalizeSQL(tt.wantStmt) {
 				t.Errorf("expected statement:\n-----\n%s\n-----\ngot:\n-----\n%s\n-----\n", tt.wantStmt, gotStmt)
+			}
+		})
+	}
+}
+
+func TestNewDefaultStrategy_RejectsHazardousIdentifiers(t *testing.T) {
+	// The longest safe events table name leaves exactly 63 bytes for the
+	// derived stream-offset constraint, the longest derived identifier.
+	longest := strings.Repeat("e", 63-len("_stream_offset_unique"))
+
+	for _, tt := range []struct {
+		name    string
+		opts    []strategy.DefaultStrategyOption
+		wantErr string
+	}{
+		{
+			name: "longest safe events table name is accepted",
+			opts: []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longest)},
+		},
+		{
+			name:    "events table name whose derived constraint would truncate",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longest + "e")},
+			wantErr: "truncates identifiers",
+		},
+		{
+			name: "streams table colliding with the events table",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders"),
+			},
+			wantErr: "distinct",
+		},
+		{
+			name: "streams table colliding with the position allocator",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders_position_allocator"),
+			},
+			wantErr: "position allocator",
+		},
+		{
+			name: "streams table colliding with the stream-offset constraint",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders_stream_offset_unique"),
+			},
+			wantErr: "constraint",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := strategy.NewDefaultStrategy(tt.opts...)
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want an error containing %q, got %v", tt.wantErr, err)
 			}
 		})
 	}

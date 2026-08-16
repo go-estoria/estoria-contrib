@@ -193,6 +193,18 @@ func TestAppendStream_StablePrefix_Integration(t *testing.T) {
 			// The two-arm observation, through the third connection.
 			guard := time.Now().Add(deadlockGuard)
 			for blocked := false; !blocked; {
+				select {
+				case <-writerADone:
+					t.Fatalf("writer A finished while it should be paused in its hook: %v", writerAErr)
+				case <-writerBDone:
+					if writerBErr != nil {
+						t.Fatalf("writer B failed while writer A's reservation was unresolved: %v", writerBErr)
+					}
+
+					t.Fatal("stable-prefix violation: writer B committed while writer A's earlier reservation was unresolved")
+				default:
+				}
+
 				if time.Now().After(guard) {
 					t.Fatal("deadlock guard: writer B neither blocked on the allocator nor committed")
 				}
