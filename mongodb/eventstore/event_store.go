@@ -76,6 +76,11 @@ type (
 
 	// A TransactionHook is a function that is executed within the transaction used for appending events.
 	// If a hook returns an error, the transaction is aborted and the error is returned to the caller.
+	//
+	// A hook must not call back into the EventStore — AppendStream above all: the
+	// surrounding transaction holds the offset counter documents, so a nested append's
+	// reservation write-conflicts against it and retries until the transaction's
+	// lifetime expires. Hooks operate exclusively through the provided session context.
 	TransactionHook interface {
 		HandleEvents(sessCtx context.Context, events []*eventstore.Event) error
 	}
@@ -236,8 +241,14 @@ func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
 
 // ReadAll creates an iterator over events from all streams in ascending global order,
 // implementing eventstore.GlobalReader. Global positions are counter-allocated global
-// offsets: gaps can occur, repeats cannot. A read with nothing to yield returns an empty
-// iterator rather than an error.
+// offsets: gaps can occur, repeats cannot. The read's frontier is the offset counter's
+// committed value, captured before the cursors open: they yield only events at or
+// below it, so a read spanning multiple cursor batches is never extended by appends
+// racing the drain. The frontier is stable because appends reserve offsets and insert
+// in one transaction against a shared counter document — a later append's reservation
+// write-conflicts and retries until an earlier one resolves, so events commit in
+// offset order. A read with nothing to yield returns an empty iterator rather than an
+// error.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from MongoDB event store",
 		"after_position", opts.AfterPosition,

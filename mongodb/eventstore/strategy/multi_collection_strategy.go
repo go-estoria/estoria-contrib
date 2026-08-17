@@ -184,18 +184,25 @@ func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cur
 	return cursors, nil
 }
 
-// GetAllCursor returns one cursor per event collection, each ordered by global offset.
-// A Count limit applies per cursor; bounding the merged total is the iterator's job.
+// GetAllCursor returns one cursor per event collection, each ordered by global offset
+// and bounded above by the frontier captured here, so no cursor can chase appends
+// committed after the read began. A Count limit applies per cursor; bounding the
+// merged total is the iterator's job.
 func (s *MultiCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadAllOptions,
 ) ([]*mongo.Cursor, error) {
+	frontier, err := readGlobalFrontier(ctx, s.streams)
+	if err != nil {
+		return nil, err
+	}
+
 	collectionNames, err := s.eventCollectionNames(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	findOpts, positionFilter := findOptsFromReadAllOptions(opts)
+	findOpts, positionFilter := findOptsFromReadAllOptions(opts, frontier)
 	filter := make(bson.D, 0, len(positionFilter))
 	filter = append(filter, positionFilter...)
 

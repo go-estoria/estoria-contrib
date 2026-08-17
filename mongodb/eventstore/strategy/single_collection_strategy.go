@@ -82,12 +82,19 @@ func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cu
 	return []*mongo.Cursor{cursor}, nil
 }
 
-// GetAllCursor returns an iterator over all events in the event store, ordered by global offset.
+// GetAllCursor returns an iterator over all events in the event store, ordered by
+// global offset and bounded above by the frontier captured here, so the cursor cannot
+// chase appends committed after the read began.
 func (s *SingleCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadAllOptions,
 ) ([]*mongo.Cursor, error) {
-	findOpts, positionFilter := findOptsFromReadAllOptions(opts)
+	frontier, err := readGlobalFrontier(ctx, s.streams)
+	if err != nil {
+		return nil, err
+	}
+
+	findOpts, positionFilter := findOptsFromReadAllOptions(opts, frontier)
 	filter := make(bson.D, 0, len(positionFilter))
 	filter = append(filter, positionFilter...)
 	cursor, err := s.collection.Find(ctx, filter, findOpts)

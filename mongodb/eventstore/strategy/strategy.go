@@ -25,6 +25,8 @@ const (
 	fieldLastOffset   = "last_offset"
 
 	opFirst = "$first"
+	opLTE   = "$lte"
+	opGT    = "$gt"
 )
 
 // DefaultStreamsCollectionName is the default name of the collection holding stream
@@ -219,7 +221,7 @@ func deleteStreamDocs(ctx context.Context, streams, events MongoCollection, stre
 		{Key: fieldStreamID, Value: streamID.UUID.String()},
 	}
 	if opts.ToVersion > 0 {
-		filter = append(filter, bson.E{Key: fieldOffset, Value: bson.D{{Key: "$lte", Value: opts.ToVersion}}})
+		filter = append(filter, bson.E{Key: fieldOffset, Value: bson.D{{Key: opLTE, Value: opts.ToVersion}}})
 	}
 
 	if _, err := events.DeleteMany(ctx, filter); err != nil {
@@ -235,21 +237,47 @@ func deleteStreamDocs(ctx context.Context, streams, events MongoCollection, stre
 	return nil
 }
 
+// readGlobalFrontier returns the committed value of the global offset counter, or zero
+// when no append has ever committed. Reads outside transactions see only committed
+// data, and appends commit in offset order — a later append's reservation writes the
+// same counter document and conflicts until an earlier one resolves — so every event
+// committed after this read carries a greater offset: the returned value is a stable
+// frontier for a global read.
+func readGlobalFrontier(ctx context.Context, streams MongoCollection) (int64, error) {
+	var doc struct {
+		LastOffset int64 `bson:"last_offset"`
+	}
+	err := streams.FindOne(ctx,
+		bson.D{{Key: fieldID, Value: globalCounterID}},
+		options.FindOne().SetProjection(bson.D{{Key: fieldLastOffset, Value: 1}}),
+	).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return 0, nil
+	} else if err != nil {
+		return 0, fmt.Errorf("reading the global offset frontier: %w", err)
+	}
+
+	return doc.LastOffset, nil
+}
+
 // findOptsFromReadAllOptions maps global-read options onto a Find: ascending global
-// offset order, an exclusive lower bound when AfterPosition is set, and a per-cursor
-// limit when Count is set.
-func findOptsFromReadAllOptions(opts eventstore.ReadAllOptions) (options.Lister[options.FindOptions], bson.D) {
+// offset order, an exclusive lower bound when AfterPosition is set, an inclusive upper
+// bound at the read's frontier, and a per-cursor limit when Count is set. The frontier
+// is what keeps a multi-batch read finite: only the first batch is materialized when
+// the query executes, and later batches continue a live index scan that would
+// otherwise return events committed after the read began.
+func findOptsFromReadAllOptions(opts eventstore.ReadAllOptions, frontier int64) (options.Lister[options.FindOptions], bson.D) {
 	findOpts := options.Find().SetSort(bson.D{{Key: fieldGlobalOffset, Value: 1}})
 	if opts.Count > 0 {
 		findOpts.SetLimit(opts.Count)
 	}
 
-	var filter bson.D
+	bounds := bson.D{{Key: opLTE, Value: frontier}}
 	if opts.AfterPosition > 0 {
-		filter = bson.D{{Key: fieldGlobalOffset, Value: bson.D{{Key: "$gt", Value: opts.AfterPosition}}}}
+		bounds = append(bounds, bson.E{Key: opGT, Value: opts.AfterPosition})
 	}
 
-	return findOpts, filter
+	return findOpts, bson.D{{Key: fieldGlobalOffset, Value: bounds}}
 }
 
 func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey string) (options.Lister[options.FindOptions], bson.D) {
@@ -267,9 +295,9 @@ func findOptsFromReadStreamOptions(opts eventstore.ReadStreamOptions, offsetKey 
 	var versionFilter bson.D
 	if opts.AfterVersion > 0 {
 		if opts.Direction == eventstore.Reverse {
-			versionFilter = bson.D{{Key: offsetKey, Value: bson.D{{Key: "$lte", Value: opts.AfterVersion}}}}
+			versionFilter = bson.D{{Key: offsetKey, Value: bson.D{{Key: opLTE, Value: opts.AfterVersion}}}}
 		} else {
-			versionFilter = bson.D{{Key: offsetKey, Value: bson.D{{Key: "$gt", Value: opts.AfterVersion}}}}
+			versionFilter = bson.D{{Key: offsetKey, Value: bson.D{{Key: opGT, Value: opts.AfterVersion}}}}
 		}
 	}
 
