@@ -146,6 +146,36 @@ func TestAllIterator_Consume(t *testing.T) {
 	})
 }
 
+// TestAllIterator_WindowOptions pins the reopen position: a window resumes on the exact
+// (commit, prepare) of the last record seen. Reopening from (cursor, cursor) instead
+// would ask the server to skip a legacy transaction group's unseen later members —
+// server-side, where no client guard can fire — and modern integration data, whose
+// halves are always equal, cannot tell the difference.
+func TestAllIterator_WindowOptions(t *testing.T) {
+	t.Run("resumes on the exact (commit, prepare) of the last record seen", func(t *testing.T) {
+		it := consumeIterator(false)
+		it.cursor, it.cursorPrepare = 100, 90
+
+		opts := it.windowOptions()
+		position, ok := opts.From.(kurrentdb.Position)
+		if !ok {
+			t.Fatalf("want a position resume, got %T", opts.From)
+		}
+
+		if position.Commit != 100 || position.Prepare != 90 {
+			t.Errorf("want the window reopened from (100, 90), got (%d, %d)", position.Commit, position.Prepare)
+		}
+	})
+
+	t.Run("reads from the start before any record is seen", func(t *testing.T) {
+		it := consumeIterator(false)
+
+		if _, ok := it.windowOptions().From.(kurrentdb.Start); !ok {
+			t.Errorf("want the first window to read from the start of $all, got %T", it.windowOptions().From)
+		}
+	})
+}
+
 // TestWithReadAllWindowSize_RejectsStarvingSizes pins the window-size floor: a window
 // of one can never make progress, because every reopened window returns only the
 // inclusive cursor record, which is skipped, and the full window reopens forever.

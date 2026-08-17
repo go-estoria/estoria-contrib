@@ -79,12 +79,7 @@ func (i *allStreamIterator) Next(ctx context.Context) (*eventstore.Event, error)
 				return nil, eventstore.ErrEndOfEventStream
 			}
 
-			opts := kurrentdb.ReadAllOptions{Direction: kurrentdb.Forwards, From: kurrentdb.Start{}}
-			if i.cursor >= 0 {
-				opts.From = kurrentdb.Position{Commit: uint64(i.cursor), Prepare: uint64(i.cursorPrepare)}
-			}
-
-			window, err := i.client.ReadAll(ctx, opts, uint64(i.windowSize))
+			window, err := i.client.ReadAll(ctx, i.windowOptions(), uint64(i.windowSize))
 			if err != nil {
 				return nil, fmt.Errorf("reading all streams: %w", err)
 			}
@@ -130,6 +125,19 @@ func (i *allStreamIterator) Next(ctx context.Context) (*eventstore.Event, error)
 
 		return event, nil
 	}
+}
+
+// windowOptions returns the read options for the next window: from the start of $all,
+// or resuming inclusively on the exact (commit, prepare) of the last record seen. The
+// commit half alone would ask the server to skip past a legacy transaction group's
+// unseen later members — server-side, where no client guard can fire.
+func (i *allStreamIterator) windowOptions() kurrentdb.ReadAllOptions {
+	opts := kurrentdb.ReadAllOptions{Direction: kurrentdb.Forwards, From: kurrentdb.Start{}}
+	if i.cursor >= 0 {
+		opts.From = kurrentdb.Position{Commit: uint64(i.cursor), Prepare: uint64(i.cursorPrepare)}
+	}
+
+	return opts
 }
 
 // recvError resolves a window Recv failure: io.EOF finishes the window; an unverified
