@@ -35,16 +35,14 @@ type SingleCollectionStrategy struct {
 
 // NewSingleCollectionStrategy creates a new SingleCollectionStrategy over collections in
 // the given database, named DefaultEventsCollectionName and DefaultStreamsCollectionName
-// unless overridden with WithEventsCollectionName and WithStreamsCollectionName. The
-// database must belong to a non-sharded replica set (a single-node replica set
-// qualifies): appends use multi-document transactions, and reads outside transactions on
-// sharded clusters can observe partially committed transactions, which would break the
-// global read's frontier.
-func NewSingleCollectionStrategy(client MongoSessionStarter, database *mongo.Database, opts ...StrategyOption) (*SingleCollectionStrategy, error) {
-	switch {
-	case client == nil:
-		return nil, errors.New("client is required")
-	case database == nil:
+// unless overridden with WithEventsCollectionName and WithStreamsCollectionName; the two
+// names must be distinct. Sessions for appends and deletes come from the database's own
+// client. The database must belong to a non-sharded replica set (a single-node replica
+// set qualifies): appends use multi-document transactions, and reads outside
+// transactions on sharded clusters can observe partially committed transactions, which
+// would break the global read's frontier.
+func NewSingleCollectionStrategy(database *mongo.Database, opts ...StrategyOption) (*SingleCollectionStrategy, error) {
+	if database == nil {
 		return nil, errors.New("database is required")
 	}
 
@@ -53,13 +51,18 @@ func NewSingleCollectionStrategy(client MongoSessionStarter, database *mongo.Dat
 		return nil, fmt.Errorf("applying options: %w", err)
 	}
 
-	readDatabase := majorityPrimaryReadView(database)
+	if config.eventsCollectionName == config.streamsCollectionName {
+		return nil, fmt.Errorf("events and streams collections must be distinct: both named %q", config.eventsCollectionName)
+	}
+
+	events := database.Collection(config.eventsCollectionName)
+	streams := database.Collection(config.streamsCollectionName)
 	strat := &SingleCollectionStrategy{
-		mongo:          client,
-		collection:     database.Collection(config.eventsCollectionName),
-		readCollection: readDatabase.Collection(config.eventsCollectionName),
-		streams:        database.Collection(config.streamsCollectionName),
-		readStreams:    readDatabase.Collection(config.streamsCollectionName),
+		mongo:          database.Client(),
+		collection:     events,
+		readCollection: majorityPrimaryReadHandle(events),
+		streams:        streams,
+		readStreams:    majorityPrimaryReadHandle(streams),
 
 		autoEnsureIndexes: config.autoEnsureIndexes,
 		indexes:           newIndexEnsurer(),

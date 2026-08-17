@@ -38,7 +38,7 @@ func TestEventStore_Integration_ReservedUnderscoreNamespace(t *testing.T) {
 			}
 		})
 
-		strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
+		strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamID())
 		if err != nil {
 			t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 		}
@@ -109,7 +109,7 @@ func TestEventStore_Integration_ReservedUnderscoreNamespace(t *testing.T) {
 			}
 		})
 
-		strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db,
+		strat, err := strategy.NewMultiCollectionStrategy(db,
 			strategy.CollectionSelectorFunc(func(typeid.ID) string { return "_outbox" }))
 		if err != nil {
 			t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)

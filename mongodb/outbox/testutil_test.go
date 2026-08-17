@@ -103,7 +103,7 @@ func newHarness(ctx context.Context, t *testing.T, client *mongo.Client, handler
 		t.Fatalf("creating outbox: %v", err)
 	}
 
-	strat, err := strategy.NewSingleCollectionStrategy(client, db)
+	strat, err := strategy.NewSingleCollectionStrategy(db)
 	if err != nil {
 		t.Fatalf("creating strategy: %v", err)
 	}

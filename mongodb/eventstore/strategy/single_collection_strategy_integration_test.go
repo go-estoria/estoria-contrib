@@ -149,7 +149,7 @@ func TestSingleCollectionStrategy_Integration_GetStreamIterator(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, mongoClient.Database("estoria"),
+			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient.Database("estoria"),
 				strategy.WithStreamsCollectionName("streams"))
 			if err != nil {
 				t.Fatalf("unexpected error creating strategy: %v", err)
@@ -332,7 +332,7 @@ func TestSingleCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 			collection := mongoClient.Database("estoria").Collection("events-" + suffix)
 			streams := mongoClient.Database("estoria").Collection("streams-" + suffix)
 
-			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient, mongoClient.Database("estoria"),
+			haveStrategy, err := strategy.NewSingleCollectionStrategy(mongoClient.Database("estoria"),
 				strategy.WithEventsCollectionName("events-"+suffix),
 				strategy.WithStreamsCollectionName("streams-"+suffix))
 			if err != nil {

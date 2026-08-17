@@ -108,12 +108,16 @@ func (f TransactionHookFunc) HandleEvents(sessCtx context.Context, events []*eve
 // An EventStore stores and retrieves events using MongoDB as the underlying storage.
 //
 // The store requires a non-sharded replica set; a single-node replica set qualifies.
-// Appends use multi-document transactions, and every read the store issues runs against
-// the primary with majority read concern, overriding the client's own read preference
-// and read concern: no read observes state a failover can roll back, and a global read
-// is never torn across divergently-lagging secondaries. Sharded clusters are
-// unsupported because their reads outside transactions can observe partially committed
-// transactions, which would break the global read's frontier.
+// Appends use multi-document transactions, and every document read the store issues
+// runs against the primary with majority read concern, overriding the client's own
+// read preference and read concern: no read observes state a failover can roll back,
+// and a global read is never torn across divergently-lagging secondaries. Collection
+// enumeration is the one exception — listCollections supports no read concern, though
+// the driver runs it against the primary — so a multi-collection store relies on its
+// event collections being exclusively store-managed and never dropped while reads run.
+// Sharded clusters are unsupported because their reads outside transactions can
+// observe partially committed transactions, which would break the global read's
+// frontier.
 type EventStore struct {
 	mongoClient MongoClient
 	strategy    Strategy
@@ -220,7 +224,7 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 	// use a single collection strategy by default
 	if eventStore.strategy == nil {
-		strat, err := strategy.NewSingleCollectionStrategy(client, client.Database(DefaultDatabaseName))
+		strat, err := strategy.NewSingleCollectionStrategy(client.Database(DefaultDatabaseName))
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}

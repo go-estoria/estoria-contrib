@@ -191,7 +191,7 @@ import (
 // 				return streamID.String()
 // 			})
 
-// 			haveStrategy, err := strategy.NewMultiCollectionStrategy(mongoClient, database, selector)
+// 			haveStrategy, err := strategy.NewMultiCollectionStrategy(database, selector)
 // 			if err != nil {
 // 				t.Fatalf("unexpected error creating strategy: %v", err)
 // 			}
@@ -431,7 +431,7 @@ func TestMultiCollectionStrategy_Integration_InsertStreamDocs(t *testing.T) {
 					}
 				})
 
-				haveStrategy, err := strategy.NewMultiCollectionStrategy(mongoClient, database, haveSelector.selector)
+				haveStrategy, err := strategy.NewMultiCollectionStrategy(database, haveSelector.selector)
 				if err != nil {
 					t.Fatalf("unexpected error creating strategy: %v", err)
 				}

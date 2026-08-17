@@ -23,7 +23,7 @@ const orderingGuard = 60 * time.Second
 
 // frontierStrategyCases enumerates both storage strategies; every subtest builds its
 // stores over a fresh database so global offsets start at 1.
-func frontierStrategyCases(mongoClient *mongo.Client) []struct {
+func frontierStrategyCases() []struct {
 	name        string
 	newStrategy func(t *testing.T, db *mongo.Database) eventstore.Strategy
 } {
@@ -35,7 +35,7 @@ func frontierStrategyCases(mongoClient *mongo.Client) []struct {
 			name: "single collection strategy",
 			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
 				t.Helper()
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
+				strat, err := strategy.NewSingleCollectionStrategy(db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
@@ -46,7 +46,7 @@ func frontierStrategyCases(mongoClient *mongo.Client) []struct {
 			name: "multi collection strategy",
 			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
 				t.Helper()
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID())
+				strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamID())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 				}
@@ -119,7 +119,7 @@ func TestEventStore_Integration_ReadAllFrontier(t *testing.T) {
 		return database
 	}
 
-	for _, tt := range frontierStrategyCases(mongoClient) {
+	for _, tt := range frontierStrategyCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			store, err := eventstore.New(mongoClient, eventstore.WithStrategy(tt.newStrategy(t, newDatabase(t))))
 			if err != nil {
@@ -207,7 +207,7 @@ func TestEventStore_Integration_ReadAllFrontierNonTransactionalData(t *testing.T
 	rawEvents := db.Collection("events")
 	rawStreams := db.Collection(strategy.DefaultStreamsCollectionName)
 
-	strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
+	strat, err := strategy.NewSingleCollectionStrategy(db)
 	if err != nil {
 		t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestEventStore_Integration_ReadAllFrontierNonTransactionalDataMultiCollecti
 		t.Fatalf("seeding global counter: %v", err)
 	}
 
-	strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamType())
+	strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamType())
 	if err != nil {
 		t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 	}
@@ -503,7 +503,7 @@ func TestEventStore_Integration_GlobalOffsetsPublishInOrder(t *testing.T) {
 		return database
 	}
 
-	for _, tt := range frontierStrategyCases(mongoClient) {
+	for _, tt := range frontierStrategyCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Run("a later append publishes nothing while a reservation on an existing counter is unresolved", func(t *testing.T) {
 				strat := tt.newStrategy(t, newDatabase(t))

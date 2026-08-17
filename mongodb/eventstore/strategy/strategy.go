@@ -69,15 +69,18 @@ type (
 	}
 )
 
-// majorityPrimaryReadView derives the database view every strategy read runs through:
-// majority read concern against the primary, overriding whatever the caller's client is
-// configured with. A client's default "local" concern can observe writes a failover
-// later rolls back, and a secondary-preferring client can observe different replication
-// points per operation; either would let a global read yield positions that vanish, or
-// miss events below a position already yielded. Writes keep the caller's handles, since
-// transactions carry their own read concern and always run on the primary.
-func majorityPrimaryReadView(database *mongo.Database) *mongo.Database {
-	return database.Client().Database(database.Name(), options.Database().
+// majorityPrimaryReadHandle derives the collection view document reads run through:
+// majority read concern against the primary, overriding whatever the caller's client or
+// database is configured with. A default "local" concern can observe writes a failover
+// later rolls back, and a secondary-preferring configuration can observe different
+// replication points per operation; either would let a global read yield positions that
+// vanish, or miss events below a position already yielded. Clone overrides only those
+// two settings, preserving every other database-scoped one — the codec registry and
+// BSON options in particular, so reads decode exactly what writes encoded. Writes keep
+// the caller's handles, since transactions carry their own read concern and always run
+// on the primary.
+func majorityPrimaryReadHandle(collection *mongo.Collection) *mongo.Collection {
+	return collection.Clone(options.Collection().
 		SetReadConcern(readconcern.Majority()).
 		SetReadPreference(readpref.Primary()))
 }

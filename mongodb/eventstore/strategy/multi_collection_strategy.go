@@ -22,7 +22,7 @@ import (
 // WithCollectionSelector option. For example, to store all events for a given
 // stream ID in the same collection:
 //
-//	strategy, err := NewMultiCollectionStrategy(client, database, CollectionPerStreamID())
+//	strategy, err := NewMultiCollectionStrategy(database, CollectionPerStreamID())
 //
 // The MultiCollectionStrategy is useful when the number of events in a single
 // collection becomes too large, and you want to partition events across multiple
@@ -36,16 +36,19 @@ import (
 // namespace is reserved for infrastructure collections (such as an outbox) sharing the
 // database.
 //
-// Writes use the caller's database handle; every read, including collection
-// enumeration, runs through a derived view pinned to majority read concern on the
-// primary, regardless of how the caller's client is configured.
+// Writes use the caller's database handle; document reads run through derived
+// collection views pinned to majority read concern on the primary, regardless of how
+// the caller's client is configured. Collection enumeration is the exception: the
+// listCollections command supports no read concern, though the driver runs it against
+// the primary outside transactions, so global reads rely on event collections being
+// exclusively store-managed — created by appends or EnsureIndexes, never dropped or
+// renamed while reads run.
 type MultiCollectionStrategy struct {
-	mongo        MongoSessionStarter
-	database     MongoDatabase
-	readDatabase MongoDatabase
-	selector     CollectionSelector
-	streams      MongoCollection
-	readStreams  MongoCollection
+	mongo       MongoSessionStarter
+	database    MongoDatabase
+	selector    CollectionSelector
+	streams     MongoCollection
+	readStreams MongoCollection
 
 	streamsCollectionName string
 	autoEnsureIndexes     bool
@@ -86,14 +89,13 @@ func CollectionPerStreamID() CollectionSelector {
 }
 
 // NewMultiCollectionStrategy creates a new MultiCollectionStrategy using the given
-// client, database, and collection selector. The database must belong to a non-sharded
-// replica set (a single-node replica set qualifies): appends use multi-document
-// transactions, and reads outside transactions on sharded clusters can observe
-// partially committed transactions, which would break the global read's frontier.
-func NewMultiCollectionStrategy(client MongoSessionStarter, database *mongo.Database, selector CollectionSelector, opts ...StrategyOption) (*MultiCollectionStrategy, error) {
+// database and collection selector. Sessions for appends and deletes come from the
+// database's own client. The database must belong to a non-sharded replica set (a
+// single-node replica set qualifies): appends use multi-document transactions, and
+// reads outside transactions on sharded clusters can observe partially committed
+// transactions, which would break the global read's frontier.
+func NewMultiCollectionStrategy(database *mongo.Database, selector CollectionSelector, opts ...StrategyOption) (*MultiCollectionStrategy, error) {
 	switch {
-	case client == nil:
-		return nil, errors.New("client is required")
 	case database == nil:
 		return nil, errors.New("database is required")
 	case selector == nil:
@@ -105,14 +107,13 @@ func NewMultiCollectionStrategy(client MongoSessionStarter, database *mongo.Data
 		return nil, fmt.Errorf("applying options: %w", err)
 	}
 
-	readDatabase := majorityPrimaryReadView(database)
+	streams := database.Collection(config.streamsCollectionName)
 	strat := &MultiCollectionStrategy{
-		mongo:        client,
-		database:     database,
-		readDatabase: readDatabase,
-		selector:     selector,
-		streams:      database.Collection(config.streamsCollectionName),
-		readStreams:  readDatabase.Collection(config.streamsCollectionName),
+		mongo:       database.Client(),
+		database:    database,
+		selector:    selector,
+		streams:     streams,
+		readStreams: majorityPrimaryReadHandle(streams),
 
 		streamsCollectionName: config.streamsCollectionName,
 		autoEnsureIndexes:     config.autoEnsureIndexes,
@@ -158,11 +159,12 @@ func (s *MultiCollectionStrategy) checkSelectedName(collectionName string, strea
 }
 
 // eventCollectionNames returns the names of the database's event collections, excluding
-// the streams collection and the reserved underscore namespace. Enumeration runs on the
-// primary-pinned read view: a lagging view of the namespace would silently drop a whole
-// collection's events from a global read.
+// the streams collection and the reserved underscore namespace. The listCollections
+// command supports no read concern; the driver runs it against the primary outside
+// transactions, so the listing is current as long as event collections are exclusively
+// store-managed and never dropped or renamed while reads run.
 func (s *MultiCollectionStrategy) eventCollectionNames(ctx context.Context) ([]string, error) {
-	names, err := s.readDatabase.ListCollectionNames(ctx, bson.D{})
+	names, err := s.database.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
 		return nil, fmt.Errorf("listing collection names: %w", err)
 	}
@@ -187,7 +189,7 @@ func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cur
 
 	cursors := make([]*mongo.Cursor, len(collections))
 	for i, collectionName := range collections {
-		collection := s.readDatabase.Collection(collectionName)
+		collection := majorityPrimaryReadHandle(s.database.Collection(collectionName))
 		cursor, err := getListStreamsCursor(ctx, collection)
 		if err != nil {
 			return nil, fmt.Errorf("getting streams cursor: %w", err)
@@ -202,9 +204,10 @@ func (s *MultiCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cur
 // GetAllCursor returns one cursor per event collection, each ordered by global offset
 // and bounded above by the single frontier captured here, so no cursor can chase
 // appends committed after the read began. A Count limit applies per cursor; bounding
-// the merged total is the iterator's job. The frontier read, the collection
-// enumeration, and every cursor run on the majority/primary read view, so no yielded
-// position can later vanish and no collection's events are missing below the frontier.
+// the merged total is the iterator's job. The frontier read and every cursor run on
+// majority/primary read views, so no yielded position can later vanish; the collection
+// enumeration behind the cursors runs against the primary but carries no read concern,
+// relying on event collections being exclusively store-managed.
 func (s *MultiCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadAllOptions,
@@ -225,7 +228,7 @@ func (s *MultiCollectionStrategy) GetAllCursor(
 
 	cursors := make([]*mongo.Cursor, len(collectionNames))
 	for i, collectionName := range collectionNames {
-		collection := s.readDatabase.Collection(collectionName)
+		collection := majorityPrimaryReadHandle(s.database.Collection(collectionName))
 		cursor, err := collection.Find(ctx, filter, findOpts)
 		if err != nil {
 			return nil, fmt.Errorf("finding events in collection %s: %w", collectionName, err)
@@ -250,7 +253,7 @@ func (s *MultiCollectionStrategy) GetStreamCursor(
 		bson.E{Key: fieldStreamID, Value: streamID.UUID.String()},
 	)
 	filter = append(filter, versionFilter...)
-	collection := s.readDatabase.Collection(s.selector.CollectionName(streamID))
+	collection := majorityPrimaryReadHandle(s.database.Collection(s.selector.CollectionName(streamID)))
 	cursor, err := collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)

@@ -40,7 +40,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			name: "store with single collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
+				strat, err := strategy.NewSingleCollectionStrategy(db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
@@ -59,7 +59,7 @@ func TestEventStore_AcceptanceTest(t *testing.T) {
 			name: "store with multi collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID(),
+				strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamID(),
 					strategy.WithAutoEnsureIndexes())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
@@ -118,7 +118,7 @@ func TestEventStore_StreamDeleterAcceptanceTest(t *testing.T) {
 			name: "store with single collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
+				strat, err := strategy.NewSingleCollectionStrategy(db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
@@ -135,7 +135,7 @@ func TestEventStore_StreamDeleterAcceptanceTest(t *testing.T) {
 			name: "store with multi collection strategy",
 			haveOpts: func(t *testing.T, db *mongo.Database) []eventstore.EventStoreOption {
 				t.Helper()
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID(),
+				strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamID(),
 					strategy.WithAutoEnsureIndexes())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
@@ -224,7 +224,7 @@ func TestEventStore_GlobalReaderAcceptanceTest(t *testing.T) {
 			newStore: func(t *testing.T) storetest.GlobalStore {
 				t.Helper()
 				db := newDatabase(t)
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
+				strat, err := strategy.NewSingleCollectionStrategy(db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
@@ -240,7 +240,7 @@ func TestEventStore_GlobalReaderAcceptanceTest(t *testing.T) {
 			newStore: func(t *testing.T) storetest.GlobalStore {
 				t.Helper()
 				db := newDatabase(t)
-				strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamID(),
+				strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamID(),
 					strategy.WithAutoEnsureIndexes())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)

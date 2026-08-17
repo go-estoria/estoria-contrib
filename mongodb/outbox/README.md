@@ -45,7 +45,7 @@ ob, _ := outbox.New(outboxColl, streamColl, func(ctx context.Context, item *outb
 })
 
 // Register the producer with the event store and create indexes once.
-strat, _ := strategy.NewSingleCollectionStrategy(client, db)
+strat, _ := strategy.NewSingleCollectionStrategy(db)
 store, _ := eventstore.New(client,
     eventstore.WithStrategy(strat),
     eventstore.WithTransactionHook(ob),

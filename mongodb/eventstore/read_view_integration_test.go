@@ -2,8 +2,12 @@ package eventstore_test
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore"
 	"github.com/go-estoria/estoria-contrib/mongodb/eventstore/strategy"
@@ -13,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/event"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 // A commandRecorder captures the commands a monitored client puts on the wire, so a
@@ -86,17 +91,35 @@ func requireMajorityConcern(t *testing.T, command bson.Raw, what string) {
 	}
 }
 
-// TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier pins, on the
-// wire, the two properties every command of a global read must carry: majority read
-// concern, so no yielded position can be rolled back by a failover, and the one shared
-// frontier bound, so every cursor of the read — one per collection under the
+// requirePrimaryPreference asserts a recorded command carried a primary-pinned read
+// preference. The monitored client is configured to prefer secondaries, so an unpinned
+// read names mode "secondary" on the wire; the strategies' primary pin surfaces as
+// "primaryPreferred", the rendering the driver gives primary on a direct connection so
+// a directly-addressed member serves it regardless of its role.
+func requirePrimaryPreference(t *testing.T, command bson.Raw, what string) {
+	t.Helper()
+
+	mode, err := command.LookupErr("$readPreference", "mode")
+	if err != nil {
+		t.Fatalf("want the %s to carry a read preference, got none (%v)", what, err)
+	}
+	if got := mode.StringValue(); got != "primaryPreferred" {
+		t.Fatalf("want the %s pinned to the primary, got mode %q", what, got)
+	}
+}
+
+// TestEventStore_Integration_GlobalReadsCarryMajorityPrimaryAndFrontier pins, on the
+// wire, the three properties every find of a global read must carry: majority read
+// concern, so no yielded position can be rolled back by a failover; a primary-pinned
+// read preference, asserted against a hostile client that prefers secondaries — the
+// pin surfaces as mode "primaryPreferred" where an unpinned read sends "secondary" —
+// so divergently-lagging secondaries can never serve part of a read; and the one
+// shared frontier bound, so every cursor of the read — one per collection under the
 // multi-collection strategy — is capped at the same majority-committed offset. The
 // per-collection bound is what store-shaped behavioral tests cannot observe over
 // transactionally-written data, where the pinned server keeps even unbounded cursors
-// coincidentally stable. Read preference is not asserted here: on a direct connection
-// to a single-node replica set it is unobservable, so the primary pin is enforced at
-// derive time in the strategies' read view and covered by the topology contract.
-func TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier(t *testing.T) {
+// coincidentally stable.
+func TestEventStore_Integration_GlobalReadsCarryMajorityPrimaryAndFrontier(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
@@ -115,6 +138,7 @@ func TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier(t *te
 		ApplyURI(connStr).
 		SetReplicaSet("rs0").
 		SetDirect(true).
+		SetReadPreference(readpref.Secondary()).
 		SetMonitor(recorder.monitor()),
 	)
 	if err != nil {
@@ -141,7 +165,7 @@ func TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier(t *te
 			dbName: "estoria_rv_single",
 			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
 				t.Helper()
-				strat, err := strategy.NewSingleCollectionStrategy(monitored, db)
+				strat, err := strategy.NewSingleCollectionStrategy(db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
@@ -154,7 +178,7 @@ func TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier(t *te
 			dbName: "estoria_rv_multi",
 			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
 				t.Helper()
-				strat, err := strategy.NewMultiCollectionStrategy(monitored, db, strategy.CollectionPerStreamType())
+				strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamType())
 				if err != nil {
 					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
 				}
@@ -202,6 +226,7 @@ func TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier(t *te
 				t.Fatalf("want exactly 1 frontier read on the streams collection, got %d", len(counterFinds))
 			}
 			requireMajorityConcern(t, counterFinds[0], "frontier read")
+			requirePrimaryPreference(t, counterFinds[0], "frontier read")
 
 			for _, collection := range tt.eventCollections {
 				finds := recorder.finds(tt.dbName, collection)
@@ -210,6 +235,7 @@ func TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier(t *te
 				}
 
 				requireMajorityConcern(t, finds[0], "event find on "+collection)
+				requirePrimaryPreference(t, finds[0], "event find on "+collection)
 
 				bound, err := finds[0].LookupErr("filter", "global_offset", "$lte")
 				if err != nil {
@@ -218,6 +244,153 @@ func TestEventStore_Integration_GlobalReadsCarryMajorityConcernAndFrontier(t *te
 				if got, ok := bound.AsInt64OK(); !ok || got != frontier {
 					t.Fatalf("want the find on %q bounded at the shared frontier %d, got %v", collection, frontier, bound)
 				}
+			}
+		})
+	}
+}
+
+// stringTimeCodec encodes and decodes time.Time as a unix-nanosecond decimal string,
+// standing in for any deployment that installs a custom codec registry on the store's
+// database. The format is deliberately not ISO: the driver's default codec parses ISO
+// strings into time.Time, so only a format it cannot read proves the read views
+// inherit the registry — a view rebuilt from client defaults fails to decode every
+// event the store itself wrote.
+type stringTimeCodec struct{}
+
+func (stringTimeCodec) EncodeValue(_ bson.EncodeContext, vw bson.ValueWriter, val reflect.Value) error {
+	stamp, ok := val.Interface().(time.Time)
+	if !ok {
+		return fmt.Errorf("stringTimeCodec: want time.Time, got %s", val.Type())
+	}
+
+	return vw.WriteString(strconv.FormatInt(stamp.UnixNano(), 10))
+}
+
+func (stringTimeCodec) DecodeValue(_ bson.DecodeContext, vr bson.ValueReader, val reflect.Value) error {
+	raw, err := vr.ReadString()
+	if err != nil {
+		return err
+	}
+
+	nanos, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	val.Set(reflect.ValueOf(time.Unix(0, nanos).UTC()))
+	return nil
+}
+
+// TestEventStore_Integration_ReadViewPreservesDatabaseCodecs proves reads and writes
+// share the database's codec configuration: events written through a database carrying
+// a custom registry — timestamps stored as strings rather than BSON datetimes — must
+// read back intact through ReadAll and ReadStream, whose collection views are derived
+// from that same database. A raw probe first proves the custom codec actually engaged,
+// so the round-trip cannot pass vacuously.
+func TestEventStore_Integration_ReadViewPreservesDatabaseCodecs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	t.Parallel()
+
+	ctx := t.Context()
+
+	mongoClient, err := createMongoDBContainer(t)
+	if err != nil {
+		t.Fatalf("failed to create MongoDB container: %v", err)
+	}
+
+	registry := bson.NewRegistry()
+	timeType := reflect.TypeOf(time.Time{})
+	registry.RegisterTypeEncoder(timeType, stringTimeCodec{})
+	registry.RegisterTypeDecoder(timeType, stringTimeCodec{})
+
+	for _, tt := range []struct {
+		name   string
+		dbName string
+		// eventCollection is where the appended stream's documents land, for the raw
+		// codec-engagement probe.
+		eventCollection string
+		newStrategy     func(t *testing.T, db *mongo.Database) eventstore.Strategy
+	}{
+		{
+			name:            "single collection strategy",
+			dbName:          "estoria_rvc_single",
+			eventCollection: strategy.DefaultEventsCollectionName,
+			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
+				t.Helper()
+				strat, err := strategy.NewSingleCollectionStrategy(db)
+				if err != nil {
+					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
+				}
+				return strat
+			},
+		},
+		{
+			name:            "multi collection strategy",
+			dbName:          "estoria_rvc_multi",
+			eventCollection: "codecstream",
+			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
+				t.Helper()
+				strat, err := strategy.NewMultiCollectionStrategy(db, strategy.CollectionPerStreamType())
+				if err != nil {
+					t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
+				}
+				return strat
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db := mongoClient.Database(tt.dbName, options.Database().SetRegistry(registry))
+			t.Cleanup(func() {
+				if err := mongoClient.Database(tt.dbName).Drop(context.WithoutCancel(ctx)); err != nil {
+					t.Fatalf("tc cleanup: failed to drop database: %v", err)
+				}
+			})
+
+			store, err := eventstore.New(mongoClient, eventstore.WithStrategy(tt.newStrategy(t, db)))
+			if err != nil {
+				t.Fatalf("tc setup: failed to create EventStore: %v", err)
+			}
+
+			streamID := typeid.NewV4("codecstream")
+			written, err := store.AppendStream(ctx, streamID, frontierWritableEvents(3), coreeventstore.AppendStreamOptions{})
+			if err != nil {
+				t.Fatalf("appending events: %v", err)
+			}
+
+			// The codec must have engaged, or the round-trip below proves nothing.
+			var doc bson.Raw
+			if err := db.Collection(tt.eventCollection).FindOne(ctx, bson.D{}).Decode(&doc); err != nil {
+				t.Fatalf("probing a stored event document: %v", err)
+			}
+			if got := doc.Lookup("timestamp").Type; got != bson.TypeString {
+				t.Fatalf("want the custom codec to store timestamps as strings, got %s", got)
+			}
+
+			events := collectAll(t, store, coreeventstore.ReadAllOptions{})
+			if len(events) != len(written) {
+				t.Fatalf("want the global read to decode all %d events, got %d", len(written), len(events))
+			}
+			for i, event := range events {
+				if !event.Timestamp.Equal(written[i].Timestamp) {
+					t.Fatalf("want event %d's timestamp %v round-tripped, got %v", i, written[i].Timestamp, event.Timestamp)
+				}
+			}
+
+			iter, err := store.ReadStream(ctx, streamID, coreeventstore.ReadStreamOptions{})
+			if err != nil {
+				t.Fatalf("reading the stream: %v", err)
+			}
+			defer func() { _ = iter.Close(ctx) }()
+
+			streamEvents, err := coreeventstore.Collect(ctx, iter)
+			if err != nil {
+				t.Fatalf("collecting stream events: %v", err)
+			}
+			if len(streamEvents) != len(written) {
+				t.Fatalf("want the stream read to decode all %d events, got %d", len(written), len(streamEvents))
 			}
 		})
 	}
