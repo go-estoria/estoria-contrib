@@ -8,6 +8,12 @@ SQLite driver that registers with `database/sql` (e.g., `modernc.org/sqlite`,
 suite runs without cgo or Docker.
 
 SQLite 3.35.0+ is required (for `RETURNING` and `ON CONFLICT ... DO UPDATE ... RETURNING`).
+Using WAL journal mode with more than one connection additionally requires SQLite
+3.51.3+, or a build carrying the WAL-reset fix (such as 3.50.7 or 3.44.6): older
+versions can corrupt the database under exactly this workload. The `modernc.org/sqlite`
+release pinned by this module's tests embeds a fixed SQLite (3.53.3 as of v1.54.0).
+WAL also requires every connected process to run on one host against a local
+filesystem whose locking SQLite can rely on; network filesystems are unsupported.
 
 ## Storage Strategies
 

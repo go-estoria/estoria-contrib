@@ -40,11 +40,16 @@ type Strategy interface {
 }
 
 // EventStore stores and retrieves events using SQLite as the underlying storage. The
-// database may be shared by multiple processes; SQLite's file locks serialize writers
-// across all of them. Connection configuration is the caller's: WAL journal mode lets
-// reads run while appends commit (in rollback-journal modes an open read makes a racing
-// append's commit wait instead), and a busy_timeout turns lock contention into bounded
-// waiting rather than immediate SQLITE_BUSY errors. Shared-cache connections reading
+// database may be shared by multiple processes on one host; SQLite's file locks
+// serialize writers across all of them, and network filesystems — whose locking SQLite
+// cannot rely on — are unsupported. Connection configuration is the caller's: WAL
+// journal mode lets reads run while appends commit, while in rollback-journal modes an
+// open read prevents a racing append from committing — the append waits or fails with
+// SQLITE_BUSY, possibly before its commit step, depending on the busy timeout — and a
+// busy_timeout turns lock contention into bounded waiting rather than immediate
+// SQLITE_BUSY errors. Using WAL with more than one connection requires SQLite 3.51.3+
+// or a build carrying the WAL-reset fix (such as 3.50.7 or 3.44.6); older versions can
+// corrupt the database under this workload. Shared-cache connections reading
 // uncommitted data are unsupported.
 type EventStore struct {
 	db                *sql.DB
@@ -73,8 +78,9 @@ var (
 //
 // A hook must not call back into the EventStore — AppendStream above all: the hook runs
 // inside the append's transaction, which holds the database's sole write lock, so a
-// nested append blocks on that lock from another connection until the busy timeout
-// expires. Hooks operate exclusively through the provided transaction.
+// nested append stalls — waiting for a pooled connection, or blocking on that lock
+// until the busy timeout expires — and can never succeed before the hook returns.
+// Hooks operate exclusively through the provided transaction.
 type TransactionHook interface {
 	HandleEvents(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error
 }
@@ -395,20 +401,23 @@ func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts 
 // ReadAll creates an iterator over events from all streams in ascending global order,
 // implementing eventstore.GlobalReader. Global positions are values of the events table's
 // auto-incrementing id column: gaps can occur, repeats cannot — AUTOINCREMENT never
-// reissues an id, even after the newest events are deleted, so a position a consumer has
-// checkpointed can never be written beneath again. A read with nothing to yield returns
-// an empty iterator rather than an error; strategies that do not implement AllReader
-// return an error.
+// reissues the id of a committed event, even after the newest events are deleted, so a
+// position a consumer has checkpointed can never be written beneath again (a rolled-back
+// append's unpublished ids may be reused, which keeps positions dense). A read with
+// nothing to yield returns an empty iterator rather than an error; strategies that do
+// not implement AllReader return an error.
 //
 // The read's frontier is the query's own database snapshot, established by the time
-// ReadAll returns and held for the iterator's lifetime: in WAL mode commits racing the
-// drain are invisible to the open statement, and in rollback-journal mode the
-// statement's shared lock makes them wait instead. The prefix below that frontier is
-// stable because SQLite permits one write transaction at a time: an append assigns its
-// ids while holding the database's write lock, acquired at its offset reservation and
-// held through commit, so no id becomes visible before every lower id's transaction has
-// resolved — commit order is id order. Both properties assume separate database
-// connections; shared-cache connections reading uncommitted data are unsupported.
+// ReadAll returns and held while the statement remains open — through its final row or
+// an early Close: in WAL mode commits racing the drain are invisible to the open
+// statement, and in rollback-journal mode the statement's shared lock prevents them
+// from committing at all — the racing append waits or fails with SQLITE_BUSY. The
+// prefix below that frontier is stable because SQLite permits one write transaction at
+// a time: an append assigns its ids while holding the database's write lock, acquired
+// at its offset reservation and held through commit, so no id becomes visible before
+// every lower id's transaction has resolved — commit order is id order. Both properties
+// assume separate database connections; shared-cache connections reading uncommitted
+// data are unsupported.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)
 	if !ok {
