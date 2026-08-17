@@ -1,7 +1,9 @@
 package eventstore_test
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/netip"
@@ -23,6 +25,35 @@ func reversed[T any](s []T) []T {
 	copy(r, s)
 	slices.Reverse(r)
 	return r
+}
+
+// allHead returns the commit position of the last record in the node's $all stream, or
+// zero when the log is empty — the same server-wide head a ReadAll captures as its
+// frontier.
+func allHead(t *testing.T, client *kurrentdb.Client) uint64 {
+	t.Helper()
+
+	read, err := client.ReadAll(t.Context(), kurrentdb.ReadAllOptions{
+		Direction: kurrentdb.Backwards,
+		From:      kurrentdb.End{},
+	}, 1)
+	if err != nil {
+		t.Fatalf("reading the $all head: %v", err)
+	}
+	defer read.Close()
+
+	resolved, err := read.Recv()
+	if errors.Is(err, io.EOF) {
+		return 0
+	} else if err != nil {
+		t.Fatalf("receiving the $all head record: %v", err)
+	}
+
+	if resolved.Commit == nil {
+		t.Fatal("$all head record has no commit position")
+	}
+
+	return *resolved.Commit
 }
 
 // Limits how many KurrentDB containers start at once.

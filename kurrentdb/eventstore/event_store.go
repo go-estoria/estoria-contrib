@@ -112,9 +112,15 @@ func (s *EventStore) estoriaStreamID(name string) (typeid.ID, bool) {
 // never extended by commits racing the drain. The frontier is stable because KurrentDB
 // publishes records in log-append order — a commit becomes readable only above every
 // position already readable — the atomicity the core contract requires of positions
-// that have no allocation step separate from publication. KurrentDB offers no
-// server-side read filtering, so the iterator scans $all in windows and filters
-// client-side to this store's streams.
+// that have no allocation step separate from publication. Reads assume the client's
+// default leader node preference: a node that reports the end of $all below the
+// captured frontier fails the read rather than certify a false end of stream.
+// Stores holding events written by the legacy TCP API's explicit transactions are
+// unsupported — such events share one commit position across distinct prepare
+// positions, which a scalar global position cannot represent — and a global read
+// fails closed on encountering one it owns. KurrentDB offers no server-side read
+// filtering, so the iterator scans $all in windows and filters client-side to this
+// store's streams.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	if opts.AfterPosition < 0 {
 		return nil, errors.New("AfterPosition must not be negative")
@@ -141,14 +147,15 @@ func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions
 	}
 
 	return &allStreamIterator{
-		client:     s.kurrentDB,
-		owns:       s.estoriaStreamID,
-		windowSize: s.readAllWindowSize,
-		bound:      bound,
-		frontier:   frontier,
-		cursor:     bound,
-		verified:   bound < 0,
-		remaining:  remaining,
+		client:        s.kurrentDB,
+		owns:          s.estoriaStreamID,
+		windowSize:    s.readAllWindowSize,
+		bound:         bound,
+		frontier:      frontier,
+		cursor:        bound,
+		cursorPrepare: bound,
+		verified:      bound < 0,
+		remaining:     remaining,
 		// No position can be above the bound yet at or below the frontier, so the
 		// read is born exhausted without contacting the server: a caught-up poll
 		// resuming at or past the tip must yield nothing, not send the server a

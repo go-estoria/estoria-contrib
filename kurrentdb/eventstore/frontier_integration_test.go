@@ -2,14 +2,13 @@ package eventstore_test
 
 import (
 	"errors"
-	"io"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-estoria/estoria-contrib/kurrentdb/eventstore"
 	coreeventstore "github.com/go-estoria/estoria/eventstore"
 	"github.com/go-estoria/estoria/typeid"
-	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
 )
 
 // TestReadAll_YieldsTipAtQuiescence pins the frontier's inclusive boundary. At a node
@@ -36,36 +35,10 @@ func TestReadAll_YieldsTipAtQuiescence(t *testing.T) {
 		t.Fatalf("failed to create KurrentDB container: %v", err)
 	}
 
-	headPosition := func(t *testing.T) uint64 {
-		t.Helper()
-
-		read, err := client.ReadAll(t.Context(), kurrentdb.ReadAllOptions{
-			Direction: kurrentdb.Backwards,
-			From:      kurrentdb.End{},
-		}, 1)
-		if err != nil {
-			t.Fatalf("reading the $all head: %v", err)
-		}
-		defer read.Close()
-
-		resolved, err := read.Recv()
-		if errors.Is(err, io.EOF) {
-			return 0
-		} else if err != nil {
-			t.Fatalf("receiving the $all head record: %v", err)
-		}
-
-		if resolved.Commit == nil {
-			t.Fatal("$all head record has no commit position")
-		}
-
-		return *resolved.Commit
-	}
-
 	// Startup writes its own system records; the head must hold still across
 	// consecutive samples before the test's appends can be known to be the tip.
 	deadline := time.Now().Add(30 * time.Second)
-	last := headPosition(t)
+	last := allHead(t, client)
 	for stable := 0; stable < 4; {
 		if time.Now().After(deadline) {
 			t.Fatal("node never quiesced: the $all head kept moving")
@@ -73,7 +46,7 @@ func TestReadAll_YieldsTipAtQuiescence(t *testing.T) {
 
 		time.Sleep(250 * time.Millisecond)
 
-		if next := headPosition(t); next == last {
+		if next := allHead(t, client); next == last {
 			stable++
 		} else {
 			last, stable = next, 0
@@ -100,6 +73,15 @@ func TestReadAll_YieldsTipAtQuiescence(t *testing.T) {
 	}
 	defer iter.Close(t.Context())
 
+	// The boundary is exercised only if the read's frontier IS the written tip. The
+	// head is sampled after ReadAll captured its frontier and can only have moved
+	// upward, so head == tip here brackets the capture: any background write would
+	// surface as a mismatch and invalidate the run loudly instead of letting an
+	// exclusive-boundary bug pass unexercised.
+	if head, tip := allHead(t, client), uint64(*written[len(written)-1].GlobalPosition); head != tip {
+		t.Fatalf("test invalidated: the $all head %d is not the written tip %d, so the frontier boundary was not exercised", head, tip)
+	}
+
 	events, err := coreeventstore.Collect(t.Context(), iter)
 	if err != nil {
 		t.Fatalf("collecting events: %v", err)
@@ -111,5 +93,36 @@ func TestReadAll_YieldsTipAtQuiescence(t *testing.T) {
 
 	if got, want := events[len(events)-1].ID, written[len(written)-1].ID; got != want {
 		t.Errorf("want the tip event %s yielded last, got %s", want, got)
+	}
+}
+
+// TestReadAll_FailsClosedBelowFrontier pins the lag guard: a node that reports the end
+// of $all below the frontier captured at ReadAll — a lagging follower after a
+// reconnect, or a scavenged head — must fail the read rather than certify a false end
+// of stream. A single-node container cannot lag, so the iterator is built directly with
+// a frontier above the node's real head.
+func TestReadAll_FailsClosedBelowFrontier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	t.Parallel()
+
+	client, err := createKurrentContainer(t)
+	if err != nil {
+		t.Fatalf("failed to create KurrentDB container: %v", err)
+	}
+
+	iter := eventstore.AllIteratorWithFrontier(client, int64(allHead(t, client))+1_000_000)
+	defer func() { _ = iter.Close(t.Context()) }()
+
+	_, err = iter.Next(t.Context())
+	switch {
+	case err == nil:
+		t.Fatal("want the drain to end in an error, got an event from an ownerless iterator")
+	case errors.Is(err, coreeventstore.ErrEndOfEventStream):
+		t.Fatal("want the read to fail closed below its frontier, got a clean end of stream")
+	case !strings.Contains(err.Error(), "below the read's frontier"):
+		t.Fatalf("want the below-frontier failure, got %v", err)
 	}
 }

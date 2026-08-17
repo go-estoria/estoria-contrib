@@ -1,8 +1,10 @@
 package eventstore_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-estoria/estoria-contrib/kurrentdb/eventstore"
 	coreeventstore "github.com/go-estoria/estoria/eventstore"
@@ -140,6 +142,45 @@ func TestEventStore_Integration_ReadAll(t *testing.T) {
 		// the bound still applied. The position must lie below the frontier: at or past
 		// it, the read is born exhausted and the server is never consulted.
 		assertEventIDs(t, coreeventstore.ReadAllOptions{AfterPosition: *written[1].GlobalPosition + 1}, written[2:])
+	})
+
+	t.Run("the minimum window size makes progress across reopens", func(t *testing.T) {
+		// Every reopened window returns the inclusive cursor record first, so the
+		// minimum window of 2 advances by at most one record per reopen — the
+		// worst case for progress. The deadline is a starvation guard: a window
+		// that cannot get past its own cursor record reopens forever.
+		prefix := "g" + uuid.Must(uuid.NewV4()).String()[0:8]
+		store, err := eventstore.New(client,
+			eventstore.WithStreamPrefix(prefix),
+			eventstore.WithReadAllWindowSize(2),
+		)
+		if err != nil {
+			t.Fatalf("tc setup: failed to create EventStore: %v", err)
+		}
+
+		streamID := typeid.NewV4("minwindow")
+		written, err := store.AppendStream(ctx, streamID, writableEvents(5), coreeventstore.AppendStreamOptions{})
+		if err != nil {
+			t.Fatalf("appending events: %v", err)
+		}
+
+		drainCtx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+
+		iter, err := store.ReadAll(drainCtx, coreeventstore.ReadAllOptions{})
+		if err != nil {
+			t.Fatalf("reading all events: %v", err)
+		}
+		defer iter.Close(ctx)
+
+		events, err := coreeventstore.Collect(drainCtx, iter)
+		if err != nil {
+			t.Fatalf("collecting events across minimum-size windows: %v", err)
+		}
+
+		if len(events) != len(written) {
+			t.Fatalf("want all %d events across minimum-size windows, got %d", len(written), len(events))
+		}
 	})
 
 	// Pins what the phase-0 spike established: events written in one append batch carry

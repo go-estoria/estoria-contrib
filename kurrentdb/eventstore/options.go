@@ -48,11 +48,14 @@ func WithStreamPrefix(prefix string) EventStoreOption {
 // WithReadAllWindowSize overrides how many raw $all records ReadAll fetches per server
 // read. Smaller windows fetch less per read; larger windows make fewer reads.
 //
+// The minimum is 2: a reopened window resumes inclusively on the last record already
+// seen, so a window needs room for at least one record past it to make progress.
+//
 // The default is 1024.
 func WithReadAllWindowSize(size int64) EventStoreOption {
 	return func(s *EventStore) error {
-		if size < 1 {
-			return errors.New("window size must be positive")
+		if size < 2 {
+			return errors.New("window size must be at least 2: a reopened window resumes inclusively on the last record seen")
 		}
 
 		s.readAllWindowSize = size
