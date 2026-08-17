@@ -21,11 +21,19 @@ import (
 func newSQLiteDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "estoria_test.db")
-	// _journal=WAL improves concurrency by letting readers run while a writer holds
-	// the write lock; _busy_timeout makes contention failures retry transparently
+	// journal_mode=WAL improves concurrency by letting readers run while a writer holds
+	// the write lock; busy_timeout makes contention failures retry transparently
 	// rather than surface as SQLITE_BUSY.
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)", dbPath)
+	return newSQLiteDBWithJournalMode(t, "WAL")
+}
+
+// newSQLiteDBWithJournalMode creates a file-backed SQLite database in the given journal
+// mode, for tests that pin mode-specific concurrency semantics.
+func newSQLiteDBWithJournalMode(t *testing.T, journalMode string) *sql.DB {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "estoria_test.db")
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(%s)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)", dbPath, journalMode)
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

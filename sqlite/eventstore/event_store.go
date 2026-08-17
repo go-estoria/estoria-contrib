@@ -39,7 +39,13 @@ type Strategy interface {
 	Schema() string
 }
 
-// EventStore stores and retrieves events using SQLite as the underlying storage.
+// EventStore stores and retrieves events using SQLite as the underlying storage. The
+// database may be shared by multiple processes; SQLite's file locks serialize writers
+// across all of them. Connection configuration is the caller's: WAL journal mode lets
+// reads run while appends commit (in rollback-journal modes an open read makes a racing
+// append's commit wait instead), and a busy_timeout turns lock contention into bounded
+// waiting rather than immediate SQLITE_BUSY errors. Shared-cache connections reading
+// uncommitted data are unsupported.
 type EventStore struct {
 	db                *sql.DB
 	strategy          Strategy
@@ -64,6 +70,11 @@ var (
 //
 // Transaction hooks can be used to perform post-processing of events that must succeed or fail atomically
 // with the event append operation, such as inserting items into to an outbox table.
+//
+// A hook must not call back into the EventStore — AppendStream above all: the hook runs
+// inside the append's transaction, which holds the database's sole write lock, so a
+// nested append blocks on that lock from another connection until the busy timeout
+// expires. Hooks operate exclusively through the provided transaction.
 type TransactionHook interface {
 	HandleEvents(ctx context.Context, tx *sql.Tx, events []*eventstore.Event) error
 }
@@ -383,9 +394,21 @@ func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts 
 
 // ReadAll creates an iterator over events from all streams in ascending global order,
 // implementing eventstore.GlobalReader. Global positions are values of the events table's
-// auto-incrementing id column: gaps can occur, repeats cannot. A read with nothing to
-// yield returns an empty iterator rather than an error; strategies that do not implement
-// AllReader return an error.
+// auto-incrementing id column: gaps can occur, repeats cannot — AUTOINCREMENT never
+// reissues an id, even after the newest events are deleted, so a position a consumer has
+// checkpointed can never be written beneath again. A read with nothing to yield returns
+// an empty iterator rather than an error; strategies that do not implement AllReader
+// return an error.
+//
+// The read's frontier is the query's own database snapshot, established by the time
+// ReadAll returns and held for the iterator's lifetime: in WAL mode commits racing the
+// drain are invisible to the open statement, and in rollback-journal mode the
+// statement's shared lock makes them wait instead. The prefix below that frontier is
+// stable because SQLite permits one write transaction at a time: an append assigns its
+// ids while holding the database's write lock, acquired at its offset reservation and
+// held through commit, so no id becomes visible before every lower id's transaction has
+// resolved — commit order is id order. Both properties assume separate database
+// connections; shared-cache connections reading uncommitted data are unsupported.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)
 	if !ok {
