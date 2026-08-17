@@ -40,7 +40,8 @@ type SingleCollectionStrategy struct {
 // client. The database must belong to a non-sharded replica set (a single-node replica
 // set qualifies): appends use multi-document transactions, and reads outside
 // transactions on sharded clusters can observe partially committed transactions, which
-// would break the global read's frontier.
+// would break the global read's frontier. A client connecting directly rather than via
+// replica-set discovery must address the primary.
 func NewSingleCollectionStrategy(database *mongo.Database, opts ...StrategyOption) (*SingleCollectionStrategy, error) {
 	if database == nil {
 		return nil, errors.New("database is required")

@@ -95,7 +95,10 @@ func requireMajorityConcern(t *testing.T, command bson.Raw, what string) {
 // preference. The monitored client is configured to prefer secondaries, so an unpinned
 // read names mode "secondary" on the wire; the strategies' primary pin surfaces as
 // "primaryPreferred", the rendering the driver gives primary on a direct connection so
-// a directly-addressed member serves it regardless of its role.
+// a directly-addressed member serves it regardless of its role. The wire therefore
+// cannot separate strict primary from primaryPreferred; the strict mode — which alone
+// refuses secondary fallback under replica-set discovery — is pinned by the strategy
+// package's unit test on readViewOptions.
 func requirePrimaryPreference(t *testing.T, command bson.Raw, what string) {
 	t.Helper()
 

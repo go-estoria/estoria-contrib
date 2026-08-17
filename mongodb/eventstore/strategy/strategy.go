@@ -80,9 +80,17 @@ type (
 // the caller's handles, since transactions carry their own read concern and always run
 // on the primary.
 func majorityPrimaryReadHandle(collection *mongo.Collection) *mongo.Collection {
-	return collection.Clone(options.Collection().
+	return collection.Clone(readViewOptions())
+}
+
+// readViewOptions is the read view's exact configuration, extracted so a unit test can
+// pin the strict primary mode where the wire cannot: a direct connection renders both
+// primary and primaryPreferred as "primaryPreferred", but under replica-set discovery
+// only strict primary refuses to fall back to a lagging secondary.
+func readViewOptions() options.Lister[options.CollectionOptions] {
+	return options.Collection().
 		SetReadConcern(readconcern.Majority()).
-		SetReadPreference(readpref.Primary()))
+		SetReadPreference(readpref.Primary())
 }
 
 // Names of the indexes ensured on every event collection.

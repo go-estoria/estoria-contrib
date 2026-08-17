@@ -93,7 +93,8 @@ func CollectionPerStreamID() CollectionSelector {
 // database's own client. The database must belong to a non-sharded replica set (a
 // single-node replica set qualifies): appends use multi-document transactions, and
 // reads outside transactions on sharded clusters can observe partially committed
-// transactions, which would break the global read's frontier.
+// transactions, which would break the global read's frontier. A client connecting
+// directly rather than via replica-set discovery must address the primary.
 func NewMultiCollectionStrategy(database *mongo.Database, selector CollectionSelector, opts ...StrategyOption) (*MultiCollectionStrategy, error) {
 	switch {
 	case database == nil:
