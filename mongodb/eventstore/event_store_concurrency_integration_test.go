@@ -44,10 +44,7 @@ func TestEventStore_Integration_ConcurrentAppendOffsets(t *testing.T) {
 			haveOpts: func(t *testing.T, dbName string) []eventstore.EventStoreOption {
 				t.Helper()
 				db := mongoClient.Database(dbName)
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
-					db.Collection("events"),
-					db.Collection(strategy.DefaultStreamsCollectionName),
-				)
+				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}

@@ -47,10 +47,7 @@ func TestEventStore_Integration_DeletionGlobalReadConsistency(t *testing.T) {
 			name: "single collection strategy",
 			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
 				t.Helper()
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
-					db.Collection("events"),
-					db.Collection(strategy.DefaultStreamsCollectionName),
-				)
+				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}

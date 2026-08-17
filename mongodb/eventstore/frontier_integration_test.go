@@ -35,10 +35,7 @@ func frontierStrategyCases(mongoClient *mongo.Client) []struct {
 			name: "single collection strategy",
 			newStrategy: func(t *testing.T, db *mongo.Database) eventstore.Strategy {
 				t.Helper()
-				strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
-					db.Collection("events"),
-					db.Collection(strategy.DefaultStreamsCollectionName),
-				)
+				strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
 				if err != nil {
 					t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 				}
@@ -210,7 +207,7 @@ func TestEventStore_Integration_ReadAllFrontierNonTransactionalData(t *testing.T
 	rawEvents := db.Collection("events")
 	rawStreams := db.Collection(strategy.DefaultStreamsCollectionName)
 
-	strat, err := strategy.NewSingleCollectionStrategy(mongoClient, rawEvents, rawStreams)
+	strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
 	if err != nil {
 		t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 	}
@@ -291,6 +288,147 @@ func TestEventStore_Integration_ReadAllFrontierNonTransactionalData(t *testing.T
 
 	if got := 10 + len(events); got != initial {
 		t.Fatalf("want the read bounded at its frontier of %d events, got %d", initial, got)
+	}
+
+	// The next poll receives what this read excluded.
+	next := collectAll(t, store, coreeventstore.ReadAllOptions{AfterPosition: initial})
+	if len(next) != 1 || *next[0].GlobalPosition != initial+1 {
+		t.Fatalf("want the next poll to receive the raced event at %d, got %d events", initial+1, len(next))
+	}
+}
+
+// TestEventStore_Integration_ReadAllFrontierNonTransactionalDataMultiCollection proves
+// the frontier bound is load-bearing for the multi-collection read specifically: every
+// per-collection cursor must be built from the one frontier the strategy captured, and
+// the single-collection regression above never exercises that pass-through. Over
+// documents written outside transactions, an unbounded cursor provably chases a racing
+// insert into its collection, so a multi-collection read that dropped or widened its
+// frontier fails here even though store-shaped data would let it pass.
+func TestEventStore_Integration_ReadAllFrontierNonTransactionalDataMultiCollection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	t.Parallel()
+
+	ctx := t.Context()
+
+	mongoClient, err := createMongoDBContainer(t)
+	if err != nil {
+		t.Fatalf("failed to create MongoDB container: %v", err)
+	}
+
+	db := mongoClient.Database("estoria_frlm")
+	t.Cleanup(func() {
+		if err := db.Drop(context.WithoutCancel(ctx)); err != nil {
+			t.Fatalf("tc cleanup: failed to drop database: %v", err)
+		}
+	})
+
+	// Two stream types, so the legacy events land in two collections and the global
+	// read is a genuine multi-cursor merge.
+	streamA, streamB := typeid.NewV4("legacya"), typeid.NewV4("legacyb")
+	rawDoc := func(id typeid.ID, offset, global int64) any {
+		return eventstore.EventDocument{
+			StreamType:   id.Type,
+			StreamID:     id.UUID.String(),
+			EventType:    "legacyevent",
+			EventID:      uuid.Must(uuid.NewV4()).String(),
+			Offset:       offset,
+			GlobalOffset: global,
+			Timestamp:    time.Now().UTC().Truncate(time.Millisecond),
+			EventData:    []byte(`{}`),
+		}
+	}
+
+	// A legacy dataset: 300 documents with alternating global offsets, written directly
+	// with no transactions, the way an import or an earlier writer would.
+	const initial = 300
+	docsA := make([]any, 0, initial/2)
+	docsB := make([]any, 0, initial/2)
+	for global := int64(1); global <= initial; global++ {
+		if global%2 == 1 {
+			docsA = append(docsA, rawDoc(streamA, (global+1)/2, global))
+		} else {
+			docsB = append(docsB, rawDoc(streamB, global/2, global))
+		}
+	}
+
+	collectionA := db.Collection(streamA.Type)
+	rawStreams := db.Collection(strategy.DefaultStreamsCollectionName)
+	if _, err := collectionA.InsertMany(ctx, docsA); err != nil {
+		t.Fatalf("seeding legacy events for stream A: %v", err)
+	}
+	if _, err := db.Collection(streamB.Type).InsertMany(ctx, docsB); err != nil {
+		t.Fatalf("seeding legacy events for stream B: %v", err)
+	}
+	for _, id := range []typeid.ID{streamA, streamB} {
+		if _, err := rawStreams.InsertOne(ctx, bson.M{
+			"_id":         id.String(),
+			"stream_type": id.Type,
+			"stream_id":   id.UUID.String(),
+			"last_offset": int64(initial / 2),
+		}); err != nil {
+			t.Fatalf("seeding stream document: %v", err)
+		}
+	}
+	if _, err := rawStreams.InsertOne(ctx, bson.M{"_id": "_global", "last_offset": int64(initial)}); err != nil {
+		t.Fatalf("seeding global counter: %v", err)
+	}
+
+	strat, err := strategy.NewMultiCollectionStrategy(mongoClient, db, strategy.CollectionPerStreamType())
+	if err != nil {
+		t.Fatalf("tc setup: failed to create MultiCollectionStrategy: %v", err)
+	}
+	store, err := eventstore.New(mongoClient, eventstore.WithStrategy(strat))
+	if err != nil {
+		t.Fatalf("tc setup: failed to create EventStore: %v", err)
+	}
+
+	// The live scans need the global offset indexes, which only appends auto-ensure.
+	if err := store.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("ensuring indexes: %v", err)
+	}
+
+	iter, err := store.ReadAll(ctx, coreeventstore.ReadAllOptions{})
+	if err != nil {
+		t.Fatalf("reading all events: %v", err)
+	}
+	defer func() { _ = iter.Close(ctx) }()
+
+	for i := range 10 {
+		event, err := iter.Next(ctx)
+		if err != nil {
+			t.Fatalf("draining event %d: %v", i, err)
+		}
+		if got := *event.GlobalPosition; got != int64(i)+1 {
+			t.Fatalf("want merged position %d while draining, got %d", i+1, got)
+		}
+	}
+
+	// The legacy writer races the drain, landing in a collection whose cursor is
+	// already open.
+	if _, err := collectionA.InsertMany(ctx, []any{rawDoc(streamA, initial/2+1, initial+1)}); err != nil {
+		t.Fatalf("racing legacy insert: %v", err)
+	}
+	if _, err := rawStreams.UpdateOne(ctx,
+		bson.M{"_id": "_global"},
+		bson.M{"$inc": bson.M{"last_offset": int64(1)}},
+	); err != nil {
+		t.Fatalf("racing counter bump: %v", err)
+	}
+
+	events, err := coreeventstore.Collect(ctx, iter)
+	if err != nil {
+		t.Fatalf("collecting events: %v", err)
+	}
+
+	if got := 10 + len(events); got != initial {
+		t.Fatalf("want the read bounded at its frontier of %d events, got %d", initial, got)
+	}
+
+	if got := *events[len(events)-1].GlobalPosition; got != initial {
+		t.Errorf("want the read's last position at the frontier %d, got %d", initial, got)
 	}
 
 	// The next poll receives what this read excluded.

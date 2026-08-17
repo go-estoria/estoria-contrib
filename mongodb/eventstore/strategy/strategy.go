@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
@@ -28,6 +29,10 @@ const (
 	opLTE   = "$lte"
 	opGT    = "$gt"
 )
+
+// DefaultEventsCollectionName is the default name of the collection a
+// SingleCollectionStrategy stores all events in.
+const DefaultEventsCollectionName = "events"
 
 // DefaultStreamsCollectionName is the default name of the collection holding stream
 // documents and the global offset counter. The leading underscore keeps it out of the
@@ -63,6 +68,19 @@ type (
 		StartSession(opts ...options.Lister[options.SessionOptions]) (*mongo.Session, error)
 	}
 )
+
+// majorityPrimaryReadView derives the database view every strategy read runs through:
+// majority read concern against the primary, overriding whatever the caller's client is
+// configured with. A client's default "local" concern can observe writes a failover
+// later rolls back, and a secondary-preferring client can observe different replication
+// points per operation; either would let a global read yield positions that vanish, or
+// miss events below a position already yielded. Writes keep the caller's handles, since
+// transactions carry their own read concern and always run on the primary.
+func majorityPrimaryReadView(database *mongo.Database) *mongo.Database {
+	return database.Client().Database(database.Name(), options.Database().
+		SetReadConcern(readconcern.Majority()).
+		SetReadPreference(readpref.Primary()))
+}
 
 // Names of the indexes ensured on every event collection.
 const (
@@ -237,12 +255,13 @@ func deleteStreamDocs(ctx context.Context, streams, events MongoCollection, stre
 	return nil
 }
 
-// readGlobalFrontier returns the committed value of the global offset counter, or zero
-// when no append has ever committed. Reads outside transactions see only committed
-// data, and appends commit in offset order — a later append's reservation writes the
-// same counter document and conflicts until an earlier one resolves — so every event
-// committed after this read carries a greater offset: the returned value is a stable
-// frontier for a global read.
+// readGlobalFrontier returns the majority-committed value of the global offset counter,
+// or zero when no append has ever committed. Callers pass their majority/primary read
+// view of the streams collection, so the value cannot be rolled back by a failover.
+// Appends commit in offset order — a later append's reservation writes the same counter
+// document and conflicts until an earlier one resolves — so every event committed after
+// this read carries a greater offset: the returned value is a stable frontier for a
+// global read.
 func readGlobalFrontier(ctx context.Context, streams MongoCollection) (int64, error) {
 	var doc struct {
 		LastOffset int64 `bson:"last_offset"`

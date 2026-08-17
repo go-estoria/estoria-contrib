@@ -15,11 +15,15 @@ import (
 
 // A SingleCollectionStrategy stores all events for all streams in a single collection,
 // alongside a streams collection holding one counter document per stream plus the global
-// offset counter.
+// offset counter. Writes use the caller's database handle; every read runs through a
+// derived view pinned to majority read concern on the primary, regardless of how the
+// caller's client is configured.
 type SingleCollectionStrategy struct {
-	mongo      MongoSessionStarter
-	collection MongoCollection
-	streams    MongoCollection
+	mongo          MongoSessionStarter
+	collection     MongoCollection
+	readCollection MongoCollection
+	streams        MongoCollection
+	readStreams    MongoCollection
 
 	autoEnsureIndexes bool
 	indexes           *indexEnsurer
@@ -29,16 +33,19 @@ type SingleCollectionStrategy struct {
 	txOpts   options.Lister[options.TransactionOptions]
 }
 
-// NewSingleCollectionStrategy creates a new SingleCollectionStrategy using the given
-// client, events collection, and streams collection.
-func NewSingleCollectionStrategy(client MongoSessionStarter, events, streams MongoCollection, opts ...StrategyOption) (*SingleCollectionStrategy, error) {
+// NewSingleCollectionStrategy creates a new SingleCollectionStrategy over collections in
+// the given database, named DefaultEventsCollectionName and DefaultStreamsCollectionName
+// unless overridden with WithEventsCollectionName and WithStreamsCollectionName. The
+// database must belong to a non-sharded replica set (a single-node replica set
+// qualifies): appends use multi-document transactions, and reads outside transactions on
+// sharded clusters can observe partially committed transactions, which would break the
+// global read's frontier.
+func NewSingleCollectionStrategy(client MongoSessionStarter, database *mongo.Database, opts ...StrategyOption) (*SingleCollectionStrategy, error) {
 	switch {
 	case client == nil:
 		return nil, errors.New("client is required")
-	case events == nil:
-		return nil, errors.New("events collection is required")
-	case streams == nil:
-		return nil, errors.New("streams collection is required")
+	case database == nil:
+		return nil, errors.New("database is required")
 	}
 
 	config := newStrategyConfig()
@@ -46,10 +53,13 @@ func NewSingleCollectionStrategy(client MongoSessionStarter, events, streams Mon
 		return nil, fmt.Errorf("applying options: %w", err)
 	}
 
+	readDatabase := majorityPrimaryReadView(database)
 	strat := &SingleCollectionStrategy{
-		mongo:      client,
-		collection: events,
-		streams:    streams,
+		mongo:          client,
+		collection:     database.Collection(config.eventsCollectionName),
+		readCollection: readDatabase.Collection(config.eventsCollectionName),
+		streams:        database.Collection(config.streamsCollectionName),
+		readStreams:    readDatabase.Collection(config.streamsCollectionName),
 
 		autoEnsureIndexes: config.autoEnsureIndexes,
 		indexes:           newIndexEnsurer(),
@@ -74,7 +84,7 @@ const singleEventCollectionKey = ""
 
 // ListStreams returns a list of cursors for iterating over stream metadata.
 func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cursor, error) {
-	cursor, err := getListStreamsCursor(ctx, s.collection)
+	cursor, err := getListStreamsCursor(ctx, s.readCollection)
 	if err != nil {
 		return nil, fmt.Errorf("getting streams cursor: %w", err)
 	}
@@ -84,12 +94,13 @@ func (s *SingleCollectionStrategy) ListStreams(ctx context.Context) ([]*mongo.Cu
 
 // GetAllCursor returns an iterator over all events in the event store, ordered by
 // global offset and bounded above by the frontier captured here, so the cursor cannot
-// chase appends committed after the read began.
+// chase appends committed after the read began. Both the frontier read and the cursor
+// run on the majority/primary read view, so no yielded position can later vanish.
 func (s *SingleCollectionStrategy) GetAllCursor(
 	ctx context.Context,
 	opts eventstore.ReadAllOptions,
 ) ([]*mongo.Cursor, error) {
-	frontier, err := readGlobalFrontier(ctx, s.streams)
+	frontier, err := readGlobalFrontier(ctx, s.readStreams)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +108,7 @@ func (s *SingleCollectionStrategy) GetAllCursor(
 	findOpts, positionFilter := findOptsFromReadAllOptions(opts, frontier)
 	filter := make(bson.D, 0, len(positionFilter))
 	filter = append(filter, positionFilter...)
-	cursor, err := s.collection.Find(ctx, filter, findOpts)
+	cursor, err := s.readCollection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -118,7 +129,7 @@ func (s *SingleCollectionStrategy) GetStreamCursor(
 		bson.E{Key: fieldStreamID, Value: streamID.UUID.String()},
 	)
 	filter = append(filter, versionFilter...)
-	cursor, err := s.collection.Find(ctx, filter, findOpts)
+	cursor, err := s.readCollection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, fmt.Errorf("finding events: %w", err)
 	}
@@ -192,7 +203,7 @@ func (s *SingleCollectionStrategy) DeleteStream(ctx context.Context, streamID ty
 // StreamExists reports whether any event has ever been written to the stream. It exists so
 // ReadStream can tell an absent stream from a filtered read that matched nothing.
 func (s *SingleCollectionStrategy) StreamExists(ctx context.Context, streamID typeid.ID) (bool, error) {
-	err := s.streams.FindOne(ctx,
+	err := s.readStreams.FindOne(ctx,
 		bson.D{{Key: fieldID, Value: streamID.String()}},
 		options.FindOne().SetProjection(bson.D{{Key: fieldID, Value: 1}}),
 	).Err()

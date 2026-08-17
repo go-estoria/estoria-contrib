@@ -59,10 +59,7 @@ func TestEventStore_Integration_EnsureIndexes(t *testing.T) {
 			}
 		})
 
-		strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
-			db.Collection("events"),
-			db.Collection(strategy.DefaultStreamsCollectionName),
-		)
+		strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
 		if err != nil {
 			t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 		}
@@ -204,10 +201,7 @@ func TestEventStore_Integration_DuplicateOffsetBackstop(t *testing.T) {
 		}
 	})
 
-	strat, err := strategy.NewSingleCollectionStrategy(mongoClient,
-		db.Collection("events"),
-		db.Collection(strategy.DefaultStreamsCollectionName),
-	)
+	strat, err := strategy.NewSingleCollectionStrategy(mongoClient, db)
 	if err != nil {
 		t.Fatalf("tc setup: failed to create SingleCollectionStrategy: %v", err)
 	}

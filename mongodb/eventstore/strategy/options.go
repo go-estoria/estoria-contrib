@@ -11,6 +11,7 @@ type strategyConfig struct {
 	log                   estoria.Logger
 	sessOpts              *options.SessionOptionsBuilder
 	txOpts                *options.TransactionOptionsBuilder
+	eventsCollectionName  string
 	streamsCollectionName string
 	autoEnsureIndexes     bool
 }
@@ -20,6 +21,7 @@ func newStrategyConfig() *strategyConfig {
 		log:                   estoria.DefaultLogger(),
 		sessOpts:              DefaultSessionOptions(),
 		txOpts:                DefaultTransactionOptions(),
+		eventsCollectionName:  DefaultEventsCollectionName,
 		streamsCollectionName: DefaultStreamsCollectionName,
 	}
 }
@@ -94,11 +96,25 @@ func WithAutoEnsureIndexes() StrategyOption {
 	}
 }
 
-// WithStreamsCollectionName overrides the name of the collection a
-// MultiCollectionStrategy uses for stream and offset counter documents; a
-// SingleCollectionStrategy takes its streams collection as an explicit handle instead
-// and ignores this option. The name must not collide with any name the collection
-// selector can produce.
+// WithEventsCollectionName overrides the name of the collection a
+// SingleCollectionStrategy stores all events in; a MultiCollectionStrategy derives its
+// event collection names from its collection selector and ignores this option.
+//
+// By default, DefaultEventsCollectionName is used.
+func WithEventsCollectionName(name string) StrategyOption {
+	return func(s *strategyConfig) error {
+		if name == "" {
+			return errors.New("events collection name cannot be empty")
+		}
+
+		s.eventsCollectionName = name
+		return nil
+	}
+}
+
+// WithStreamsCollectionName overrides the name of the collection holding stream and
+// offset counter documents. With a MultiCollectionStrategy, the name must not collide
+// with any name the collection selector can produce.
 //
 // By default, DefaultStreamsCollectionName is used.
 func WithStreamsCollectionName(name string) StrategyOption {

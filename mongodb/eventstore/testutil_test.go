@@ -13,11 +13,20 @@ import (
 func createMongoDBContainer(t *testing.T) (*mongo.Client, error) {
 	t.Helper()
 
+	client, _, err := createMongoDBContainerWithConnStr(t)
+	return client, err
+}
+
+// createMongoDBContainerWithConnStr also returns the container's connection string, for
+// tests that need a second, differently-configured client against the same server.
+func createMongoDBContainerWithConnStr(t *testing.T) (*mongo.Client, string, error) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))
 	if err != nil {
-		return nil, fmt.Errorf("starting MongoDB container: %w", err)
+		return nil, "", fmt.Errorf("starting MongoDB container: %w", err)
 	}
 
 	t.Cleanup(func() {
@@ -28,7 +37,7 @@ func createMongoDBContainer(t *testing.T) (*mongo.Client, error) {
 
 	connStr, err := mongodbContainer.ConnectionString(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MongoDB connection string: %w", err)
+		return nil, "", fmt.Errorf("failed to get MongoDB connection string: %w", err)
 	}
 
 	t.Log("MongoDB container connection string:", connStr)
@@ -45,10 +54,10 @@ func createMongoDBContainer(t *testing.T) (*mongo.Client, error) {
 	t.Log("Created MongoDB client")
 
 	if err := mongoClient.Ping(ctx, nil); err != nil {
-		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
+		return nil, "", fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
 
 	t.Log("Successfully pinged MongoDB")
 
-	return mongoClient, nil
+	return mongoClient, connStr, nil
 }
