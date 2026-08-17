@@ -132,13 +132,16 @@ func createKurrentContainerWithEnv(t *testing.T, envOverrides map[string]string)
 					port: []network.PortBinding{{HostIP: hostIP, HostPort: portStr}},
 				}
 			},
-			// testcontainers' default startup timeout is 60s, which this exceeded on CI once
-			// testcontainers-go moved to 0.43.0: up to 10 single-node clusters (see kurrentSem)
-			// elect leaders concurrently on a 2-core runner, and the log line simply arrives
-			// late. Failures looked like "matched 0 times, expected 1" with no test assertion
-			// involved. Three minutes is well inside the suite's 20m budget.
+			// testcontainers' default startup timeout is 60s, and CI runs have missed a
+			// three-minute ceiling by about a second: on a 2-core runner the node's
+			// election competes with the other test package's containers and the
+			// race-instrumented suite, and the log line simply arrives late. Failures
+			// look like "matched 0 times, expected 1" with no test assertion involved.
+			// The wait returns as soon as the line appears, so a high ceiling costs
+			// nothing on a healthy start; startup timeouts are not retried below, so
+			// even a worst-case wait stays well inside the suite's 20m budget.
 			WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)").
-				WithStartupTimeout(3 * time.Minute),
+				WithStartupTimeout(8 * time.Minute),
 		}
 
 		c, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
