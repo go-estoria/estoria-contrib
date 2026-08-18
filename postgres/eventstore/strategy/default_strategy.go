@@ -56,7 +56,50 @@ func NewDefaultStrategy(opts ...DefaultStrategyOption) (*DefaultStrategy, error)
 		}
 	}
 
+	if err := strategy.validateDerivedIdentifiers(); err != nil {
+		return nil, err
+	}
+
 	return strategy, nil
+}
+
+// validateDerivedIdentifiers rejects configurations whose relation names —
+// configured or derived — would not survive PostgreSQL intact. The tables,
+// their primary-key indexes, and the stream-offset constraint's backing index
+// all share one relation namespace: identifiers longer than 63 bytes are
+// silently truncated, and a configured name equal to a generated one makes
+// CREATE TABLE IF NOT EXISTS silently adopt the wrong relation, so every name
+// the schema creates must fit and be pairwise distinct.
+func (s *DefaultStrategy) validateDerivedIdentifiers() error {
+	const maxIdentifierBytes = 63
+
+	relations := []struct{ role, name string }{
+		{"events table", s.eventsTableName},
+		{"streams table", s.streamsTableName},
+		{"position allocator table", s.allocatorTableName()},
+		{"stream-offset constraint", s.StreamOffsetUniqueConstraintName()},
+		{"events table primary key", s.eventsTableName + "_pkey"},
+		{"streams table primary key", s.streamsTableName + "_pkey"},
+		{"position allocator primary key", s.allocatorTableName() + "_pkey"},
+	}
+
+	for _, rel := range relations {
+		if len(rel.name) > maxIdentifierBytes {
+			return fmt.Errorf("%s name %q is %d bytes; PostgreSQL truncates identifiers to %d bytes, which would silently alias relations — use a shorter table name",
+				rel.role, rel.name, len(rel.name), maxIdentifierBytes)
+		}
+	}
+
+	for i, rel := range relations {
+		for _, other := range relations[i+1:] {
+			if rel.name == other.name {
+				return fmt.Errorf("%s %q collides with the %s: every relation the schema creates must be named distinctly",
+					rel.role, rel.name, other.role)
+			}
+		}
+	}
+
+	return nil
 }
 
 // ReadStreamQuery returns a SQL query for reading events from a specific stream.
@@ -169,6 +212,43 @@ func (s *DefaultStrategy) NextHighwaterMark(ctx context.Context, tx pgx.Tx, stre
 	return newOffset, nil
 }
 
+// ReserveGlobalPositions reserves a contiguous range of numEvents global
+// positions within the transaction and returns the first. The reservation
+// updates the single allocator row, whose lock is then held until the
+// transaction commits or rolls back: a later reservation cannot proceed — and
+// so cannot become visible — while an earlier one is unresolved, which is
+// what makes published positions a stable prefix. A rolled-back reservation
+// is returned to the allocator rather than left as a gap.
+func (s *DefaultStrategy) ReserveGlobalPositions(ctx context.Context, tx pgx.Tx, numEvents int) (int64, error) {
+	var last int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(
+		`UPDATE %s SET last_position = last_position + $1 RETURNING last_position`,
+		quoteIdent(s.allocatorTableName()),
+	), numEvents).Scan(&last); errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("position allocator %q has no row; apply the current schema before writing", s.allocatorTableName())
+	} else if err != nil {
+		return 0, fmt.Errorf("updating position allocator: %w", err)
+	}
+
+	return last - int64(numEvents) + 1, nil
+}
+
+// allocatorTableName returns the name of the single-row table from which the
+// events table's global positions are reserved.
+func (s *DefaultStrategy) allocatorTableName() string {
+	return s.eventsTableName + "_position_allocator"
+}
+
+// StreamOffsetUniqueConstraintName returns the name of the unique constraint
+// on (stream_id, stream_type, stream_offset), which arbitrates concurrent
+// writers to one stream. The store classifies a unique violation on exactly
+// this constraint as a lost stream race; any other — the id primary key above
+// all — surfaces as corruption. Construction guarantees the name fits
+// PostgreSQL's identifier limit, so the physical constraint name matches.
+func (s *DefaultStrategy) StreamOffsetUniqueConstraintName() string {
+	return s.eventsTableName + "_stream_offset_unique"
+}
+
 // StreamExists reports whether the given stream exists, regardless of how many events it
 // holds or which of them a read's options would match.
 //
@@ -248,11 +328,15 @@ func (s *DefaultStrategy) DeleteStream(ctx context.Context, tx pgx.Tx, streamID 
 	return nil
 }
 
-// AppendStreamStatement returns a SQL statement for appending an event to a stream.
-// The statement uses RETURNING id to capture the generated global position.
+// AppendStreamStatement returns a SQL statement for appending an event to a
+// stream. The event's global position is supplied explicitly as the first
+// argument, reserved via ReserveGlobalPositions within the same transaction,
+// and returned so the store can verify the persisted position equals the
+// reservation.
 func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 	return fmt.Sprintf(`
 		INSERT INTO %s (
+			id,
 			event_id,
 			stream_type,
 			stream_id,
@@ -263,12 +347,13 @@ func (s *DefaultStrategy) AppendStreamStatement() (string, error) {
 			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`, quoteIdent(s.eventsTableName)), nil
 }
 
-// AppendStreamExecArgs returns the arguments for executing the append statement for the given event.
+// AppendStreamExecArgs returns the arguments for executing the append
+// statement for the given event, whose GlobalPosition must already be set.
 func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 	var metadataArg any
 	if event.Metadata != nil {
@@ -276,6 +361,7 @@ func (s *DefaultStrategy) AppendStreamExecArgs(event *eventstore.Event) []any {
 		metadataArg, _ = json.Marshal(event.Metadata)
 	}
 	return []any{
+		*event.GlobalPosition,
 		event.ID.UUID,
 		event.StreamID.Type,
 		event.StreamID.UUID,
@@ -317,13 +403,41 @@ func WithStreamsTableName(name string) DefaultStrategyOption {
 	}
 }
 
-// Schema returns the complete SQL schema for the event store. The uniqueness constraint's
-// name is derived from the events table name so that stores with different table names can
-// share a database.
+// Schema returns the complete SQL schema for the event store, idempotent for
+// both fresh databases and databases created by earlier versions of this
+// strategy. The uniqueness constraint's name is derived from the events table
+// name so that stores with different table names can share a database.
+//
+// Global positions come from the allocator table, one row per events table,
+// reserved inside each append transaction. For databases migrating from the
+// earlier bigserial schema, the allocator is seeded conservatively at or
+// above every position ever observable or allocated: the greater of MAX(id)
+// and the abandoned serial sequence's last_value, which PostgreSQL keeps at
+// or above every value it ever handed out; last_value counts as allocated
+// even when is_called is false, over-reserving by at most one. MAX(id) alone
+// would be unsafe — deleting a stream can remove the highest-positioned rows
+// while consumers hold checkpoints above the new maximum, and a reused
+// position below such a checkpoint would be skipped forever; skipping unused
+// sequence values is harmless. Neither floor sees rows that were written with
+// explicit ids — never advancing the sequence — and later deleted; operators
+// who cannot rule such rows out must raise the allocator's last_position by
+// hand before new writers start. The bigserial default is then dropped, so
+// writers from earlier versions fail closed instead of bypassing the
+// allocator: drain them before migrating, and never run old and new writers
+// together.
+//
+// The one-time default drop takes a brief ACCESS EXCLUSIVE lock on the
+// events table, so the first application against an existing database
+// belongs inside the writer drain window (operators may bound it further
+// with lock_timeout). Reapplying the schema skips the alteration — the drop
+// runs only while a default exists — and takes no exclusive lock.
 func (s *DefaultStrategy) Schema() string {
+	events := quoteIdent(s.eventsTableName)
+	allocator := quoteIdent(s.allocatorTableName())
+
 	return fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id                bigserial    PRIMARY KEY,
+			id                bigint       PRIMARY KEY,
 			stream_id         uuid         NOT NULL,
 			stream_type       varchar(255) NOT NULL,
 			event_id          uuid         NOT NULL,
@@ -346,7 +460,45 @@ func (s *DefaultStrategy) Schema() string {
 
 			PRIMARY KEY (stream_type, stream_id)
 		);
-	`, quoteIdent(s.eventsTableName), quoteIdent(s.eventsTableName+"_stream_offset_unique"), quoteIdent(s.streamsTableName))
+
+		CREATE TABLE IF NOT EXISTS %s (
+			only_row      boolean PRIMARY KEY DEFAULT true CHECK (only_row),
+			last_position bigint  NOT NULL
+		);
+
+		DO $$
+		DECLARE
+			seq_name text := pg_get_serial_sequence('%s', 'id');
+			seq_high bigint := 0;
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM pg_attribute
+				WHERE attrelid = '%s'::regclass AND attname = 'id' AND atthasdef
+			) THEN
+				EXECUTE 'ALTER TABLE %s ALTER COLUMN id DROP DEFAULT';
+			END IF;
+
+			IF seq_name IS NOT NULL THEN
+				EXECUTE format('SELECT last_value FROM %%s', seq_name) INTO seq_high;
+			END IF;
+
+			INSERT INTO %s (only_row, last_position)
+			SELECT true, GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0), seq_high)
+			WHERE NOT EXISTS (SELECT 1 FROM %s);
+		END
+		$$;
+	`,
+		events,
+		quoteIdent(s.StreamOffsetUniqueConstraintName()),
+		quoteIdent(s.streamsTableName),
+		allocator,
+		events,
+		events,
+		events,
+		allocator,
+		events,
+		allocator,
+	)
 }
 
 // ListStreams returns metadata for all streams in the event store.

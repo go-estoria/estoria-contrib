@@ -1,7 +1,9 @@
 package eventstore_test
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/netip"
@@ -25,6 +27,35 @@ func reversed[T any](s []T) []T {
 	return r
 }
 
+// allHead returns the commit position of the last record in the node's $all stream, or
+// zero when the log is empty — the same server-wide head a ReadAll captures as its
+// frontier.
+func allHead(t *testing.T, client *kurrentdb.Client) uint64 {
+	t.Helper()
+
+	read, err := client.ReadAll(t.Context(), kurrentdb.ReadAllOptions{
+		Direction: kurrentdb.Backwards,
+		From:      kurrentdb.End{},
+	}, 1)
+	if err != nil {
+		t.Fatalf("reading the $all head: %v", err)
+	}
+	defer read.Close()
+
+	resolved, err := read.Recv()
+	if errors.Is(err, io.EOF) {
+		return 0
+	} else if err != nil {
+		t.Fatalf("receiving the $all head record: %v", err)
+	}
+
+	if resolved.Commit == nil {
+		t.Fatal("$all head record has no commit position")
+	}
+
+	return *resolved.Commit
+}
+
 // Limits how many KurrentDB containers start at once.
 //
 // This was 10, which oversubscribes a 2-core runner badly: ten single-node clusters
@@ -36,6 +67,13 @@ func reversed[T any](s []T) []T {
 var kurrentSem = make(chan struct{}, 4)
 
 func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
+	t.Helper()
+	return createKurrentContainerWithEnv(t, nil)
+}
+
+// createKurrentContainerWithEnv starts a KurrentDB container with the standard
+// configuration plus the given environment overrides, which take precedence.
+func createKurrentContainerWithEnv(t *testing.T, envOverrides map[string]string) (*kurrentdb.Client, error) {
 	t.Helper()
 
 	ctx := t.Context()
@@ -69,33 +107,41 @@ func createKurrentContainer(t *testing.T) (*kurrentdb.Client, error) {
 			return nil, fmt.Errorf("parsing port: %w", err)
 		}
 
+		env := map[string]string{
+			"KURRENTDB_CLUSTER_SIZE":               "1",
+			"KURRENTDB_RUN_PROJECTIONS":            "All",
+			"KURRENTDB_START_STANDARD_PROJECTIONS": "true",
+			"KURRENTDB_NODE_PORT":                  portStr,
+			"KURRENTDB_INSECURE":                   "true", // dev/test only
+			"KURRENTDB_ENABLE_ATOM_PUB_OVER_HTTP":  "true", // optional; only needed for the Admin UI/feeds
+		}
+		for k, v := range envOverrides {
+			env[k] = v
+		}
+
 		req := testcontainers.ContainerRequest{
 			// Pinned rather than :latest so a server release cannot change the readiness
 			// contract below with no change on our side. 26.1 was byte-identical to the
 			// :latest this replaced. Matches how the mongo and postgres suites pin.
 			Image:        "docker.kurrent.io/kurrent-latest/kurrentdb:26.1",
 			ExposedPorts: []string{port.String()},
-			Env: map[string]string{
-				"KURRENTDB_CLUSTER_SIZE":               "1",
-				"KURRENTDB_RUN_PROJECTIONS":            "All",
-				"KURRENTDB_START_STANDARD_PROJECTIONS": "true",
-				"KURRENTDB_NODE_PORT":                  portStr,
-				"KURRENTDB_INSECURE":                   "true", // dev/test only
-				"KURRENTDB_ENABLE_ATOM_PUB_OVER_HTTP":  "true", // optional; only needed for the Admin UI/feeds
-			},
+			Env:          env,
 			// bind host port -> container port so the node's advertised port is reachable
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.PortBindings = network.PortMap{
 					port: []network.PortBinding{{HostIP: hostIP, HostPort: portStr}},
 				}
 			},
-			// testcontainers' default startup timeout is 60s, which this exceeded on CI once
-			// testcontainers-go moved to 0.43.0: up to 10 single-node clusters (see kurrentSem)
-			// elect leaders concurrently on a 2-core runner, and the log line simply arrives
-			// late. Failures looked like "matched 0 times, expected 1" with no test assertion
-			// involved. Three minutes is well inside the suite's 20m budget.
+			// testcontainers' default startup timeout is 60s, and CI runs have missed a
+			// three-minute ceiling by about a second: on a 2-core runner the node's
+			// election competes with the other test package's containers and the
+			// race-instrumented suite, and the log line simply arrives late. Failures
+			// look like "matched 0 times, expected 1" with no test assertion involved.
+			// The wait returns as soon as the line appears, so a high ceiling costs
+			// nothing on a healthy start; startup timeouts are not retried below, so
+			// even a worst-case wait stays well inside the suite's 20m budget.
 			WaitingFor: wait.ForLog("InaugurationManager in state (Leader, Idle)").
-				WithStartupTimeout(3 * time.Minute),
+				WithStartupTimeout(8 * time.Minute),
 		}
 
 		c, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

@@ -15,6 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// rollbackTimeout bounds the deferred rollback's independent context. The
+// caller's context may already be canceled, and an unrolled-back transaction
+// would hold the global position allocator against every future append.
+const rollbackTimeout = 5 * time.Second
+
 // Strategy is an interface for defining lower-level query and append mechanics.
 //
 // Strategies define the specific SQL schema and behavior to use when storing and retrieving events
@@ -30,7 +35,27 @@ type Strategy interface {
 	// NextHighwaterMark returns the next highwater mark (i.e. the next highest stream version).
 	NextHighwaterMark(ctx context.Context, tx pgx.Tx, streamID typeid.ID, numEvents int) (int64, error)
 
-	// AppendStreamStatement returns a SQL statement for appending events to a stream.
+	// ReserveGlobalPositions reserves numEvents contiguous global positions
+	// within the transaction, returning the first. The reservation must stay
+	// exclusive until the transaction resolves, so that a later append cannot
+	// commit — and become visible — ahead of an earlier unresolved one:
+	// published positions form a stable prefix, per the core GlobalReader
+	// contract.
+	ReserveGlobalPositions(ctx context.Context, tx pgx.Tx, numEvents int) (int64, error)
+
+	// StreamOffsetUniqueConstraintName returns the physical name of the
+	// unique constraint on (stream_id, stream_type, stream_offset). The store
+	// classifies a unique violation on exactly this constraint as a lost
+	// stream race; a violation of any other constraint — the id primary key
+	// above all — surfaces as corruption, never as a version conflict.
+	StreamOffsetUniqueConstraintName() string
+
+	// AppendStreamStatement returns a SQL statement for appending events to a
+	// stream. The statement must persist the event's reserved GlobalPosition
+	// as its global position and return it (RETURNING id): the store verifies
+	// the persisted position equals the reservation, so a strategy that lets
+	// the database generate positions fails loudly on its first append rather
+	// than silently diverging from ReserveGlobalPositions.
 	AppendStreamStatement() (string, error)
 
 	// AppendStreamExecArgs returns the arguments to pass when executing an append statement for an individual event.
@@ -65,6 +90,12 @@ var (
 //
 // Transaction hooks can be used to perform post-processing of events that must succeed or fail atomically
 // with the event append operation, such as inserting items into to an outbox table.
+//
+// A hook must not call back into the EventStore — AppendStream above all: the
+// surrounding transaction already holds the global position allocator's lock,
+// and a nested append, necessarily on another connection, would wait on that
+// lock forever — a cross-session deadlock PostgreSQL cannot detect. Hooks
+// operate exclusively through the provided transaction.
 type TransactionHook interface {
 	HandleEvents(ctx context.Context, tx pgx.Tx, events []*eventstore.Event) error
 }
@@ -190,15 +221,31 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 	}
 
 	defer func() {
-		if retErr != nil {
-			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-				s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", retErr)
-			}
+		// Unconditional: a panicking hook or strategy must not leave the
+		// transaction open, because it holds the global position allocator's
+		// lock and an orphaned transaction would block every future append.
+		// Rolling back a committed transaction is a no-op (pgx.ErrTxClosed),
+		// and the context is independent and bounded — the caller's may
+		// already be canceled.
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+		defer cancel()
+
+		if rollbackErr := tx.Rollback(rollbackCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", retErr)
 		}
 	}()
 
 	if opts.ExpectVersion != nil && opts.StreamMustNotExist {
 		return nil, errors.New("ExpectVersion and StreamMustNotExist are mutually exclusive")
+	}
+
+	// The allocator is acquired before any stream-specific lock, everywhere:
+	// a writer waiting on the allocator holds nothing that another
+	// transaction — including a hook running inside the allocator's holder —
+	// could be waiting for, so the two lock classes cannot form a cycle.
+	firstPosition, err := s.strategy.ReserveGlobalPositions(ctx, tx, len(events))
+	if err != nil {
+		return nil, fmt.Errorf("reserving global positions: %w", err)
 	}
 
 	newMaxOffset, err := s.strategy.NextHighwaterMark(ctx, tx, streamID, len(events))
@@ -235,26 +282,30 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 
 	fullEvents := make([]*eventstore.Event, len(events))
 	for i, we := range events {
+		globalPosition := firstPosition + int64(i)
 		fullEvents[i] = &eventstore.Event{
 			ID:              typeid.NewV4(we.Type),
 			StreamID:        streamID,
 			StreamVersion:   currentOffset + int64(i) + 1,
+			GlobalPosition:  &globalPosition,
 			Timestamp:       now,
 			Data:            we.Data,
 			DataContentType: we.DataContentType,
 			Metadata:        we.Metadata,
 		}
 
-		var globalPos int64
-		if err := tx.QueryRow(ctx, stmtQuery, s.strategy.AppendStreamExecArgs(fullEvents[i])...).Scan(&globalPos); err != nil {
+		var persistedPosition int64
+		if err := tx.QueryRow(ctx, stmtQuery, s.strategy.AppendStreamExecArgs(fullEvents[i])...).Scan(&persistedPosition); err != nil {
 			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				// The only unique constraint on the events table is (stream_id, stream_type, stream_offset).
-				// A violation here means a concurrent writer inserted at the same offset.
-				// When a concurrent write races with this one, we report currentOffset as both
-				// expected and actual: we don't know the true actual version from the DB, and
-				// reporting ExpectedVersion=0 when no explicit ExpectVersion was specified would
-				// be misleading.
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == s.strategy.StreamOffsetUniqueConstraintName() {
+				// Exactly the (stream_id, stream_type, stream_offset) constraint
+				// arbitrates concurrent writers to one stream; any other unique
+				// violation — the id primary key above all — is corruption and
+				// surfaces as a plain error. When a concurrent write races with
+				// this one, we report currentOffset as both expected and actual:
+				// we don't know the true actual version from the DB, and
+				// reporting ExpectedVersion=0 when no explicit ExpectVersion was
+				// specified would be misleading.
 				return nil, eventstore.StreamVersionMismatchError{
 					StreamID:        streamID,
 					ExpectedVersion: currentOffset,
@@ -263,7 +314,11 @@ func (s *EventStore) AppendStream(ctx context.Context, streamID typeid.ID, event
 			}
 			return nil, fmt.Errorf("executing statement: %w", err)
 		}
-		fullEvents[i].GlobalPosition = &globalPos
+
+		if persistedPosition != globalPosition {
+			return nil, fmt.Errorf("append statement persisted position %d for reserved position %d: the statement must insert and return the event's GlobalPosition",
+				persistedPosition, globalPosition)
+		}
 	}
 
 	for _, hook := range s.appendTxHooks {
@@ -357,10 +412,13 @@ func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts 
 	}
 
 	defer func() {
-		if retErr != nil {
-			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-				s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", retErr)
-			}
+		// Unconditional, for the same reason as AppendStream's: a panicking
+		// strategy must not leave the transaction open holding row locks.
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+		defer cancel()
+
+		if rollbackErr := tx.Rollback(rollbackCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			s.log.Error("error rolling back transaction", "error", rollbackErr, "cause", retErr)
 		}
 	}()
 
@@ -376,9 +434,12 @@ func (s *EventStore) DeleteStream(ctx context.Context, streamID typeid.ID, opts 
 }
 
 // ReadAll creates an iterator over events from all streams in ascending global order,
-// implementing eventstore.GlobalReader. Global positions are values of the events table's
-// auto-incrementing id column: gaps can occur, repeats cannot. A read with nothing to
-// yield returns an empty iterator rather than an error; strategies that do not implement
+// implementing eventstore.GlobalReader. Global positions are reserved from a
+// transactional allocator held exclusive until the reserving transaction resolves
+// (see Strategy.ReserveGlobalPositions), so events become visible in position order:
+// a position absent from a read is permanently dead, never still in flight, and
+// resuming after a yielded position is gap-free. A read with nothing to yield
+// returns an empty iterator rather than an error; strategies that do not implement
 // AllReader return an error.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	reader, ok := s.strategy.(AllReader)

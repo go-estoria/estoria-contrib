@@ -16,10 +16,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-const (
-	DefaultDatabaseName   string = "estoria"
-	DefaultCollectionName string = "events"
-)
+// DefaultDatabaseName is the name of the database a store constructed without an
+// explicit strategy keeps its collections in.
+const DefaultDatabaseName string = "estoria"
 
 type (
 
@@ -42,7 +41,13 @@ type (
 			inTxnFn func(sessCtx context.Context, collection strategy.MongoCollection, offset int64, globalOffset int64) (any, error),
 		) (any, error)
 
-		// GetAllCursor returns one or more Mongo cursors for all events in the event store, each ordered by global offset.
+		// GetAllCursor returns one or more Mongo cursors that together cover all events
+		// in the event store, each ordered by global offset. Implementations must capture
+		// one stable frontier — the greatest majority-committed global offset — before
+		// opening any cursor, and bound every cursor of the call at it: no cursor may
+		// yield an event above the frontier however long the drain runs, and all of a
+		// call's cursors must share that one frontier, so the merged read is a fixed
+		// prefix of the log rather than a live scan that racing appends can extend.
 		GetAllCursor(
 			ctx context.Context,
 			opts eventstore.ReadAllOptions,
@@ -76,6 +81,17 @@ type (
 
 	// A TransactionHook is a function that is executed within the transaction used for appending events.
 	// If a hook returns an error, the transaction is aborted and the error is returned to the caller.
+	//
+	// The driver retries transient transaction errors, so one logical append can invoke
+	// its hooks more than once, with only the final attempt's effects committing. A hook
+	// must tolerate re-execution and confine its effects to the provided session
+	// context, so an abandoned attempt's work rolls back with its transaction instead
+	// of leaking.
+	//
+	// A hook must not call back into the EventStore — AppendStream above all: the
+	// surrounding transaction holds the offset counter documents, so a nested append's
+	// reservation write-conflicts against it and retries until the transaction's
+	// lifetime expires.
 	TransactionHook interface {
 		HandleEvents(sessCtx context.Context, events []*eventstore.Event) error
 	}
@@ -90,6 +106,20 @@ func (f TransactionHookFunc) HandleEvents(sessCtx context.Context, events []*eve
 }
 
 // An EventStore stores and retrieves events using MongoDB as the underlying storage.
+//
+// The store requires a non-sharded replica set; a single-node replica set qualifies.
+// A client may connect with replica-set discovery, which routes every store read to
+// the primary; a direct connection instead targets its single addressed member
+// regardless of role, so it must address the primary. Appends use multi-document
+// transactions, and every document read the store issues runs against the primary with
+// majority read concern, overriding the client's own read preference and read concern:
+// no read observes state a failover can roll back, and a global read is never torn
+// across divergently-lagging secondaries. Collection enumeration is the one exception
+// — listCollections supports no read concern, though the driver runs it against the
+// primary — so a multi-collection store relies on its event collections being
+// exclusively store-managed and never dropped or renamed while reads run. Sharded
+// clusters are unsupported because their reads outside transactions can observe
+// partially committed transactions, which would break the global read's frontier.
 type EventStore struct {
 	mongoClient MongoClient
 	strategy    Strategy
@@ -196,12 +226,7 @@ func New(client MongoClient, opts ...EventStoreOption) (*EventStore, error) {
 
 	// use a single collection strategy by default
 	if eventStore.strategy == nil {
-		database := client.Database(DefaultDatabaseName)
-		strat, err := strategy.NewSingleCollectionStrategy(
-			client,
-			database.Collection(DefaultCollectionName),
-			database.Collection(strategy.DefaultStreamsCollectionName),
-		)
+		strat, err := strategy.NewSingleCollectionStrategy(client.Database(DefaultDatabaseName))
 		if err != nil {
 			return nil, fmt.Errorf("creating default strategy: %w", err)
 		}
@@ -236,8 +261,14 @@ func (s *EventStore) ListStreams(ctx context.Context) ([]StreamInfo, error) {
 
 // ReadAll creates an iterator over events from all streams in ascending global order,
 // implementing eventstore.GlobalReader. Global positions are counter-allocated global
-// offsets: gaps can occur, repeats cannot. A read with nothing to yield returns an empty
-// iterator rather than an error.
+// offsets: gaps can occur, repeats cannot. The read's frontier is the offset counter's
+// majority-committed value, captured before the cursors open: they yield only events at
+// or below it, so a read spanning multiple cursor batches is never extended by appends
+// racing the drain. The frontier is stable because appends reserve offsets and insert
+// in one transaction against a shared counter document — a later append's reservation
+// write-conflicts and retries until an earlier one resolves, so events commit in
+// offset order. A read with nothing to yield returns an empty iterator rather than an
+// error.
 func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	s.log.Debug("reading events from MongoDB event store",
 		"after_position", opts.AfterPosition,

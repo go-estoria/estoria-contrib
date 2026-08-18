@@ -323,6 +323,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			name: "default table name",
 			wantStmt: `
 		INSERT INTO "event" (
+			id,
 			event_id,
 			stream_type,
 			stream_id,
@@ -333,7 +334,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`,
 		},
@@ -344,6 +345,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			},
 			wantStmt: `
 		INSERT INTO "my_events" (
+			id,
 			event_id,
 			stream_type,
 			stream_id,
@@ -354,7 +356,7 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 			data_content_type,
 			metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`,
 		},
@@ -378,6 +380,97 @@ func TestDefaultStrategy_AppendStreamStatement(t *testing.T) {
 
 			if normalizeSQL(gotStmt) != normalizeSQL(tt.wantStmt) {
 				t.Errorf("expected statement:\n-----\n%s\n-----\ngot:\n-----\n%s\n-----\n", tt.wantStmt, gotStmt)
+			}
+		})
+	}
+}
+
+func TestNewDefaultStrategy_RejectsHazardousIdentifiers(t *testing.T) {
+	// The longest safe events table name leaves exactly 63 bytes for the
+	// allocator table's primary-key index, the longest events-derived
+	// identifier; the longest safe streams table name leaves 63 for its own.
+	longestEvents := strings.Repeat("e", 63-len("_position_allocator_pkey"))
+	longestStreams := strings.Repeat("s", 63-len("_pkey"))
+
+	for _, tt := range []struct {
+		name    string
+		opts    []strategy.DefaultStrategyOption
+		wantErr string
+	}{
+		{
+			name: "longest safe events table name is accepted",
+			opts: []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longestEvents)},
+		},
+		{
+			name:    "events table name whose derived identifiers would truncate",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithEventsTableName(longestEvents + "e")},
+			wantErr: "truncates identifiers",
+		},
+		{
+			name: "longest safe streams table name is accepted",
+			opts: []strategy.DefaultStrategyOption{strategy.WithStreamsTableName(longestStreams)},
+		},
+		{
+			name:    "streams table name whose primary key would truncate",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithStreamsTableName(longestStreams + "s")},
+			wantErr: "truncates identifiers",
+		},
+		{
+			name: "streams table colliding with the events table",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders"),
+			},
+			wantErr: "distinct",
+		},
+		{
+			name: "streams table colliding with the position allocator",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders_position_allocator"),
+			},
+			wantErr: "position allocator",
+		},
+		{
+			name: "streams table colliding with the stream-offset constraint",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders_stream_offset_unique"),
+			},
+			wantErr: "constraint",
+		},
+		{
+			name:    "streams table colliding with the events table's primary key index",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithStreamsTableName("event_pkey")},
+			wantErr: "primary key",
+		},
+		{
+			name:    "events table colliding with the streams table's primary key index",
+			opts:    []strategy.DefaultStrategyOption{strategy.WithEventsTableName("stream_pkey")},
+			wantErr: "primary key",
+		},
+		{
+			name: "streams table colliding with the position allocator's primary key index",
+			opts: []strategy.DefaultStrategyOption{
+				strategy.WithEventsTableName("orders"),
+				strategy.WithStreamsTableName("orders_position_allocator_pkey"),
+			},
+			wantErr: "primary key",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := strategy.NewDefaultStrategy(tt.opts...)
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want an error containing %q, got %v", tt.wantErr, err)
 			}
 		})
 	}

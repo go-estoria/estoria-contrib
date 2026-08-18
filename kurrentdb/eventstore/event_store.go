@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"strings"
 
 	"github.com/go-estoria/estoria"
@@ -104,14 +106,31 @@ func (s *EventStore) estoriaStreamID(name string) (typeid.ID, bool) {
 
 // ReadAll creates an iterator over events from all streams in ascending global order,
 // implementing eventstore.GlobalReader. Global positions are KurrentDB commit positions:
-// gaps are normal, repeats cannot occur. KurrentDB offers no server-side read filtering,
-// so the iterator scans the server's $all stream in windows and filters client-side to
-// this store's streams.
-func (s *EventStore) ReadAll(_ context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
+// gaps are normal, repeats cannot occur. The read's frontier is the server-wide $all
+// head commit position, captured here before returning: the iterator yields owned
+// events at or below it, exhausts terminally at the first record beyond it, and so is
+// never extended by commits racing the drain. The frontier is stable because KurrentDB
+// publishes records in log-append order — a commit becomes readable only above every
+// position already readable — the atomicity the core contract requires of positions
+// that have no allocation step separate from publication. Reads assume the client's
+// default leader node preference: a node that reports the end of $all below the
+// captured frontier fails the read rather than certify a false end of stream.
+// Stores holding events written by the legacy TCP API's explicit transactions are
+// unsupported — such events share one commit position across distinct prepare
+// positions, which a scalar global position cannot represent — and a global read
+// fails closed on encountering one it owns. KurrentDB offers no server-side read
+// filtering, so the iterator scans $all in windows and filters client-side to this
+// store's streams.
+func (s *EventStore) ReadAll(ctx context.Context, opts eventstore.ReadAllOptions) (eventstore.StreamIterator, error) {
 	if opts.AfterPosition < 0 {
 		return nil, errors.New("AfterPosition must not be negative")
 	} else if opts.Count < 0 {
 		return nil, errors.New("count must not be negative")
+	}
+
+	frontier, err := s.allHeadPosition(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("capturing the $all frontier: %w", err)
 	}
 
 	// An unbounded read is -1 rather than 0 so a raw record at commit position zero
@@ -128,14 +147,52 @@ func (s *EventStore) ReadAll(_ context.Context, opts eventstore.ReadAllOptions) 
 	}
 
 	return &allStreamIterator{
-		client:     s.kurrentDB,
-		owns:       s.estoriaStreamID,
-		windowSize: s.readAllWindowSize,
-		bound:      bound,
-		cursor:     bound,
-		verified:   bound < 0,
-		remaining:  remaining,
+		client:        s.kurrentDB,
+		owns:          s.estoriaStreamID,
+		windowSize:    s.readAllWindowSize,
+		bound:         bound,
+		frontier:      frontier,
+		cursor:        bound,
+		cursorPrepare: bound,
+		verified:      bound < 0,
+		remaining:     remaining,
+		// No position can be above the bound yet at or below the frontier, so the
+		// read is born exhausted without contacting the server: a caught-up poll
+		// resuming at or past the tip must yield nothing, not send the server a
+		// synthetic position it would reject.
+		done: bound >= frontier,
 	}, nil
+}
+
+// allHeadPosition returns the commit position of the last record in the server's $all
+// stream, or -1 when the log is empty. The frontier must be the whole node's head —
+// never this store's own last event or any process-local watermark — because a later
+// commit of an owned event lands above the node-wide head, and only that bound makes an
+// open read's exhaustion final.
+func (s *EventStore) allHeadPosition(ctx context.Context) (int64, error) {
+	read, err := s.kurrentDB.ReadAll(ctx, kurrentdb.ReadAllOptions{
+		Direction: kurrentdb.Backwards,
+		From:      kurrentdb.End{},
+	}, 1)
+	if err != nil {
+		return 0, fmt.Errorf("reading the $all head: %w", err)
+	}
+	defer read.Close()
+
+	resolved, err := read.Recv()
+	if errors.Is(err, io.EOF) {
+		return -1, nil
+	} else if err != nil {
+		return 0, fmt.Errorf("receiving the $all head record: %w", err)
+	}
+
+	if resolved.Commit == nil {
+		return 0, errors.New("$all head record has no commit position")
+	} else if *resolved.Commit > math.MaxInt64 {
+		return 0, fmt.Errorf("$all head commit position %d overflows int64", *resolved.Commit)
+	}
+
+	return int64(*resolved.Commit), nil
 }
 
 func (s *EventStore) ReadStream(ctx context.Context, streamID typeid.ID, opts eventstore.ReadStreamOptions) (eventstore.StreamIterator, error) {
