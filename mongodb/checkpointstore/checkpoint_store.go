@@ -45,8 +45,16 @@ func New(coll *mongo.Collection) (*CheckpointStore, error) {
 	}
 
 	return &CheckpointStore{
-		coll: coll.Clone(options.Collection().SetReadPreference(readpref.Primary())),
+		coll: coll.Clone(pinnedCollectionOptions()),
 	}, nil
+}
+
+// pinnedCollectionOptions returns the options every provided collection is
+// cloned with: reads pinned strictly to the primary. Primary-preferred would
+// look identical on a direct connection but falls back to a possibly stale
+// secondary under replica-set discovery, reopening the rewind skip window.
+func pinnedCollectionOptions() *options.CollectionOptionsBuilder {
+	return options.Collection().SetReadPreference(readpref.Primary())
 }
 
 // checkpointDocument is the BSON shape of a checkpoint document.
