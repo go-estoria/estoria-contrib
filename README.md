@@ -6,6 +6,7 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 
 - [Event Stores](#event-stores)
 - [Aggregate Caches](#aggregate-caches)
+- [Checkpoint Stores](#checkpoint-stores)
 - [Snapshot Stores](#snapshot-stores)
 
 ## Event Stores
@@ -34,6 +35,14 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 | [freecache](./freecache/aggregatecache) | Memory-based cache using [freecache](https://github.com/coocood/freecache). | In-memory |
 | [Redis](./redis/aggregatecache) | Distributed cache using [Redis](https://github.com/redis/redis) key/value storage. | Distributed |
 | [Valkey](./valkey/aggregatecache) | Distributed cache using [Valkey](https://valkey.io) key/value storage. | Distributed |
+
+## Checkpoint Stores
+
+| Name | Description |
+|------|-------------|
+| [MongoDB](./mongodb/checkpointstore) | Checkpoints are documents in a single collection, one per projection. |
+| [Postgres](./postgres/checkpointstore) | Checkpoints use a single table, one row per projection. |
+| [SQLite](./sqlite/checkpointstore) | Checkpoints use a single table, one row per projection. |
 
 ## Snapshot Stores
 
