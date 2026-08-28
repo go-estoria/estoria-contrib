@@ -12,22 +12,23 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 // fieldID is the BSON field name of a document's natural key.
 const fieldID = "_id"
 
-// MongoCollection is the subset of *mongo.Collection used by the checkpoint store.
-type MongoCollection interface {
-	UpdateOne(ctx context.Context, filter, update any, opts ...options.Lister[options.UpdateOneOptions]) (*mongo.UpdateResult, error)
-	FindOne(ctx context.Context, filter any, opts ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
-	DeleteOne(ctx context.Context, filter any, opts ...options.Lister[options.DeleteOneOptions]) (*mongo.DeleteResult, error)
-}
-
 // CheckpointStore persists projection checkpoints in a MongoDB collection, one
-// document per projection ID.
+// document per projection ID. Reads are pinned to the primary regardless of the
+// collection's read preference: a checkpoint may legitimately rewind to a lower
+// position, and a lagging secondary serving the pre-rewind position would cause
+// the events between the two to be skipped. Writes must use an acknowledged
+// write concern; Save and Delete report an error otherwise. Deployments that
+// must survive replica-set failovers should pair majority read and write
+// concerns on the collection — a rewind write rolled back during a failover
+// resurrects the higher pre-rewind checkpoint with the same skip effect.
 type CheckpointStore struct {
-	coll MongoCollection
+	coll *mongo.Collection
 }
 
 var _ checkpointstore.Store = (*CheckpointStore)(nil)
@@ -38,12 +39,14 @@ var _ checkpointstore.Store = (*CheckpointStore)(nil)
 // MultiCollectionStrategy, give it a name with a leading underscore (e.g.
 // "_projection_checkpoints") to keep it out of the namespace the strategy's
 // collection selector can produce.
-func New(coll MongoCollection) (*CheckpointStore, error) {
+func New(coll *mongo.Collection) (*CheckpointStore, error) {
 	if coll == nil {
 		return nil, errors.New("collection is required")
 	}
 
-	return &CheckpointStore{coll: coll}, nil
+	return &CheckpointStore{
+		coll: coll.Clone(options.Collection().SetReadPreference(readpref.Primary())),
+	}, nil
 }
 
 // checkpointDocument is the BSON shape of a checkpoint document.
@@ -83,12 +86,17 @@ func (s *CheckpointStore) Save(ctx context.Context, id projection.ID, position i
 		{Key: "$currentDate", Value: bson.D{{Key: "updated_at", Value: true}}},
 	}
 
-	if _, err := s.coll.UpdateOne(ctx,
+	result, err := s.coll.UpdateOne(ctx,
 		bson.D{{Key: fieldID, Value: checkpointKey(id)}},
 		update,
 		options.UpdateOne().SetUpsert(true),
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("upserting checkpoint: %w", err)
+	}
+
+	if !result.Acknowledged {
+		return errors.New("upserting checkpoint: write was not acknowledged; checkpoint writes require an acknowledged write concern")
 	}
 
 	return nil
@@ -100,6 +108,12 @@ func (s *CheckpointStore) Delete(ctx context.Context, id projection.ID) error {
 	result, err := s.coll.DeleteOne(ctx, bson.D{{Key: fieldID, Value: checkpointKey(id)}})
 	if err != nil {
 		return fmt.Errorf("deleting checkpoint: %w", err)
+	}
+
+	// An unacknowledged delete has no meaningful DeletedCount, so it must be
+	// rejected before the not-found check.
+	if !result.Acknowledged {
+		return errors.New("deleting checkpoint: write was not acknowledged; checkpoint writes require an acknowledged write concern")
 	}
 
 	if result.DeletedCount == 0 {

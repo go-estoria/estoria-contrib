@@ -45,7 +45,7 @@ func New(pool *pgxpool.Pool, opts ...Option) (*CheckpointStore, error) {
 func (s *CheckpointStore) Schema() string {
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     projection_name    text        NOT NULL,
-    projection_version integer     NOT NULL,
+    projection_version bigint      NOT NULL,
     position           bigint      NOT NULL,
     updated_at         timestamptz NOT NULL,
 

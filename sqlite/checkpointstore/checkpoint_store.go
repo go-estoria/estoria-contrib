@@ -18,7 +18,17 @@ import (
 const timestampFormat = time.RFC3339Nano
 
 // CheckpointStore persists projection checkpoints in a SQLite table, one row
-// per projection ID.
+// per projection ID. The database may be shared by multiple processes on one
+// host; SQLite's file locks serialize writers across all of them, and network
+// filesystems — whose locking SQLite cannot rely on — are unsupported.
+// Connection configuration is the caller's: WAL journal mode lets checkpoint
+// reads run while saves commit, and a busy_timeout turns write-lock contention
+// — concurrent processors saving checkpoints, or overlapping deletes during
+// projection retirement — into bounded waiting rather than immediate
+// SQLITE_BUSY errors. Using WAL with more than one connection requires SQLite
+// 3.51.3+ or a build carrying the WAL-reset fix (such as 3.50.7 or 3.44.6);
+// older versions can corrupt the database under this workload. Shared-cache
+// connections reading uncommitted data are unsupported.
 type CheckpointStore struct {
 	db        *sql.DB
 	tableName string
