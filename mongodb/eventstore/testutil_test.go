@@ -6,6 +6,7 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -24,7 +25,7 @@ func createMongoDBContainerWithConnStr(t *testing.T) (*mongo.Client, string, err
 
 	ctx := t.Context()
 
-	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))
+	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"), waitForWritablePrimary)
 	if err != nil {
 		return nil, "", fmt.Errorf("starting MongoDB container: %w", err)
 	}
@@ -61,3 +62,10 @@ func createMongoDBContainerWithConnStr(t *testing.T) (*mongo.Client, string, err
 
 	return mongoClient, connStr, nil
 }
+
+// waitForWritablePrimary holds the container until the single-node replica set has
+// elected its primary. The module's own readiness check passes as soon as rs.initiate is
+// acknowledged, which precedes the election, and a direct connection does not wait for one.
+var waitForWritablePrimary = testcontainers.WithAdditionalWaitStrategy(
+	wait.ForExec([]string{"mongosh", "--quiet", "--eval", "quit(db.hello().isWritablePrimary ? 0 : 1)"}),
+)
