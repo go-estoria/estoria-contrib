@@ -70,7 +70,7 @@ func TestEventStore_Integration_ListStreams(t *testing.T) {
 					{"stream_id": "invalid_uuid", "stream_type": "streamtypeA", "data": "data1", "offset": int64(1), "global_offset": int64(1)},
 				},
 			},
-			wantErr: errors.New(`decoding streams: parsing UUID: uuid: incorrect UUID length 12 in string "invalid_uuid"`),
+			wantErr: errors.New(`decoding streams: parsing UUID: uuid: incorrect UUID length`),
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

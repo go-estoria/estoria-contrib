@@ -7,6 +7,7 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -56,7 +57,7 @@ func createMongoDBContainer(t *testing.T) (*mongo.Client, error) {
 
 	ctx := t.Context()
 
-	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))
+	mongodbContainer, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"), waitForWritablePrimary)
 	if err != nil {
 		return nil, fmt.Errorf("starting MongoDB container: %w", err)
 	}
@@ -93,3 +94,9 @@ func createMongoDBContainer(t *testing.T) (*mongo.Client, error) {
 
 	return mongoClient, nil
 }
+
+// waitForWritablePrimary holds the container until the single-node replica set has
+// elected its primary; see the eventstore package's harness for the rationale.
+var waitForWritablePrimary = testcontainers.WithAdditionalWaitStrategy(
+	wait.ForExec([]string{"mongosh", "--quiet", "--eval", "quit(db.hello().isWritablePrimary ? 0 : 1)"}),
+)
