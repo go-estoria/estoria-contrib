@@ -7,7 +7,7 @@ require (
 	github.com/DataDog/dd-trace-go/v2 v2.10.1
 	github.com/allegro/bigcache/v3 v3.2.0
 	github.com/coocood/freecache v1.2.7
-	github.com/go-estoria/estoria v0.14.1
+	github.com/go-estoria/estoria v0.15.0
 	github.com/gofrs/uuid/v5 v5.5.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
