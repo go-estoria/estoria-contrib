@@ -50,6 +50,7 @@ Third party implementatons for [Estoria](https://github.com/go-estoria/estoria) 
 |------|-------------|
 | [DataDog](./datadog/snapshotstore) | Wraps a snapshot store for DataDog-compatible telemetry. |
 | [OpenTelemetry](./opentelemetry/snapshotstore) | Wraps a snapshot store for OpenTelemetry-compatible telemetry. |
+| [Postgres](./postgres/snapshotstore) | Snapshots use a single table, one row per retained snapshot. |
 
 ## License
 
