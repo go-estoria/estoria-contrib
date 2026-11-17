@@ -1,4 +1,14 @@
 // Package snapshotstore provides a Postgres-backed aggregate snapshot store.
+//
+// Deleting an aggregate's event stream does not delete its snapshots, and an
+// aggregate whose stream is fully deleted keeps loading from them. Before a full
+// DeleteStream, delete the aggregate's snapshots, substituting the table set
+// with WithTableName if there is one:
+//
+//	DELETE FROM aggregate_snapshot WHERE aggregate_type = $1 AND aggregate_id = $2;
+//
+// Keep the snapshots of a stream truncated with DeleteStreamOptions.ToVersion:
+// loading it starts from them, because the events before them are gone.
 package snapshotstore
 
 import (
